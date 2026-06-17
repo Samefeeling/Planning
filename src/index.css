@@ -1,0 +1,507 @@
+:root {
+  --bg: #0f1320;
+  --surface: #171c2c;
+  --surface-2: #1e2538;
+  --surface-3: #262e45;
+  --border: #2c3650;
+  --border-strong: #3a4566;
+  --text: #e7ecf5;
+  --muted: #9aa6c0;
+  --faint: #6b779a;
+
+  --accent: #5b8cff;
+  --ok: #34d399;
+  --ok-dim: #14502f;
+  --warn: #fbbf24;
+  --warn-dim: #5a4410;
+  --error: #f87171;
+  --error-dim: #5c1d1d;
+  --info: #60a5fa;
+
+  --tool: #c084fc; /* die / tool change */
+  --color: #fb923c; /* colour change */
+  --insert: #2dd4bf; /* insert change */
+
+  --lane-h: 60px;
+  --label-w: 132px;
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  --mono: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ---- layout ------------------------------------------------------------ */
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.app-header h1 {
+  font-size: 15px;
+  margin: 0;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+.app-header .sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+.app-header .spacer {
+  flex: 1;
+}
+
+.app-body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  min-height: 0;
+}
+
+.board-pane {
+  min-width: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+.side-pane {
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- ui primitives ----------------------------------------------------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.badge.ok {
+  background: var(--ok-dim);
+  color: var(--ok);
+}
+.badge.warn {
+  background: var(--warn-dim);
+  color: var(--warn);
+}
+.badge.error {
+  background: var(--error-dim);
+  color: var(--error);
+}
+.badge.info {
+  background: #15324f;
+  color: var(--info);
+}
+.badge.tool {
+  background: #2c1f44;
+  color: var(--tool);
+}
+.badge.color {
+  background: #41260f;
+  color: var(--color);
+}
+.badge.insert {
+  background: #103833;
+  color: var(--insert);
+}
+.badge.neutral {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn:hover {
+  background: var(--surface-3);
+  border-color: var(--border);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1020;
+  font-weight: 600;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn.icon {
+  padding: 5px 8px;
+}
+
+.card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.center-fill {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  gap: 10px;
+  color: var(--muted);
+}
+
+/* ---- gantt ------------------------------------------------------------- */
+.gantt {
+  position: relative;
+}
+.gantt-axis {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  height: 30px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.gantt-axis .corner {
+  width: var(--label-w);
+  flex: 0 0 var(--label-w);
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+.gantt-axis .ticks {
+  position: relative;
+  height: 100%;
+}
+.axis-tick {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-left: 1px solid var(--border);
+  padding: 6px 0 0 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.axis-tick.shift {
+  border-left-color: var(--surface-3);
+}
+.axis-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 4;
+  opacity: 0.7;
+}
+
+.lane {
+  display: flex;
+  height: var(--lane-h);
+  border-bottom: 1px solid var(--border);
+}
+.lane:nth-child(even) .lane-track {
+  background: rgba(255, 255, 255, 0.012);
+}
+.lane-label {
+  width: var(--label-w);
+  flex: 0 0 var(--label-w);
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.lane-label .name {
+  font-weight: 650;
+  font-size: 13px;
+}
+.lane-label .meta {
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.lane-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.lane-track.drop-active {
+  background: rgba(91, 140, 255, 0.08);
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
+}
+.grid-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.5;
+}
+.grid-line.shift {
+  opacity: 0.22;
+}
+
+/* ---- job card ---------------------------------------------------------- */
+.job {
+  position: absolute;
+  top: 7px;
+  height: calc(var(--lane-h) - 14px);
+  border-radius: 6px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  padding: 4px 7px;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.job:hover {
+  border-color: var(--accent);
+}
+.job.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.4);
+}
+.job.dragging {
+  opacity: 0.35;
+}
+.job.mat-ok {
+  border-left-color: var(--ok);
+}
+.job.mat-covered {
+  border-left-color: var(--warn);
+}
+.job.mat-short {
+  border-left-color: var(--error);
+}
+.job .job-title {
+  font-weight: 620;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job .job-sub {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job .job-badges {
+  display: flex;
+  gap: 3px;
+  margin-top: 1px;
+}
+.job.compact {
+  position: relative;
+  top: 0;
+  height: auto;
+  width: 200px;
+  cursor: grab;
+}
+
+/* changeover gap marker that sits just before a job */
+.changeover-marker {
+  position: absolute;
+  top: 7px;
+  height: calc(var(--lane-h) - 14px);
+  border-radius: 4px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(192, 132, 252, 0.25),
+    rgba(192, 132, 252, 0.25) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  border: 1px dashed var(--tool);
+  pointer-events: none;
+}
+
+/* ---- job pool ---------------------------------------------------------- */
+.pool {
+  padding: 10px;
+}
+.pool h2,
+.inspector h2,
+.section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 60px;
+}
+.pool.drop-active {
+  outline: 1px dashed var(--accent);
+  outline-offset: -4px;
+  border-radius: 8px;
+}
+.pool-empty {
+  color: var(--faint);
+  font-size: 12px;
+  padding: 16px 0;
+  text-align: center;
+}
+
+/* ---- inspector --------------------------------------------------------- */
+.inspector {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+.kv {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 3px 8px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.kv dt {
+  color: var(--faint);
+}
+.kv dd {
+  margin: 0;
+  font-weight: 500;
+}
+.shortage-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+}
+.shortage-row .part {
+  font-family: var(--mono);
+}
+.warn-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.warn-list li {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 11.5px;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex: 0 0 7px;
+}
+.dot.error {
+  background: var(--error);
+}
+.dot.warning {
+  background: var(--warn);
+}
+.dot.info {
+  background: var(--info);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.banner {
+  padding: 8px 12px;
+  background: var(--error-dim);
+  color: var(--error);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
