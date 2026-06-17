@@ -19,6 +19,8 @@ export type Containers = Record<string, JobId[]>;
 
 interface PlanState {
   containers: Containers;
+  /** Per-line breakdown/delay offset in hours; shifts the whole lane right. */
+  laneDelays: Record<string, number>;
   initialized: boolean;
 
   /** Seed lanes from each job's workbook machine; the rest go to the pool. */
@@ -31,6 +33,12 @@ interface PlanState {
   reconcile: (machines: Machine[], jobs: Job[]) => void;
   /** Replace the whole layout (e.g. loaded from persistence). */
   setContainers: (containers: Containers) => void;
+  /** Nudge a line's delay by a relative amount of hours (clamped ≥ 0). */
+  adjustLaneDelay: (machineId: MachineId, deltaHours: number) => void;
+  /** Remove a line's delay. */
+  clearLaneDelay: (machineId: MachineId) => void;
+  /** Replace all lane delays (e.g. loaded from persistence). */
+  setLaneDelays: (delays: Record<string, number>) => void;
   /** Move a job into `toContainer` at `toIndex` (end if omitted). */
   moveJob: (jobId: JobId, toContainer: string, toIndex?: number) => void;
   /** Send a job back to the un-scheduled pool. */
@@ -71,6 +79,7 @@ function withoutJob(containers: Containers, jobId: JobId): Containers {
 
 export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
+  laneDelays: {},
   initialized: false,
 
   initFromDataset(machines, jobs) {
@@ -108,12 +117,42 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         placed.add(String(job.id));
       }
 
-      return { containers: next, initialized: true };
+      // Drop delays for lines that no longer exist.
+      const liveLines = new Set(machines.map((m) => String(m.id)));
+      const laneDelays: Record<string, number> = {};
+      for (const [k, v] of Object.entries(state.laneDelays)) {
+        if (liveLines.has(k) && v > 0) laneDelays[k] = v;
+      }
+
+      return { containers: next, laneDelays, initialized: true };
     });
   },
 
   setContainers(containers) {
     set({ containers, initialized: true });
+  },
+
+  adjustLaneDelay(machineId, deltaHours) {
+    const key = String(machineId);
+    set((state) => {
+      const next = Math.max(0, (state.laneDelays[key] ?? 0) + deltaHours);
+      const laneDelays = { ...state.laneDelays };
+      if (next === 0) delete laneDelays[key];
+      else laneDelays[key] = next;
+      return { laneDelays };
+    });
+  },
+
+  clearLaneDelay(machineId) {
+    set((state) => {
+      const laneDelays = { ...state.laneDelays };
+      delete laneDelays[String(machineId)];
+      return { laneDelays };
+    });
+  },
+
+  setLaneDelays(delays) {
+    set({ laneDelays: { ...delays } });
   },
 
   moveJob(jobId, toContainer, toIndex) {
@@ -131,7 +170,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   },
 
   reset(machines, jobs) {
-    set({ containers: seed(machines, jobs), initialized: true });
+    set({ containers: seed(machines, jobs), laneDelays: {}, initialized: true });
   },
 
   containerOf(jobId) {

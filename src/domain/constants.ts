@@ -36,23 +36,32 @@ export const SHIFT_PATTERNS: Record<string, ShiftPattern> = {
 export const DEFAULT_SHIFT: ShiftPattern = SHIFT_PATTERNS['3shift'];
 
 /**
- * Preferred top-to-bottom ordering of lines on the board. Anything not listed
- * is appended alphabetically. Matches the physical layout of the PMD floor.
+ * Top-to-bottom ordering of lines on the board, arranged so adjacent lanes are
+ * physically close on the floor (eases moving a job to a nearby machine). This
+ * list also defines which lines are *visible*: machines not listed here are
+ * hidden, and any jobs sitting on them fall back to the unscheduled pool.
  */
 export const MACHINE_ORDER: string[] = [
-  '125T',
-  '150T',
-  '320T',
-  '550T',
-  '650T',
-  '850T',
-  '1300T',
   '1600T',
+  '1300T',
   'BATT1',
   'BATT2',
+  '850T',
+  '550T',
+  '320T',
+  '150T',
+  '125T',
   'HS',
-  'PLASSY',
 ];
+
+const VISIBLE_MACHINES = new Set(MACHINE_ORDER);
+
+/** Whether a machine id should appear on the board. */
+export const isVisibleMachine = (id: string): boolean =>
+  VISIBLE_MACHINES.has(id);
+
+/** Step (hours) when nudging a line's breakdown/delay offset. */
+export const LANE_DELAY_STEP_HOURS = 2;
 
 /** Gantt zoom: horizontal pixels per productive hour. */
 export const DEFAULT_PX_PER_HOUR = 14;

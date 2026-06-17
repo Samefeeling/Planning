@@ -43,6 +43,7 @@ export default function App() {
   const sourceName = useDataStore((s) => s.source.name);
 
   const containers = usePlanStore((s) => s.containers);
+  const laneDelays = usePlanStore((s) => s.laneDelays);
   const pxPerHour = useUiStore((s) => s.pxPerHour);
   const setPx = useUiStore((s) => s.setPxPerHour);
 
@@ -71,12 +72,13 @@ export default function App() {
       .load()
       .then((persisted) => {
         if (persisted?.containers) plan.setContainers(persisted.containers);
+        if (persisted?.laneDelays) plan.setLaneDelays(persisted.laneDelays);
         plan.reconcile(dataset.machines, dataset.jobs);
       })
       .catch(() => plan.reconcile(dataset.machines, dataset.jobs));
   }, [status, dataset]);
 
-  // Debounced autosave of the planner's layout.
+  // Debounced autosave of the planner's layout (placements + line delays).
   useEffect(() => {
     if (!bootstrapped.current) return;
     window.clearTimeout(saveTimer.current);
@@ -86,10 +88,11 @@ export default function App() {
         name: 'Working plan',
         savedAt: new Date().toISOString(),
         containers,
+        laneDelays,
       });
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
-  }, [containers]);
+  }, [containers, laneDelays]);
 
   const activeJob =
     dnd.activeJobId && board ? board.jobsById.get(dnd.activeJobId) : null;

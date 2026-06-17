@@ -27,6 +27,24 @@ describe('board pipeline (mock data)', () => {
     expect(dataset.inventory.length).toBeGreaterThan(0);
   });
 
+  it('shows the configured lines in floor order, excluding 650T/PLASSY', () => {
+    const ids = dataset.machines.map((m) => String(m.id));
+    expect(ids).toEqual([
+      '1600T',
+      '1300T',
+      'BATT1',
+      'BATT2',
+      '850T',
+      '550T',
+      '320T',
+      '150T',
+      '125T',
+      'HS',
+    ]);
+    expect(ids).not.toContain('650T');
+    expect(ids).not.toContain('PLASSY');
+  });
+
   it('places jobs on lanes with positive-width, ordered bars', () => {
     const indexes = buildIndexes(dataset);
     usePlanStore.getState().reconcile(dataset.machines, dataset.jobs);
@@ -83,5 +101,50 @@ describe('board pipeline (mock data)', () => {
     );
     const scheduledCount = board.lanes.reduce((n, l) => n + l.jobs.length, 0);
     expect(scheduledCount + board.pool.length).toBe(dataset.jobs.length);
+  });
+
+  it('pushes an entire lane back by the machine delay (breakdown)', () => {
+    const indexes = buildIndexes(dataset);
+    usePlanStore.getState().reconcile(dataset.machines, dataset.jobs);
+    const containers = usePlanStore.getState().containers;
+
+    const base = computeBoardView(dataset, indexes, containers, dataset.fetchedAt);
+    const target = base.lanes.find((l) => l.jobs.length > 0);
+    expect(target).toBeDefined();
+    const machineId = String(target!.machine.id);
+
+    const DELAY = 12; // hours
+    const delayed = computeBoardView(
+      dataset,
+      indexes,
+      containers,
+      dataset.fetchedAt,
+      { [machineId]: DELAY },
+    );
+    const dLane = delayed.lanes.find((l) => String(l.machine.id) === machineId)!;
+    const floor = base.horizonStart.getTime() + DELAY * 3_600_000;
+
+    expect(dLane.delayHours).toBe(DELAY);
+    // Every job on the delayed lane now starts at/after horizon + delay,
+    // and no earlier than it did before the delay.
+    dLane.jobs.forEach((sj, i) => {
+      expect(sj.start.getTime()).toBeGreaterThanOrEqual(floor);
+      expect(sj.start.getTime()).toBeGreaterThanOrEqual(
+        target!.jobs[i].start.getTime(),
+      );
+    });
+
+    // Other lanes are unaffected.
+    const other = delayed.lanes.find(
+      (l) => String(l.machine.id) !== machineId && l.jobs.length > 0,
+    );
+    if (other) {
+      const baseOther = base.lanes.find(
+        (l) => String(l.machine.id) === String(other.machine.id),
+      )!;
+      expect(other.jobs[0].start.getTime()).toBe(
+        baseOther.jobs[0].start.getTime(),
+      );
+    }
   });
 });

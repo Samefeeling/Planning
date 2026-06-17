@@ -5,7 +5,7 @@
 
 import { MachineId } from '@/domain/ids';
 import type { Machine } from '@/domain/types';
-import { MACHINE_ORDER } from '@/domain/constants';
+import { MACHINE_ORDER, isVisibleMachine } from '@/domain/constants';
 import { asStr, dataRows, type Sheet } from './cell';
 import type { ParseOutcome } from './types';
 
@@ -37,14 +37,14 @@ export function makeMachine(rawName: string): Machine {
     : { id, name, tonnage, sortIndex };
 }
 
-/** Distinct machines referenced by the routing sheet, in board order. */
+/** Visible machines referenced by the routing sheet, in board order. */
 export function parseMachines(resource: Sheet): ParseOutcome<Machine> {
   const byId = new Map<string, Machine>();
   for (const row of dataRows(resource)) {
     const raw = asStr(row[RESOURCE_MACHINE_COL]);
     if (!raw) continue;
     const m = makeMachine(raw);
-    if (!byId.has(m.id)) byId.set(m.id, m);
+    if (isVisibleMachine(m.id) && !byId.has(m.id)) byId.set(m.id, m);
   }
   const values = [...byId.values()].sort((a, b) => a.sortIndex - b.sortIndex);
   return { values, errors: [] };

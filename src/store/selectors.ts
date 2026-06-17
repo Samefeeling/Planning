@@ -31,6 +31,8 @@ export interface LaneView {
   jobs: ScheduledJob[];
   totalRunHours: number;
   totalSetupMinutes: number;
+  /** Breakdown/delay offset (hours) applied to the whole lane. */
+  delayHours: number;
 }
 
 export interface BoardView {
@@ -47,6 +49,7 @@ export function computeBoardView(
   indexes: DataIndexes,
   containers: Containers,
   now: Date,
+  laneDelays: Record<string, number> = {},
 ): BoardView {
   const jobsById = new Map(dataset.jobs.map((j) => [String(j.id), j]));
   const horizonStart = floorToHour(now);
@@ -54,8 +57,10 @@ export function computeBoardView(
 
   const lanes: LaneView[] = dataset.machines.map((machine) => {
     const ids = containers[machine.id] ?? [];
+    const delayHours = Math.max(0, laneDelays[String(machine.id)] ?? 0);
     const scheduled: ScheduledJob[] = [];
-    let cursor = horizonStart;
+    // A breakdown/delay pushes the whole lane's start to the right.
+    let cursor = addHours(horizonStart, delayHours);
     let prev: ChangeoverInputs | null = null;
     let totalRunHours = 0;
     let totalSetupMinutes = 0;
@@ -108,7 +113,7 @@ export function computeBoardView(
     });
 
     if (cursor > horizonEnd) horizonEnd = cursor;
-    return { machine, jobs: scheduled, totalRunHours, totalSetupMinutes };
+    return { machine, jobs: scheduled, totalRunHours, totalSetupMinutes, delayHours };
   });
 
   const pool = (containers[POOL_ID] ?? [])
@@ -132,12 +137,19 @@ export function useBoardView(): BoardView | null {
   const dataset = useDataStore((s) => s.dataset);
   const indexes = useDataStore((s) => s.indexes);
   const containers = usePlanStore((s) => s.containers);
+  const laneDelays = usePlanStore((s) => s.laneDelays);
   return useMemo(
     () =>
       dataset && indexes
-        ? computeBoardView(dataset, indexes, containers, dataset.fetchedAt)
+        ? computeBoardView(
+            dataset,
+            indexes,
+            containers,
+            dataset.fetchedAt,
+            laneDelays,
+          )
         : null,
-    [dataset, indexes, containers],
+    [dataset, indexes, containers, laneDelays],
   );
 }
 

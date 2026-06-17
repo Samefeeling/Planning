@@ -15,6 +15,7 @@ import type {
   RoutingEntry,
 } from '@/domain/types';
 import { makeMachine } from '@/data/excel/parsers/machine.parser';
+import { isVisibleMachine } from '@/domain/constants';
 import { BaseDataSource } from '@/data/DataSource';
 import seed from './seed.json';
 
@@ -29,7 +30,11 @@ export class MockSource extends BaseDataSource {
   readonly name = 'mock';
 
   async fetchMachines(): Promise<Machine[]> {
-    return delay(seed.machines.map(makeMachine));
+    const machines = seed.machines
+      .map(makeMachine)
+      .filter((m) => isVisibleMachine(m.id))
+      .sort((a, b) => a.sortIndex - b.sortIndex);
+    return delay(machines);
   }
 
   async fetchJobs(): Promise<Job[]> {

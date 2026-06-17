@@ -11,6 +11,8 @@ export interface PersistedPlan {
   /** ISO timestamp. */
   savedAt: string;
   containers: Containers;
+  /** Per-line breakdown/delay offsets in hours. */
+  laneDelays?: Record<string, number>;
 }
 
 export interface PlanSummary {

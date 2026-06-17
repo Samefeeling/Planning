@@ -6,8 +6,10 @@
 
 import { useDroppable } from '@dnd-kit/core';
 import type { LaneView } from '@/store/selectors';
+import { usePlanStore } from '@/store/planStore';
 import { hoursToPx, changeoverHours } from '@/engine/duration';
-import { diffHours } from '@/lib/time';
+import { diffHours, formatDuration } from '@/lib/time';
+import { LANE_DELAY_STEP_HOURS } from '@/domain/constants';
 import { JobCard } from './JobCard';
 
 interface MachineLaneProps {
@@ -36,19 +38,60 @@ export function MachineLane({
     id: String(lane.machine.id),
     data: { type: 'lane', machineId: String(lane.machine.id) },
   });
+  const adjustLaneDelay = usePlanStore((s) => s.adjustLaneDelay);
+  const clearLaneDelay = usePlanStore((s) => s.clearLaneDelay);
 
   const setupHrs = (mins: number) => changeoverHours(mins);
+  const delayPx = hoursToPx(lane.delayHours, pxPerHour);
 
   return (
     <div className="lane">
       <div className="lane-label" title={lane.machine.name}>
-        <span className="name">{lane.machine.name}</span>
+        <div className="lane-label-top">
+          <span className="name">{lane.machine.name}</span>
+          <span className="lane-delay">
+            <button
+              className="mini"
+              title={`Bring the line forward ${LANE_DELAY_STEP_HOURS}h`}
+              disabled={lane.delayHours <= 0}
+              onClick={() =>
+                adjustLaneDelay(lane.machine.id, -LANE_DELAY_STEP_HOURS)
+              }
+            >
+              −
+            </button>
+            <button
+              className="mini"
+              title={`Delay the whole line ${LANE_DELAY_STEP_HOURS}h (e.g. breakdown)`}
+              onClick={() =>
+                adjustLaneDelay(lane.machine.id, LANE_DELAY_STEP_HOURS)
+              }
+            >
+              +⏱
+            </button>
+            {lane.delayHours > 0 && (
+              <button
+                className="mini clear"
+                title="Clear delay"
+                onClick={() => clearLaneDelay(lane.machine.id)}
+              >
+                ✕
+              </button>
+            )}
+          </span>
+        </div>
         <span className="meta">
-          {lane.jobs.length} job{lane.jobs.length === 1 ? '' : 's'} ·{' '}
-          {lane.totalRunHours.toFixed(0)}h
-          {lane.totalSetupMinutes > 0
-            ? ` · ${(lane.totalSetupMinutes / 60).toFixed(1)}h C/O`
-            : ''}
+          {lane.delayHours > 0 ? (
+            <span className="delay-tag">+{lane.delayHours}h delay</span>
+          ) : (
+            <>
+              {lane.jobs.length} job{lane.jobs.length === 1 ? '' : 's'} ·{' '}
+              {lane.totalRunHours.toFixed(0)}h
+              {lane.totalSetupMinutes > 0
+                ? ` · ${(lane.totalSetupMinutes / 60).toFixed(1)}h C/O`
+                : ''}
+            </>
+          )}
         </span>
       </div>
 
@@ -60,6 +103,16 @@ export function MachineLane({
         {gridXs.map((x, i) => (
           <div key={i} className="grid-line shift" style={{ left: x }} />
         ))}
+
+        {lane.delayHours > 0 && delayPx > 1 && (
+          <div
+            className="downtime"
+            style={{ left: 0, width: delayPx }}
+            title={`Line delayed ${formatDuration(lane.delayHours)} — all jobs pushed back`}
+          >
+            <span>⏱ {formatDuration(lane.delayHours)}</span>
+          </div>
+        )}
 
         {lane.jobs.map((sj) => {
           const left = hoursToPx(diffHours(sj.start, horizonStart), pxPerHour);

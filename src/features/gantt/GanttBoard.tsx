@@ -14,7 +14,7 @@ import {
 } from '@/lib/time';
 import { MachineLane } from './MachineLane';
 
-const LANE_LABEL_WIDTH = 132; // keep in sync with --label-w
+const LANE_LABEL_WIDTH = 150; // keep in sync with --label-w
 const SHIFT_HOURS = 8;
 const MIN_TRACK_PX = 640;
 
