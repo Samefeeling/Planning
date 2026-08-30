@@ -7,14 +7,19 @@
 import { JobId, MachineId, PartId, ToolId, ColorId, InsertId } from '@/domain/ids';
 import type {
   BomLine,
+  Department,
   DemandLine,
   InventoryItem,
   Job,
-  Machine,
   PoLine,
   RoutingEntry,
+  WorkCenter,
 } from '@/domain/types';
-import { makeMachine } from '@/data/excel/parsers/machine.parser';
+import type { MaterialPrepStatus, ProductType, StageId } from '@/domain/assembly';
+import {
+  assemblyWorkCenters,
+  makeMachine,
+} from '@/data/excel/parsers/machine.parser';
 import { isVisibleMachine } from '@/domain/constants';
 import { BaseDataSource } from '@/data/DataSource';
 import seed from './seed.json';
@@ -29,17 +34,18 @@ const delay = <T>(value: T, ms = 120): Promise<T> =>
 export class MockSource extends BaseDataSource {
   readonly name = 'mock';
 
-  async fetchMachines(): Promise<Machine[]> {
+  async fetchWorkCenters(): Promise<WorkCenter[]> {
     const machines = seed.machines
       .map(makeMachine)
       .filter((m) => isVisibleMachine(m.id))
       .sort((a, b) => a.sortIndex - b.sortIndex);
-    return delay(machines);
+    return delay([...machines, ...assemblyWorkCenters()]);
   }
 
   async fetchJobs(): Promise<Job[]> {
     const jobs: Job[] = seed.jobs.map((j) => ({
       id: JobId(j.jobNum),
+      department: (j.department ?? 'moulding') as Department,
       partNum: PartId(j.partNum),
       description: j.description ?? '',
       remainingQty: j.remainingQty ?? 0,
@@ -52,8 +58,12 @@ export class MockSource extends BaseDataSource {
       dueDate: toDate(j.dueDate),
       reqBy: toDate(j.reqBy),
       released: Boolean(j.released),
+      priority: j.priority ?? 3,
+      materialPrep: (j.materialPrep ?? 'ready') as MaterialPrepStatus,
       tool: j.die ? ToolId(j.die) : null,
       preferredMachine: j.machine ? MachineId(j.machine) : null,
+      productType: (j.productType ?? null) as ProductType | null,
+      currentStage: (j.currentStage ?? null) as StageId | null,
     }));
     return delay(jobs);
   }

@@ -15,19 +15,33 @@ import type {
   MachineId,
   PartId,
   ToolId,
+  WorkCenterId,
 } from './ids';
+import type { MaterialPrepStatus, ProductType, StageId } from './assembly';
 
 // ---------------------------------------------------------------------------
 // Master data
 // ---------------------------------------------------------------------------
 
-/** A production line (injection-moulding press, batt line, hand station…). */
-export interface Machine {
-  id: MachineId;
-  /** Human label, e.g. "1300T" or "Batt1". */
+/** The two production departments this board plans. */
+export type Department = 'moulding' | 'assembly';
+
+/**
+ * A place work happens: a moulding line (1300T, Batt1) or an assembly area
+ * (B – Sofa). Both render as lanes/columns, so the board treats them alike.
+ */
+export interface WorkCenter {
+  id: WorkCenterId;
+  kind: 'machine' | 'area';
+  department: Department;
+  /** Human label, e.g. "1300T" or "B – Sofa". */
   name: string;
-  /** Optional press tonnage parsed from the name (1300T → 1300). */
+  /** Shorter label for tight UI; falls back to `name`. */
+  short?: string;
+  /** Press tonnage parsed from the name (1300T → 1300). Moulding only. */
   tonnage?: number;
+  /** Typical crew size the supervisor allocates. Assembly areas only. */
+  suggested?: { min: number; max: number };
   /** Display order on the board; lower is higher. */
   sortIndex: number;
 }
@@ -112,6 +126,8 @@ export interface DemandLine {
  */
 export interface Job {
   id: JobId;
+  /** Which department runs it — decides which board it appears on. */
+  department: Department;
   partNum: PartId;
   description: string;
   /** Calculated_RemainingQty — units still to be produced. */
@@ -128,10 +144,26 @@ export interface Job {
   /** Material "required by" date (planning `Req. By`). */
   reqBy: Date | null;
   released: boolean;
+  /** Scheduling priority; 1 is most urgent. */
+  priority: number;
+  /**
+   * Physical readiness of the material kit, set by the material handler. This
+   * is separate from the *computed* availability in `MaterialStatus`: the
+   * engine says whether stock exists, this says whether it has been picked.
+   */
+  materialPrep: MaterialPrepStatus;
+
+  // --- moulding-specific -------------------------------------------------
   /** Die named on the current schedule, used as the changeover key. */
   tool: ToolId | null;
   /** Machine the workbook currently has it on (the planner can override). */
   preferredMachine: MachineId | null;
+
+  // --- assembly-specific -------------------------------------------------
+  /** A / B / C — decides which route the order follows. */
+  productType: ProductType | null;
+  /** Where the order currently sits in its route. */
+  currentStage: StageId | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +171,8 @@ export interface Job {
 // ---------------------------------------------------------------------------
 
 export interface PlanningDataset {
-  machines: Machine[];
+  /** Every lane across both departments; filter by `department` per board. */
+  workCenters: WorkCenter[];
   jobs: Job[];
   routing: RoutingEntry[];
   inventory: InventoryItem[];

@@ -5,6 +5,7 @@ import type { ChangeoverInfo, Job, ScheduledJob } from '@/domain/types';
 
 const job: Job = {
   id: JobId('SFM507068'),
+  department: 'moulding',
   partNum: PartId('V11694'),
   description: 'Ned Stool - Amber',
   remainingQty: 88,
@@ -13,8 +14,12 @@ const job: Job = {
   dueDate: null,
   reqBy: null,
   released: true,
+  priority: 3,
+  materialPrep: 'ready',
   tool: ToolId('Ned stool'),
   preferredMachine: MachineId('1300T'),
+  productType: null,
+  currentStage: null,
 };
 
 const changeover: ChangeoverInfo = {

@@ -9,7 +9,7 @@
  */
 
 import { useMemo } from 'react';
-import type { Job, Machine, PlanWarning, ScheduledJob } from '@/domain/types';
+import type { Job, PlanWarning, ScheduledJob, WorkCenter } from '@/domain/types';
 import type { PlanningDataset } from '@/domain/types';
 import type { DataIndexes } from '@/engine/indexes';
 import {
@@ -27,7 +27,7 @@ import { useDataStore } from './dataStore';
 import { POOL_ID, usePlanStore, type Containers } from './planStore';
 
 export interface LaneView {
-  machine: Machine;
+  machine: WorkCenter;
   jobs: ScheduledJob[];
   totalRunHours: number;
   totalSetupMinutes: number;
@@ -55,7 +55,11 @@ export function computeBoardView(
   const horizonStart = floorToHour(now);
   let horizonEnd = addHours(horizonStart, 24);
 
-  const lanes: LaneView[] = dataset.machines.map((machine) => {
+  const mouldingLines = dataset.workCenters
+    .filter((w) => w.department === 'moulding')
+    .sort((a, b) => a.sortIndex - b.sortIndex);
+
+  const lanes: LaneView[] = mouldingLines.map((machine) => {
     const ids = containers[machine.id] ?? [];
     const delayHours = Math.max(0, laneDelays[String(machine.id)] ?? 0);
     const scheduled: ScheduledJob[] = [];
@@ -118,7 +122,7 @@ export function computeBoardView(
 
   const pool = (containers[POOL_ID] ?? [])
     .map((id) => jobsById.get(String(id)))
-    .filter((j): j is Job => Boolean(j));
+    .filter((j): j is Job => j !== undefined && j.department === 'moulding');
 
   const warnings = lanes.flatMap((l) => l.jobs.flatMap((j) => j.warnings));
 

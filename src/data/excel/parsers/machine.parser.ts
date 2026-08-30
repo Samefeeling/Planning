@@ -4,8 +4,9 @@
  */
 
 import { MachineId } from '@/domain/ids';
-import type { Machine } from '@/domain/types';
+import type { WorkCenter } from '@/domain/types';
 import { MACHINE_ORDER, isVisibleMachine } from '@/domain/constants';
+import { AREAS } from '@/domain/assembly';
 import { asStr, dataRows, type Sheet } from './cell';
 import type { ParseOutcome } from './types';
 
@@ -21,8 +22,8 @@ function cleanName(raw: string): string {
     .trim();
 }
 
-/** Build a `Machine` from a raw line name, parsing tonnage and sort order. */
-export function makeMachine(rawName: string): Machine {
+/** Build a moulding `WorkCenter` from a raw line name. */
+export function makeMachine(rawName: string): WorkCenter {
   const name = cleanName(rawName) || rawName.trim();
   const id = MachineId(name);
   const tonnage = (() => {
@@ -32,20 +33,38 @@ export function makeMachine(rawName: string): Machine {
   const orderIdx = MACHINE_ORDER.indexOf(id);
   const sortIndex =
     orderIdx >= 0 ? orderIdx : MACHINE_ORDER.length + id.charCodeAt(0);
-  return tonnage === undefined
-    ? { id, name, sortIndex }
-    : { id, name, tonnage, sortIndex };
+  const base: WorkCenter = {
+    id,
+    kind: 'machine',
+    department: 'moulding',
+    name,
+    sortIndex,
+  };
+  return tonnage === undefined ? base : { ...base, tonnage };
 }
 
-/** Visible machines referenced by the routing sheet, in board order. */
-export function parseMachines(resource: Sheet): ParseOutcome<Machine> {
-  const byId = new Map<string, Machine>();
+/** The four assembly areas as work centres. */
+export function assemblyWorkCenters(): WorkCenter[] {
+  return AREAS.map((a) => ({
+    id: a.id,
+    kind: 'area' as const,
+    department: 'assembly' as const,
+    name: a.name,
+    short: a.short,
+    suggested: a.suggested,
+    sortIndex: a.sortIndex,
+  }));
+}
+
+/** Visible moulding lines from the routing sheet, plus the assembly areas. */
+export function parseWorkCenters(resource: Sheet): ParseOutcome<WorkCenter> {
+  const byId = new Map<string, WorkCenter>();
   for (const row of dataRows(resource)) {
     const raw = asStr(row[RESOURCE_MACHINE_COL]);
     if (!raw) continue;
     const m = makeMachine(raw);
     if (isVisibleMachine(m.id) && !byId.has(m.id)) byId.set(m.id, m);
   }
-  const values = [...byId.values()].sort((a, b) => a.sortIndex - b.sortIndex);
-  return { values, errors: [] };
+  const machines = [...byId.values()].sort((a, b) => a.sortIndex - b.sortIndex);
+  return { values: [...machines, ...assemblyWorkCenters()], errors: [] };
 }

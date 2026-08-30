@@ -9,7 +9,9 @@
  */
 
 import { JobId, MachineId, PartId, ToolId } from '@/domain/ids';
-import type { Job } from '@/domain/types';
+import type { Department, Job } from '@/domain/types';
+import type { MaterialPrepStatus, ProductType, StageId } from '@/domain/assembly';
+import { ROUTES } from '@/domain/assembly';
 import { asBool, asDate, asNum, asStr, dataRows, type Sheet } from './cell';
 import type { ParseOutcome } from './types';
 
@@ -25,7 +27,34 @@ const C = {
   reqBy: 10,
   prodHours: 13,
   die: 14,
+  // Columns to be added to the workbook so one sheet feeds both departments
+  // (see README). Absent today, so every row defaults to moulding.
+  department: 35,
+  productType: 36,
+  priority: 37,
+  materialPrep: 38,
 } as const;
+
+const PREP_VALUES = new Set<MaterialPrepStatus>([
+  'not-prepared',
+  'preparing',
+  'ready',
+  'shortage',
+]);
+
+function readDepartment(raw: string | null): Department {
+  return raw?.toLowerCase().startsWith('assem') ? 'assembly' : 'moulding';
+}
+
+function readProductType(raw: string | null): ProductType | null {
+  const t = raw?.trim().toUpperCase();
+  return t === 'A' || t === 'B' || t === 'C' ? t : null;
+}
+
+function readPrep(raw: string | null): MaterialPrepStatus {
+  const p = raw?.trim().toLowerCase().replace(/\s+/g, '-') as MaterialPrepStatus;
+  return p && PREP_VALUES.has(p) ? p : 'ready';
+}
 
 export function parseJobs(planning: Sheet): ParseOutcome<Job> {
   const values: Job[] = [];
@@ -51,9 +80,12 @@ export function parseJobs(planning: Sheet): ParseOutcome<Job> {
 
     const machineRaw = asStr(row[C.machine]);
     const dieRaw = asStr(row[C.die]);
+    const department = readDepartment(asStr(row[C.department]));
+    const productType = readProductType(asStr(row[C.productType]));
 
     values.push({
       id: JobId(jobNum),
+      department,
       partNum: PartId(partNum),
       description: asStr(row[C.description]) ?? '',
       remainingQty,
@@ -62,8 +94,16 @@ export function parseJobs(planning: Sheet): ParseOutcome<Job> {
       dueDate: asDate(row[C.dueDate]),
       reqBy: asDate(row[C.reqBy]),
       released: asBool(row[C.released]),
+      priority: asNum(row[C.priority]) ?? 3,
+      materialPrep: readPrep(asStr(row[C.materialPrep])),
       tool: dieRaw ? ToolId(dieRaw) : null,
       preferredMachine: machineRaw ? MachineId(machineRaw) : null,
+      productType,
+      // Without an explicit stage column, an assembly order starts at the head
+      // of its route.
+      currentStage: productType
+        ? ((ROUTES[productType][0] ?? null) as StageId | null)
+        : null,
     });
   });
 

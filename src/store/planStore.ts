@@ -9,8 +9,9 @@
  */
 
 import { create } from 'zustand';
-import type { JobId, MachineId } from '@/domain/ids';
-import type { Job, Machine } from '@/domain/types';
+import type { JobId, WorkCenterId } from '@/domain/ids';
+import type { Job, WorkCenter } from '@/domain/types';
+import { areaForJob } from '@/engine/assembly/route';
 
 /** Container id for the un-scheduled job pool. */
 export const POOL_ID = '__pool__';
@@ -23,48 +24,60 @@ interface PlanState {
   laneDelays: Record<string, number>;
   initialized: boolean;
 
-  /** Seed lanes from each job's workbook machine; the rest go to the pool. */
-  initFromDataset: (machines: Machine[], jobs: Job[]) => void;
+  /** Per-area crew size the supervisor allocated (assembly only). */
+  areaHeadcount: Record<string, number>;
+
+  /** Seed lanes from each job's home work centre; the rest go to the pool. */
+  initFromDataset: (workCenters: WorkCenter[], jobs: Job[]) => void;
   /**
    * Merge a refreshed dataset into the current layout: keep every placement the
    * planner made, drop jobs that disappeared, and file genuinely new jobs onto
    * their workbook line (or the pool). Idempotent — safe to call on every load.
    */
-  reconcile: (machines: Machine[], jobs: Job[]) => void;
+  reconcile: (workCenters: WorkCenter[], jobs: Job[]) => void;
   /** Replace the whole layout (e.g. loaded from persistence). */
   setContainers: (containers: Containers) => void;
   /** Nudge a line's delay by a relative amount of hours (clamped ≥ 0). */
-  adjustLaneDelay: (machineId: MachineId, deltaHours: number) => void;
+  adjustLaneDelay: (workCenterId: WorkCenterId, deltaHours: number) => void;
   /** Remove a line's delay. */
-  clearLaneDelay: (machineId: MachineId) => void;
+  clearLaneDelay: (workCenterId: WorkCenterId) => void;
   /** Replace all lane delays (e.g. loaded from persistence). */
   setLaneDelays: (delays: Record<string, number>) => void;
+  /** Set an assembly area's crew size. */
+  setAreaHeadcount: (areaId: WorkCenterId, headcount: number) => void;
+  /** Replace all area headcounts (e.g. loaded from persistence). */
+  setAreaHeadcounts: (counts: Record<string, number>) => void;
   /** Move a job into `toContainer` at `toIndex` (end if omitted). */
   moveJob: (jobId: JobId, toContainer: string, toIndex?: number) => void;
   /** Send a job back to the un-scheduled pool. */
   sendToPool: (jobId: JobId) => void;
   /** Clear the board and re-seed from the dataset. */
-  reset: (machines: Machine[], jobs: Job[]) => void;
+  reset: (workCenters: WorkCenter[], jobs: Job[]) => void;
   /** Which container currently holds the job, or null. */
   containerOf: (jobId: JobId) => string | null;
 }
 
-function emptyContainers(machines: Machine[]): Containers {
+function emptyContainers(workCenters: WorkCenter[]): Containers {
   const c: Containers = { [POOL_ID]: [] };
-  for (const m of machines) c[m.id] = [];
+  for (const w of workCenters) c[w.id] = [];
   return c;
 }
 
-function seed(machines: Machine[], jobs: Job[]): Containers {
-  const containers = emptyContainers(machines);
-  const known = new Set<MachineId>(machines.map((m) => m.id));
-  for (const job of jobs) {
-    const target =
-      job.preferredMachine && known.has(job.preferredMachine)
-        ? job.preferredMachine
-        : POOL_ID;
-    containers[target].push(job.id);
-  }
+/**
+ * Where a job belongs before the planner touches it: a moulding job goes to
+ * the line the workbook has it on, an assembly job to the area its current
+ * route stage runs in.
+ */
+function homeContainer(job: Job, known: Set<string>): string {
+  const target =
+    job.department === 'assembly' ? areaForJob(job) : job.preferredMachine;
+  return target && known.has(String(target)) ? String(target) : POOL_ID;
+}
+
+function seed(workCenters: WorkCenter[], jobs: Job[]): Containers {
+  const containers = emptyContainers(workCenters);
+  const known = new Set(workCenters.map((w) => String(w.id)));
+  for (const job of jobs) containers[homeContainer(job, known)].push(job.id);
   return containers;
 }
 
@@ -80,24 +93,24 @@ function withoutJob(containers: Containers, jobId: JobId): Containers {
 export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
   laneDelays: {},
+  areaHeadcount: {},
   initialized: false,
 
-  initFromDataset(machines, jobs) {
+  initFromDataset(workCenters, jobs) {
     if (get().initialized) return;
-    set({ containers: seed(machines, jobs), initialized: true });
+    set({ containers: seed(workCenters, jobs), initialized: true });
   },
 
-  reconcile(machines, jobs) {
+  reconcile(workCenters, jobs) {
     set((state) => {
-      const known = new Set<MachineId>(machines.map((m) => m.id));
+      const known = new Set(workCenters.map((w) => String(w.id)));
       const liveJobs = new Set(jobs.map((j) => String(j.id)));
-      const next: Containers = emptyContainers(machines);
+      const next: Containers = emptyContainers(workCenters);
       const placed = new Set<string>();
 
       // 1. Carry over existing placements for jobs that still exist.
       for (const [key, ids] of Object.entries(state.containers)) {
-        const target =
-          key === POOL_ID || known.has(key as MachineId) ? key : POOL_ID;
+        const target = key === POOL_ID || known.has(key) ? key : POOL_ID;
         for (const id of ids) {
           const sid = String(id);
           if (!liveJobs.has(sid) || placed.has(sid)) continue;
@@ -106,25 +119,24 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         }
       }
 
-      // 2. File any genuinely new jobs onto their workbook line, else the pool.
+      // 2. File any genuinely new jobs onto their home work centre, else pool.
       for (const job of jobs) {
         if (placed.has(String(job.id))) continue;
-        const target =
-          job.preferredMachine && known.has(job.preferredMachine)
-            ? job.preferredMachine
-            : POOL_ID;
-        next[target].push(job.id);
+        next[homeContainer(job, known)].push(job.id);
         placed.add(String(job.id));
       }
 
-      // Drop delays for lines that no longer exist.
-      const liveLines = new Set(machines.map((m) => String(m.id)));
+      // Drop delays and crew sizes for work centres that no longer exist.
       const laneDelays: Record<string, number> = {};
       for (const [k, v] of Object.entries(state.laneDelays)) {
-        if (liveLines.has(k) && v > 0) laneDelays[k] = v;
+        if (known.has(k) && v > 0) laneDelays[k] = v;
+      }
+      const areaHeadcount: Record<string, number> = {};
+      for (const [k, v] of Object.entries(state.areaHeadcount)) {
+        if (known.has(k)) areaHeadcount[k] = v;
       }
 
-      return { containers: next, laneDelays, initialized: true };
+      return { containers: next, laneDelays, areaHeadcount, initialized: true };
     });
   },
 
@@ -155,6 +167,19 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ laneDelays: { ...delays } });
   },
 
+  setAreaHeadcount(areaId, headcount) {
+    set((state) => ({
+      areaHeadcount: {
+        ...state.areaHeadcount,
+        [String(areaId)]: Math.max(0, Math.round(headcount)),
+      },
+    }));
+  },
+
+  setAreaHeadcounts(counts) {
+    set({ areaHeadcount: { ...counts } });
+  },
+
   moveJob(jobId, toContainer, toIndex) {
     set((state) => {
       const cleared = withoutJob(state.containers, jobId);
@@ -169,8 +194,13 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     get().moveJob(jobId, POOL_ID);
   },
 
-  reset(machines, jobs) {
-    set({ containers: seed(machines, jobs), laneDelays: {}, initialized: true });
+  reset(workCenters, jobs) {
+    set({
+      containers: seed(workCenters, jobs),
+      laneDelays: {},
+      areaHeadcount: {},
+      initialized: true,
+    });
   },
 
   containerOf(jobId) {

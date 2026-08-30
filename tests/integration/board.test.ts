@@ -21,14 +21,19 @@ beforeAll(async () => {
 
 describe('board pipeline (mock data)', () => {
   it('loads a non-trivial dataset', () => {
-    expect(dataset.machines.length).toBeGreaterThan(5);
+    expect(dataset.workCenters.length).toBeGreaterThan(5);
+    expect(dataset.workCenters.some((w) => w.department === 'assembly')).toBe(
+      true,
+    );
     expect(dataset.jobs.length).toBeGreaterThan(20);
     expect(dataset.routing.length).toBeGreaterThan(0);
     expect(dataset.inventory.length).toBeGreaterThan(0);
   });
 
   it('shows the configured lines in floor order, excluding 650T/PLASSY', () => {
-    const ids = dataset.machines.map((m) => String(m.id));
+    const ids = dataset.workCenters
+      .filter((w) => w.department === 'moulding')
+      .map((m) => String(m.id));
     expect(ids).toEqual([
       '1600T',
       '1300T',
@@ -47,7 +52,7 @@ describe('board pipeline (mock data)', () => {
 
   it('places jobs on lanes with positive-width, ordered bars', () => {
     const indexes = buildIndexes(dataset);
-    usePlanStore.getState().reconcile(dataset.machines, dataset.jobs);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
     const containers = usePlanStore.getState().containers;
 
     const board = computeBoardView(
@@ -77,7 +82,7 @@ describe('board pipeline (mock data)', () => {
 
   it('detects changeovers and material shortages somewhere in the plan', () => {
     const indexes = buildIndexes(dataset);
-    usePlanStore.getState().reconcile(dataset.machines, dataset.jobs);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
     const board = computeBoardView(
       dataset,
       indexes,
@@ -92,7 +97,7 @@ describe('board pipeline (mock data)', () => {
 
   it('accounts for every job (scheduled + pooled = total)', () => {
     const indexes = buildIndexes(dataset);
-    usePlanStore.getState().reconcile(dataset.machines, dataset.jobs);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
     const board = computeBoardView(
       dataset,
       indexes,
@@ -100,12 +105,32 @@ describe('board pipeline (mock data)', () => {
       dataset.fetchedAt,
     );
     const scheduledCount = board.lanes.reduce((n, l) => n + l.jobs.length, 0);
-    expect(scheduledCount + board.pool.length).toBe(dataset.jobs.length);
+    const mouldingJobs = dataset.jobs.filter(
+      (j) => j.department === 'moulding',
+    );
+    expect(scheduledCount + board.pool.length).toBe(mouldingJobs.length);
+  });
+
+  it('keeps assembly orders off the moulding board entirely', () => {
+    const indexes = buildIndexes(dataset);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
+    const board = computeBoardView(
+      dataset,
+      indexes,
+      usePlanStore.getState().containers,
+      dataset.fetchedAt,
+    );
+    const onBoard = [
+      ...board.lanes.flatMap((l) => l.jobs.map((s) => s.job)),
+      ...board.pool,
+    ];
+    expect(onBoard.length).toBeGreaterThan(0);
+    expect(onBoard.every((j) => j.department === 'moulding')).toBe(true);
   });
 
   it('pushes an entire lane back by the machine delay (breakdown)', () => {
     const indexes = buildIndexes(dataset);
-    usePlanStore.getState().reconcile(dataset.machines, dataset.jobs);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
     const containers = usePlanStore.getState().containers;
 
     const base = computeBoardView(dataset, indexes, containers, dataset.fetchedAt);

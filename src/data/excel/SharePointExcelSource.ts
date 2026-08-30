@@ -10,7 +10,7 @@ import type {
   DemandLine,
   InventoryItem,
   Job,
-  Machine,
+  WorkCenter,
   PoLine,
   RoutingEntry,
 } from '@/domain/types';
@@ -23,7 +23,7 @@ import {
 } from './sharepoint.client';
 import type { RawRow, Sheet } from './parsers/cell';
 import { parseJobs } from './parsers/job.parser';
-import { parseMachines } from './parsers/machine.parser';
+import { parseWorkCenters } from './parsers/machine.parser';
 import { parseInventory } from './parsers/inventory.parser';
 import { parseBom } from './parsers/bom.parser';
 import { parseSupply } from './parsers/supply.parser';
@@ -87,9 +87,9 @@ export class SharePointExcelSource extends BaseDataSource {
     }
   }
 
-  async fetchMachines(): Promise<Machine[]> {
-    const { values, errors } = parseMachines(await this.sheet(SHEET.resource));
-    this.report('machines', errors);
+  async fetchWorkCenters(): Promise<WorkCenter[]> {
+    const { values, errors } = parseWorkCenters(await this.sheet(SHEET.resource));
+    this.report('work centres', errors);
     return values;
   }
 

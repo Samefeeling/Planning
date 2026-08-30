@@ -11,7 +11,7 @@ import type {
   DemandLine,
   InventoryItem,
   Job,
-  Machine,
+  WorkCenter,
   PoLine,
   RoutingEntry,
 } from '@/domain/types';
@@ -34,8 +34,8 @@ class LazyExcelSource extends BaseDataSource {
     ));
   }
 
-  async fetchMachines(): Promise<Machine[]> {
-    return (await this.source).fetchMachines();
+  async fetchWorkCenters(): Promise<WorkCenter[]> {
+    return (await this.source).fetchWorkCenters();
   }
   async fetchJobs(): Promise<Job[]> {
     return (await this.source).fetchJobs();

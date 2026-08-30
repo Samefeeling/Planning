@@ -9,7 +9,7 @@ import type {
   DemandLine,
   InventoryItem,
   Job,
-  Machine,
+  WorkCenter,
   PlanningDataset,
   PoLine,
   RoutingEntry,
@@ -20,7 +20,7 @@ export interface DataSource {
   /** Identifier for diagnostics, e.g. "mock" or "sharepoint-excel". */
   readonly name: string;
 
-  fetchMachines(): Promise<Machine[]>;
+  fetchWorkCenters(): Promise<WorkCenter[]>;
   fetchJobs(): Promise<Job[]>;
   fetchRouting(): Promise<RoutingEntry[]>;
   fetchInventory(): Promise<InventoryItem[]>;
@@ -39,7 +39,7 @@ export interface DataSource {
 export abstract class BaseDataSource implements DataSource {
   abstract readonly name: string;
 
-  abstract fetchMachines(): Promise<Machine[]>;
+  abstract fetchWorkCenters(): Promise<WorkCenter[]>;
   abstract fetchJobs(): Promise<Job[]>;
   abstract fetchRouting(): Promise<RoutingEntry[]>;
   abstract fetchInventory(): Promise<InventoryItem[]>;
@@ -49,9 +49,9 @@ export abstract class BaseDataSource implements DataSource {
 
   async loadAll(): Promise<Result<PlanningDataset, string>> {
     try {
-      const [machines, jobs, routing, inventory, bom, po, demand] =
+      const [workCenters, jobs, routing, inventory, bom, po, demand] =
         await Promise.all([
-          this.fetchMachines(),
+          this.fetchWorkCenters(),
           this.fetchJobs(),
           this.fetchRouting(),
           this.fetchInventory(),
@@ -60,7 +60,7 @@ export abstract class BaseDataSource implements DataSource {
           this.fetchDemand(),
         ]);
       return ok({
-        machines,
+        workCenters,
         jobs,
         routing,
         inventory,
