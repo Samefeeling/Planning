@@ -20,7 +20,12 @@ export class ApiPlanRepository implements PlanRepository {
   async save(plan: PersistedPlan): Promise<void> {
     const res = await fetch(`${this.baseUrl}/plans/${plan.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Keeps the backend adapter explicit: daily production rows belong in
+        // the PMD-compatible SharePoint list, not in the source planning CSV.
+        'X-Production-List': 'ASSY_Production',
+      },
       body: JSON.stringify(plan),
     });
     if (!res.ok) {

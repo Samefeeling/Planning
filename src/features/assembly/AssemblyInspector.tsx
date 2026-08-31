@@ -7,7 +7,7 @@
  * ship date, and the material picture behind the release gate.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { findOrderRow } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
@@ -20,6 +20,7 @@ import {
 import { remainingQty } from '@/engine/assembly/duration';
 import { formatDay } from '@/lib/time';
 import { Badge, Button } from '@/ui';
+import type { PauseReason, ProductionEntry } from '@/store/planStore';
 
 const PREP_LABEL: Record<MaterialPrepStatus, string> = {
   'not-prepared': 'Not prepared',
@@ -30,6 +31,15 @@ const PREP_LABEL: Record<MaterialPrepStatus, string> = {
 
 /** Shared empty list so an order with no bookings keeps a stable reference. */
 const NO_ENTRIES: { date: string; qty: number }[] = [];
+const NO_PRODUCTION: ProductionEntry[] = [];
+
+const PAUSE_REASONS: { value: PauseReason; label: string }[] = [
+  { value: 'material-shortage', label: 'Material Shortage' },
+  { value: 'waiting-previous-stage', label: 'Waiting Previous Stage' },
+  { value: 'equipment', label: 'Equipment' },
+  { value: 'quality', label: 'Quality' },
+  { value: 'labour-reallocated', label: 'Labour Reallocated' },
+];
 
 const isoDay = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
@@ -40,6 +50,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
   const row = findOrderRow(board, selectedJobId);
   const recordProgress = usePlanStore((s) => s.recordProgress);
+  const recordProduction = usePlanStore((s) => s.recordProduction);
   // Select the stable map, then read from it. Returning a fresh `[]` from the
   // selector would give React a new snapshot every render and loop forever.
   const progressByJob = usePlanStore((s) => s.progress);
@@ -47,6 +58,25 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     ? (progressByJob[selectedJobId] ?? NO_ENTRIES)
     : NO_ENTRIES;
   const [draft, setDraft] = useState('');
+  const productionByJob = usePlanStore((s) => s.production);
+  const productionEntries = selectedJobId
+    ? (productionByJob[selectedJobId] ?? NO_PRODUCTION)
+    : NO_PRODUCTION;
+  const [reject, setReject] = useState('0');
+  const [rework, setRework] = useState('0');
+  const [qualityCheck, setQualityCheck] = useState('0');
+  const [paused, setPaused] = useState(false);
+  const [pauseReason, setPauseReason] = useState<PauseReason>('material-shortage');
+  const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    setDraft('');
+    setReject('0');
+    setRework('0');
+    setQualityCheck('0');
+    setPaused(false);
+    setNotes('');
+  }, [selectedJobId]);
 
   if (!row) {
     return (
@@ -62,9 +92,20 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const left = remainingQty(job);
 
   const book = () => {
-    const qty = Number(draft);
-    if (!Number.isFinite(qty) || qty <= 0) return;
+    const qty = Number(draft || 0);
+    if (![qty, Number(reject), Number(rework), Number(qualityCheck)].every((n) => Number.isFinite(n) && n >= 0)) return;
+    if (qty === 0 && Number(reject) === 0 && Number(rework) === 0 && Number(qualityCheck) === 0 && !paused) return;
     recordProgress(job.id, today, qty);
+    recordProduction(job.id, {
+      date: today,
+      complete: qty,
+      reject: Number(reject),
+      rework: Number(rework),
+      qualityCheck: Number(qualityCheck),
+      paused,
+      pauseReason: paused ? pauseReason : null,
+      notes: notes.trim(),
+    });
     setDraft('');
   };
 
@@ -142,19 +183,31 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
         )}
       </dl>
 
-      <div className="section-title">Book today&rsquo;s output</div>
+      <div className="section-title">Today&rsquo;s ASSY_Production entry</div>
+      <div className="production-grid">
+        <label>Complete<input type="number" min={0} max={left} value={draft} placeholder={`≤ ${left}`} onChange={(e) => setDraft(e.target.value)} /></label>
+        <label>Reject<input type="number" min={0} value={reject} onChange={(e) => setReject(e.target.value)} /></label>
+        <label>Rework<input type="number" min={0} value={rework} onChange={(e) => setRework(e.target.value)} /></label>
+        <label>Quality Check<input type="number" min={0} value={qualityCheck} onChange={(e) => setQualityCheck(e.target.value)} /></label>
+      </div>
+      <label className="pause-toggle">
+        <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} /> Pause
+      </label>
+      {paused && (
+        <select className="production-input" value={pauseReason} onChange={(e) => setPauseReason(e.target.value as PauseReason)}>
+          {PAUSE_REASONS.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+        </select>
+      )}
+      <textarea className="production-input" value={notes} placeholder="Notes (optional)" onChange={(e) => setNotes(e.target.value)} />
       <div className="book">
         <input
-          type="number"
-          min={0}
-          max={left}
-          value={draft}
-          placeholder={`qty finished (≤ ${left})`}
-          onChange={(e) => setDraft(e.target.value)}
+          className="sr-only"
+          aria-hidden="true"
+          tabIndex={-1}
           onKeyDown={(e) => e.key === 'Enter' && book()}
         />
-        <Button variant="primary" onClick={book} disabled={draft === ''}>
-          Book
+        <Button variant="primary" onClick={book}>
+          Save entry
         </Button>
       </div>
       <p className="hint">
@@ -169,6 +222,18 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             <div className="shortage-row" key={e.date}>
               <span className="part">{e.date}</span>
               <span>{e.qty} pcs</span>
+            </div>
+          ))}
+        </>
+      )}
+
+      {productionEntries.length > 0 && (
+        <>
+          <div className="section-title">ASSY_Production history</div>
+          {productionEntries.map((entry) => (
+            <div className="production-history" key={entry.date}>
+              <strong>{entry.date}</strong> · Complete {entry.complete} · Reject {entry.reject} · Rework {entry.rework} · QC {entry.qualityCheck}
+              {entry.paused && ` · Paused: ${PAUSE_REASONS.find((r) => r.value === entry.pauseReason)?.label}`}
             </div>
           ))}
         </>

@@ -1,21 +1,22 @@
 :root {
-  --bg: #0f1320;
-  --surface: #171c2c;
-  --surface-2: #1e2538;
-  --surface-3: #262e45;
-  --border: #2c3650;
-  --border-strong: #3a4566;
-  --text: #e7ecf5;
-  --muted: #9aa6c0;
-  --faint: #6b779a;
+  color-scheme: light;
+  --bg: #f4f7fb;
+  --surface: #ffffff;
+  --surface-2: #f7f9fc;
+  --surface-3: #e8eef7;
+  --border: #c9d3e1;
+  --border-strong: #8494aa;
+  --text: #182230;
+  --muted: #46566c;
+  --faint: #64748b;
 
   --accent: #5b8cff;
   --ok: #34d399;
-  --ok-dim: #14502f;
+  --ok-dim: #dcfce7;
   --warn: #fbbf24;
-  --warn-dim: #5a4410;
+  --warn-dim: #fef3c7;
   --error: #f87171;
-  --error-dim: #5c1d1d;
+  --error-dim: #fee2e2;
   --info: #60a5fa;
 
   --tool: #c084fc; /* die / tool change */
@@ -45,7 +46,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
 }
@@ -135,8 +136,8 @@ button {
   color: var(--error);
 }
 .badge.info {
-  background: #15324f;
-  color: var(--info);
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 .badge.tool {
   background: #2c1f44;
@@ -176,7 +177,7 @@ button {
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b1020;
+  color: #fff;
   font-weight: 600;
 }
 .btn:disabled {
@@ -392,6 +393,9 @@ button {
 .acell.team {
   width: var(--team-w);
   flex: 0 0 var(--team-w);
+  overflow: visible;
+  position: relative;
+  z-index: 5;
 }
 .acell.track {
   position: relative;
@@ -462,6 +466,11 @@ button {
   position: sticky;
   left: 0;
   z-index: 4;
+  width: 100%;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
 }
 .agroup-name {
   font-weight: 700;
@@ -501,9 +510,9 @@ button {
   font-weight: 650;
   z-index: 2;
 }
-.bar.green { background: #14532d; border-color: var(--ok); color: #d3f8e5; }
-.bar.orange { background: #5c3d0c; border-color: var(--warn); color: #ffeac2; }
-.bar.red { background: #5c1d1d; border-color: var(--error); color: #ffdcdc; }
+.bar.green { background: #bbf7d0; border-color: #16a34a; color: #14532d; }
+.bar.orange { background: #fde68a; border-color: #d97706; color: #78350f; }
+.bar.red { background: #fecaca; border-color: #dc2626; color: #7f1d1d; }
 .bar.grey { background: var(--surface-3); border-color: var(--border); color: var(--muted); }
 .bar.readonly {
   cursor: default;
@@ -549,9 +558,9 @@ button {
 }
 .chip {
   appearance: none;
-  background: #1b3a5c;
-  color: #cfe3ff;
-  border: 1px solid #2c5580;
+  background: #dbeafe;
+  color: #1e3a8a;
+  border: 1px solid #93c5fd;
   border-radius: 4px;
   padding: 2px 6px;
   font-size: 10.5px;
@@ -595,8 +604,45 @@ button {
   min-width: 150px;
   max-height: 210px;
   overflow: auto;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 28px rgba(30, 41, 59, 0.24);
 }
+
+.arow:has(.picker) { position: relative; z-index: 30; }
+.board-tools,
+.attendance-row {
+  position: sticky;
+  left: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.board-tools button,
+.date-head button,
+.date-restore {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.board-tools input { width: 150px; }
+.attendance-row { background: #eff6ff; color: #1e3a8a; }
+.attendance-count { padding: 2px 8px; border-radius: 999px; background: #dbeafe; font-weight: 700; }
+.date-head { flex-direction: column; gap: 3px; text-align: center; line-height: 1.15; }
+.date-head button { width: 22px; height: 18px; line-height: 12px; }
+.production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 8px; }
+.production-grid label { color: var(--muted); font-size: 11px; }
+.production-grid input,
+.production-input { width: 100%; margin-top: 2px; padding: 6px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; font: inherit; }
+textarea.production-input { min-height: 54px; resize: vertical; margin: 7px 0; }
+.pause-toggle { display: flex; align-items: center; gap: 6px; margin: 5px 0; font-weight: 650; }
+.production-history { padding: 6px 0; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.45; }
+.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0; pointer-events: none; }
 .picker-item {
   display: flex;
   justify-content: space-between;

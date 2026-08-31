@@ -4,6 +4,7 @@
  */
 
 import type { Containers } from '@/store/planStore';
+import type { ProductionEntry } from '@/store/planStore';
 
 export interface PersistedPlan {
   id: string;
@@ -16,6 +17,8 @@ export interface PersistedPlan {
     orderWorkers?: Record<string, string[]>;
     orderStarts?: Record<string, string>;
     progress?: Record<string, { date: string; qty: number }[]>;
+    /** Daily rows persisted by the backend in the ASSY_Production list. */
+    production?: Record<string, ProductionEntry[]>;
   };
 }
 

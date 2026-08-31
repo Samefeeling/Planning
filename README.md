@@ -26,6 +26,10 @@ demand**: orders from the `Planning1.csv` export, people from the
   people who are on shift *and* qualified for that line.
 - **Book the shift** — enter the quantity finished today; the Expect Date moves
   on its own: short of the daily target it slips out, ahead of it pulls in.
+- **Production actuals** — Complete, Reject, Rework, Quality Check and Pause
+  reasons are captured as daily records for the `ASSY_Production` SharePoint
+  list. Its columns intentionally mirror `PMD_Production`, allowing KPI.ts to
+  aggregate the two departments without a second mapping layer.
 - **Drag** a bar sideways to move its start day, or drag an order between the
   pool and a line.
 - **Colour by date** (Ship is the booked departure, Due the later customer date):
@@ -209,6 +213,12 @@ needs only a modest service — write the day's plan and booked quantities back.
 `persistence/PlanRepository` is already the adapter seam: point
 `VITE_PERSIST_API_URL` at the service (`PersistedPlan.assembly` carries crew,
 pinned starts and booked output).
+
+The persistence service receives `X-Production-List: ASSY_Production` and
+upserts `assembly.production` by Job + Date. Each entry has `Complete`,
+`Reject`, `Rework`, `QualityCheck`, `Paused`, `PauseReason`, and `Notes` fields.
+Without `VITE_PERSIST_API_URL`, the same payload is retained in localStorage
+for offline development, but is not yet in SharePoint.
 
 Stage 3 is already half-built: `Planning1.csv` holds PMD and assembly rows in
 one file, and `PlanningCsvSource` splits them by the `PMD`/`ASSY` column, so
