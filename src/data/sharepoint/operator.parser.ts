@@ -25,6 +25,7 @@ const COLUMNS = {
   skills: ['Skills', 'Skill', 'SkillSet', 'Lines'],
   supervisor: ['Supervisor', 'Manager', 'TeamLeader'],
   onShift: ['OnShift', 'Active', 'Present'],
+  plannedLeave: ['PlannedAnnualLeave', 'AnnualLeave', 'PlannedLeave', 'LeaveDates'],
 } as const;
 
 type Column = keyof typeof COLUMNS;
@@ -70,6 +71,13 @@ function field(row: ListItemFields, column: Column): unknown {
 
 const text = (v: unknown): string => (v === undefined ? '' : String(v).trim());
 
+function readLeaveDays(raw: unknown): string[] {
+  const parts = Array.isArray(raw) ? raw.map(String) : String(raw ?? '').split(/[,;|]+/);
+  return parts
+    .map((part) => part.trim().slice(0, 10))
+    .filter((part) => /^\d{4}-\d{2}-\d{2}$/.test(part));
+}
+
 export function parseOperators(rows: ListItemFields[]): ParseOutcome<Worker> {
   const values: Worker[] = [];
   const errors: string[] = [];
@@ -96,6 +104,7 @@ export function parseOperators(rows: ListItemFields[]): ParseOutcome<Worker> {
     const onShiftRaw = field(row, 'onShift');
     const position = text(field(row, 'position'));
     const supervisor = text(field(row, 'supervisor'));
+    const plannedLeave = readLeaveDays(field(row, 'plannedLeave'));
 
     values.push({
       id: WorkerId(id),
@@ -107,6 +116,7 @@ export function parseOperators(rows: ListItemFields[]): ParseOutcome<Worker> {
           : !['false', 'no', 'n', '0'].includes(text(onShiftRaw).toLowerCase()),
       ...(position ? { position } : {}),
       ...(supervisor ? { supervisor } : {}),
+      ...(plannedLeave.length > 0 ? { plannedLeave } : {}),
     });
   });
 

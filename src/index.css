@@ -370,6 +370,14 @@ button {
   z-index: 3;
   background: var(--surface);
 }
+.acell.frozen {
+  position: sticky;
+  z-index: 3;
+  background: var(--surface);
+}
+.assy-head .acell.frozen {
+  z-index: 9;
+}
 .acell.date {
   width: var(--date-w);
   flex: 0 0 var(--date-w);
@@ -397,6 +405,9 @@ button {
   position: relative;
   z-index: 5;
 }
+.acell.team.frozen {
+  position: sticky;
+}
 .acell.track {
   position: relative;
   flex: 0 0 auto;
@@ -410,6 +421,15 @@ button {
 }
 .arow.selected {
   background: rgba(91, 140, 255, 0.07);
+}
+.arow.completed-today {
+  filter: grayscale(1);
+  opacity: 0.58;
+  background: var(--surface-3);
+}
+.arow.completed-today .acell.frozen,
+.arow.completed-today .acell.order {
+  background: var(--surface-3);
 }
 .arow.context {
   opacity: 0.72;
@@ -445,12 +465,19 @@ button {
   bottom: 0;
   border-left: 1px solid var(--border);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  flex-direction: column;
   justify-content: center;
   padding-bottom: 6px;
   font-size: 12px;
   color: var(--muted);
 }
+.day-load {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #2563eb;
+}
+.day-load.over { color: #dc2626; }
 .daycol.weekend {
   background: rgba(255, 255, 255, 0.02);
 }

@@ -7,9 +7,10 @@ const entry = (complete: number): ProductionEntry => ({
   complete,
   reject: 1,
   rework: 2,
-  qualityCheck: 3,
+  shiftOutput: 3,
   paused: true,
   pauseReason: 'material-shortage',
+  jobCompleted: false,
   notes: 'Foam awaiting delivery',
 });
 

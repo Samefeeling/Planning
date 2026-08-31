@@ -28,12 +28,16 @@ export type PauseReason =
 /** One daily ASSY_Production booking, shaped for downstream KPI.ts use. */
 export interface ProductionEntry {
   date: string;
+  /** Quantity confirmed complete during the shift. */
   complete: number;
   reject: number;
   rework: number;
-  qualityCheck: number;
+  /** Total output reported by the shift, including pieces awaiting disposition. */
+  shiftOutput: number;
   paused: boolean;
   pauseReason: PauseReason | null;
+  /** Explicit supervisor confirmation that no more work remains on this job. */
+  jobCompleted: boolean;
   notes: string;
 }
 

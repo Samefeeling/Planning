@@ -19,15 +19,18 @@ import { RefreshControl } from '@/features/refresh/RefreshControl';
 import { CsvLoader } from '@/features/source/CsvLoader';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { Badge, Spinner } from '@/ui';
+import type { AssemblyGanttView } from '@/engine/assembly/board';
 
 const repo = createPlanRepository();
 
-function Legend() {
+function ScheduleSummary({ board }: { board: AssemblyGanttView | null }) {
+  if (!board) return null;
   return (
-    <div className="legend">
-      <Badge variant="ok">On ship date</Badge>
-      <Badge variant="warn">Past ship</Badge>
-      <Badge variant="error">Past due</Badge>
+    <div className="legend" aria-label="Schedule summary">
+      <Badge variant="ok">{board.totals.green} on ship date</Badge>
+      <Badge variant="warn">{board.totals.orange} past ship</Badge>
+      <Badge variant="error">{board.totals.red} past due</Badge>
+      <Badge variant="neutral">{board.pool.length} unassigned</Badge>
     </div>
   );
 }
@@ -103,7 +106,7 @@ export default function App() {
         <span className="sub">Assembly schedule</span>
         <Badge variant="info">{sourceName}</Badge>
         <div className="spacer" />
-        <Legend />
+        <ScheduleSummary board={board} />
         <CsvLoader />
         <RefreshControl onRefresh={() => void refresh()} />
       </header>

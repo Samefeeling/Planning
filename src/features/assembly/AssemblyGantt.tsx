@@ -36,21 +36,10 @@ const SHORT_FMT = new Intl.DateTimeFormat(undefined, {
 });
 
 const fmt = (d: Date | null): string => (d ? SHORT_FMT.format(d) : '—');
-
-function Summary({ board }: { board: AssemblyGanttView }) {
-  const { totals } = board;
-  return (
-    <div className="assy-summary">
-      <span className="pill green">{totals.green} on ship date</span>
-      <span className="pill orange">{totals.orange} past ship</span>
-      <span className="pill red">{totals.red} past due</span>
-      {totals.needsCrew > 0 && (
-        <span className="pill grey">{totals.needsCrew} need crew</span>
-      )}
-      <span className="pill grey">{board.pool.length} unassigned</span>
-    </div>
-  );
-}
+const dayKey = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`;
 
 function OrderRowView({
   row,
@@ -70,9 +59,19 @@ function OrderRowView({
   visibleDates: Record<'due' | 'expect' | 'ship', boolean>;
 }) {
   const isContext = !row.line.schedulable;
+  let dateOffset = ORDER_W;
+  const frozenDate = (visible: boolean): React.CSSProperties | undefined => {
+    if (!visible) return undefined;
+    const style = { left: dateOffset };
+    dateOffset += DATE_W;
+    return style;
+  };
+  const dueStyle = frozenDate(visibleDates.due);
+  const expectStyle = frozenDate(visibleDates.expect);
+  const shipStyle = frozenDate(visibleDates.ship);
   return (
     <div
-      className={`arow ${selected ? 'selected' : ''} ${isContext ? 'context' : ''}`}
+      className={`arow ${selected ? 'selected' : ''} ${isContext ? 'context' : ''} ${row.completedToday ? 'completed-today' : ''}`}
       onClick={() => onSelect(String(row.job.id))}
     >
       <div className="acell order">
@@ -84,12 +83,12 @@ function OrderRowView({
         )}
         <span className="order-desc">{row.job.description}</span>
       </div>
-      {visibleDates.due && <div className="acell date">{fmt(row.job.dueDate)}</div>}
-      {visibleDates.expect && <div className={`acell date expect ${row.status.color}`}>
+      {visibleDates.due && <div className="acell date frozen" style={dueStyle}>{fmt(row.job.dueDate)}</div>}
+      {visibleDates.expect && <div className={`acell date expect frozen ${row.status.color}`} style={expectStyle}>
         {fmt(row.expectDate)}
       </div>}
-      {visibleDates.ship && <div className="acell date">{fmt(row.job.shipDate)}</div>}
-      <div className="acell team">
+      {visibleDates.ship && <div className="acell date frozen" style={shipStyle}>{fmt(row.job.shipDate)}</div>}
+      <div className="acell team frozen" style={{ left: dateOffset }}>
         {isContext ? (
           <span className="chip empty">moulding</span>
         ) : (
@@ -207,10 +206,68 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     : 0;
   const toggleDate = (key: keyof typeof visibleDates) =>
     setVisibleDates((current) => ({ ...current, [key]: !current[key] }));
+  let headerOffset = ORDER_W;
+  const headerLeft = () => {
+    const left = headerOffset;
+    headerOffset += DATE_W;
+    return left;
+  };
+
+  const loadRate = (day: Date): { rate: number; available: number } => {
+    const key = dayKey(day);
+    const isToday = key === dayKey(board.horizonStart);
+    const availableWorkers = board.workers.filter(
+      (worker) =>
+        (!isToday || worker.onShift) && !worker.plannedLeave?.includes(key),
+    );
+    const availableIds = new Set(
+      availableWorkers.map((worker) => String(worker.id)),
+    );
+    const assigned = board.groups
+      .flatMap((group) => group.rows)
+      .filter(
+        (row) =>
+          row.line.schedulable &&
+          !row.completedToday &&
+          row.start &&
+          row.expectDate &&
+          row.start < addDays(day, 1) &&
+          row.expectDate > day,
+      )
+      .reduce(
+        (count, row) =>
+          count +
+          row.workers.filter((worker) => availableIds.has(String(worker.id)))
+            .length,
+        0,
+      );
+    return {
+      rate: availableWorkers.length
+        ? Math.round((assigned / availableWorkers.length) * 100)
+        : 0,
+      available: availableWorkers.length,
+    };
+  };
 
   return (
     <div className="assy" style={{ minWidth: labelWidth + gridWidth }}>
-      <Summary board={board} />
+      <div className="board-tools">
+        <strong>Timeline zoom</strong>
+        <button onClick={() => setDayWidth((w) => Math.max(44, w - 16))} aria-label="Zoom out">−</button>
+        <input aria-label="Timeline scale" type="range" min="44" max="160" step="4" value={dayWidth} onChange={(e) => setDayWidth(Number(e.target.value))} />
+        <button onClick={() => setDayWidth((w) => Math.min(160, w + 16))} aria-label="Zoom in">+</button>
+        <span>{dayWidth}px / day</span>
+        {Object.entries(visibleDates).filter(([, visible]) => !visible).map(([key]) => (
+          <button className="date-restore" key={key} onClick={() => toggleDate(key as keyof typeof visibleDates)}>+ {key}</button>
+        ))}
+      </div>
+
+      <div className="attendance-row">
+        <strong>Today on site</strong>
+        <span className="attendance-count">{attendance.length} / {board.workers.length}</span>
+        <span className="attendance-count">{allocatedOnSite} allocated · {allocationCoverage}% coverage</span>
+        <span>{attendance.map((worker) => worker.name).join(' · ') || 'Attendance awaiting API'}</span>
+      </div>
 
       <div className="board-tools">
         <strong>Timeline zoom</strong>
@@ -232,19 +289,27 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
 
       <div className="assy-head">
         <div className="acell order">Order</div>
-        {visibleDates.due && <div className="acell date date-head"><span>Due Date</span><button onClick={() => toggleDate('due')} title="Hide Due Date">−</button></div>}
-        {visibleDates.expect && <div className="acell date date-head"><span>Expect Date</span><button onClick={() => toggleDate('expect')} title="Hide Expect Date">−</button></div>}
-        {visibleDates.ship && <div className="acell date date-head"><span>Ship Date</span><button onClick={() => toggleDate('ship')} title="Hide Ship Date">−</button></div>}
-        <div className="acell team">Team</div>
+        {visibleDates.due && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Due Date</span><button onClick={() => toggleDate('due')} title="Hide Due Date">−</button></div>}
+        {visibleDates.expect && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Expect Date</span><button onClick={() => toggleDate('expect')} title="Hide Expect Date">−</button></div>}
+        {visibleDates.ship && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Ship Date</span><button onClick={() => toggleDate('ship')} title="Hide Ship Date">−</button></div>}
+        <div className="acell team frozen" style={{ left: headerOffset }}>Team</div>
         <div className="acell track" style={{ width: gridWidth }}>
           {days.map((d, i) => (
+            (() => {
+              const load = loadRate(d);
+              return (
             <div
               key={i}
               className={`daycol ${d.getDay() === 0 || d.getDay() === 6 ? 'weekend' : ''}`}
               style={{ left: i * dayWidth, width: dayWidth }}
             >
-              {DAY_FMT.format(d)}
+              <span>{DAY_FMT.format(d)}</span>
+              <span className={`day-load ${load.rate > 100 ? 'over' : ''}`} title={`${load.available} people available after planned leave`}>
+                Load {load.rate}%
+              </span>
             </div>
+              );
+            })()
           ))}
         </div>
       </div>

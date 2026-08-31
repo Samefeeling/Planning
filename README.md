@@ -26,7 +26,7 @@ demand**: orders from the `Planning1.csv` export, people from the
   people who are on shift *and* qualified for that line.
 - **Book the shift** — enter the quantity finished today; the Expect Date moves
   on its own: short of the daily target it slips out, ahead of it pulls in.
-- **Production actuals** — Complete, Reject, Rework, Quality Check and Pause
+- **Production actuals** — Shift Output, Complete, Reject, Rework, Job Completed and Pause
   reasons are captured as daily records for the `ASSY_Production` SharePoint
   list. Its columns intentionally mirror `PMD_Production`, allowing KPI.ts to
   aggregate the two departments without a second mapping layer.
@@ -60,6 +60,22 @@ npm run dev        # http://localhost:5173 — runs on bundled mock data
 npm test           # engine, adapter and integration tests (77)
 npm run build      # type-check + production build
 ```
+
+### GitHub Codespaces
+
+If a Codespace was created before the Node 22 dev-container configuration was
+added, **Update Branch does not rebuild the running container**. In the
+Codespaces command palette run **Codespaces: Rebuild Container**, then run:
+
+```bash
+npm run doctor     # checks Node, Web Crypto and installed Vite
+npm run dev
+```
+
+The dev container runs `npm ci` both when it is created and when its checked-out
+content is updated. `npm run dev` also runs the doctor first, so an old Node
+runtime or missing install produces an actionable message rather than Vite's
+indirect `crypto.getRandomValues` or `vite: not found` error.
 
 The app starts on a **mock data source** (`src/data/mock/seed.json`, a real
 slice extracted from the master workbook, plus a 15-person roster with one
@@ -123,6 +139,7 @@ shortage view matters.
 | `Operator` | name |
 | `Skills` | which lines the person may be allocated to |
 | `Position`, `Supervisor` | shown on the crew chip / picker |
+| `PlannedAnnualLeave` | ISO dates excluded from future daily load-rate capacity |
 
 `Skills` is normalised onto the four lines, so both short codes and what people
 actually type work: *Cutting/Sewing* and *Upholstery* → `UPL`, *Final Assembly*
@@ -216,7 +233,8 @@ pinned starts and booked output).
 
 The persistence service receives `X-Production-List: ASSY_Production` and
 upserts `assembly.production` by Job + Date. Each entry has `Complete`,
-`Reject`, `Rework`, `QualityCheck`, `Paused`, `PauseReason`, and `Notes` fields.
+`ShiftOutput`, `Complete`, `Reject`, `Rework`, `JobCompleted`, `Paused`,
+`PauseReason`, and `Notes` fields.
 Without `VITE_PERSIST_API_URL`, the same payload is retained in localStorage
 for offline development, but is not yet in SharePoint.
 

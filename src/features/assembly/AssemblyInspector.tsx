@@ -64,8 +64,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     : NO_PRODUCTION;
   const [reject, setReject] = useState('0');
   const [rework, setRework] = useState('0');
-  const [qualityCheck, setQualityCheck] = useState('0');
+  const [shiftOutput, setShiftOutput] = useState('0');
   const [paused, setPaused] = useState(false);
+  const [jobCompleted, setJobCompleted] = useState(false);
   const [pauseReason, setPauseReason] = useState<PauseReason>('material-shortage');
   const [notes, setNotes] = useState('');
 
@@ -73,8 +74,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     setDraft('');
     setReject('0');
     setRework('0');
-    setQualityCheck('0');
+    setShiftOutput('0');
     setPaused(false);
+    setJobCompleted(false);
     setNotes('');
   }, [selectedJobId]);
 
@@ -93,17 +95,18 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
 
   const book = () => {
     const qty = Number(draft || 0);
-    if (![qty, Number(reject), Number(rework), Number(qualityCheck)].every((n) => Number.isFinite(n) && n >= 0)) return;
-    if (qty === 0 && Number(reject) === 0 && Number(rework) === 0 && Number(qualityCheck) === 0 && !paused) return;
+    if (![qty, Number(reject), Number(rework), Number(shiftOutput)].every((n) => Number.isFinite(n) && n >= 0)) return;
+    if (qty === 0 && Number(reject) === 0 && Number(rework) === 0 && Number(shiftOutput) === 0 && !paused && !jobCompleted) return;
     recordProgress(job.id, today, qty);
     recordProduction(job.id, {
       date: today,
       complete: qty,
       reject: Number(reject),
       rework: Number(rework),
-      qualityCheck: Number(qualityCheck),
+      shiftOutput: Number(shiftOutput),
       paused,
       pauseReason: paused ? pauseReason : null,
+      jobCompleted,
       notes: notes.trim(),
     });
     setDraft('');
@@ -185,10 +188,10 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
 
       <div className="section-title">Today&rsquo;s ASSY_Production entry</div>
       <div className="production-grid">
-        <label>Complete<input type="number" min={0} max={left} value={draft} placeholder={`≤ ${left}`} onChange={(e) => setDraft(e.target.value)} /></label>
+        <label>Shift output<input type="number" min={0} value={shiftOutput} onChange={(e) => setShiftOutput(e.target.value)} /></label>
         <label>Reject<input type="number" min={0} value={reject} onChange={(e) => setReject(e.target.value)} /></label>
         <label>Rework<input type="number" min={0} value={rework} onChange={(e) => setRework(e.target.value)} /></label>
-        <label>Quality Check<input type="number" min={0} value={qualityCheck} onChange={(e) => setQualityCheck(e.target.value)} /></label>
+        <label>Complete<input type="number" min={0} max={left} value={draft} placeholder={`≤ ${left}`} onChange={(e) => setDraft(e.target.value)} /></label>
       </div>
       <label className="pause-toggle">
         <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} /> Pause
@@ -198,6 +201,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           {PAUSE_REASONS.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
         </select>
       )}
+      <label className="pause-toggle">
+        <input type="checkbox" checked={jobCompleted} onChange={(e) => setJobCompleted(e.target.checked)} /> Job Completed
+      </label>
       <textarea className="production-input" value={notes} placeholder="Notes (optional)" onChange={(e) => setNotes(e.target.value)} />
       <div className="book">
         <input
@@ -232,8 +238,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           <div className="section-title">ASSY_Production history</div>
           {productionEntries.map((entry) => (
             <div className="production-history" key={entry.date}>
-              <strong>{entry.date}</strong> · Complete {entry.complete} · Reject {entry.reject} · Rework {entry.rework} · QC {entry.qualityCheck}
+              <strong>{entry.date}</strong> · Shift output {entry.shiftOutput} · Complete {entry.complete} · Reject {entry.reject} · Rework {entry.rework}
               {entry.paused && ` · Paused: ${PAUSE_REASONS.find((r) => r.value === entry.pauseReason)?.label}`}
+              {entry.jobCompleted && ' · Job Completed'}
             </div>
           ))}
         </>
