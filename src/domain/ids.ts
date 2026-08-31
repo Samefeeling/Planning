@@ -37,6 +37,10 @@ export const MachineId = WorkCenterId;
 export type AreaId = WorkCenterId;
 export const AreaId = WorkCenterId;
 
+/** A person on the assembly shift roster. */
+export type WorkerId = Brand<string, 'WorkerId'>;
+export const WorkerId = (s: string): WorkerId => norm(s) as WorkerId;
+
 /** Die / tool names are free text; compare case-insensitively. */
 export const ToolId = (s: string): ToolId => norm(s).toLowerCase() as ToolId;
 

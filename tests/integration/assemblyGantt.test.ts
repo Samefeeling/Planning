@@ -1,0 +1,150 @@
+/**
+ * End-to-end assembly Gantt over the real seed data: orders group under their
+ * line, crew size drives bar length and Expect Date, booking output pulls the
+ * Expect Date in, and predecessors push successors out.
+ */
+
+import { describe, it, expect, beforeAll } from 'vitest';
+import { MockSource } from '@/data/mock/MockSource';
+import { buildIndexes } from '@/engine/indexes';
+import { computeAssemblyGantt } from '@/engine/assembly/board';
+import { usePlanStore } from '@/store/planStore';
+import { LINES } from '@/domain/assembly';
+import type { PlanningDataset } from '@/domain/types';
+
+let dataset: PlanningDataset;
+
+beforeAll(async () => {
+  const result = await new MockSource().loadAll();
+  if (!result.ok) throw new Error(result.error);
+  dataset = result.value;
+});
+
+const TODAY = new Date('2026-09-11T00:00:00');
+
+function build(over: {
+  orderWorkers?: Record<string, string[]>;
+  orderStarts?: Record<string, string>;
+  progress?: Record<string, { date: string; qty: number }[]>;
+} = {}) {
+  const indexes = buildIndexes(dataset);
+  usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
+  const state = usePlanStore.getState();
+  return computeAssemblyGantt({
+    dataset,
+    indexes,
+    containers: state.containers,
+    orderWorkers: over.orderWorkers ?? state.orderWorkers,
+    orderStarts: over.orderStarts ?? {},
+    progress: over.progress ?? {},
+    workers: dataset.workers,
+    today: TODAY,
+  });
+}
+
+describe('assembly Gantt (mock data)', () => {
+  it('loads a roster and shows the four line groups in order', () => {
+    const b = build();
+    expect(dataset.workers.length).toBeGreaterThan(10);
+    expect(b.groups.map((g) => g.line.key)).toEqual(
+      LINES.map((l) => l.key),
+    );
+    // PMD is context only.
+    expect(b.groups[0].line.schedulable).toBe(false);
+  });
+
+  it('puts every assembly order on a schedulable line or in the pool', () => {
+    const b = build();
+    const scheduled = b.groups
+      .filter((g) => g.line.schedulable)
+      .flatMap((g) => g.rows);
+    const assemblyJobs = dataset.jobs.filter((j) => j.department === 'assembly');
+    expect(assemblyJobs.length).toBeGreaterThan(10);
+    expect(scheduled.length + b.pool.length).toBe(assemblyJobs.length);
+    for (const g of b.groups) {
+      if (!g.line.schedulable) continue;
+      for (const r of g.rows) {
+        expect(r.job.department).toBe('assembly');
+        expect(String(r.line.id)).toBe(String(g.line.id));
+      }
+    }
+  });
+
+  it('only ever allocates at most four people to an order', () => {
+    const b = build();
+    for (const g of b.groups) {
+      for (const r of g.rows) expect(r.workers.length).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('shortens the bar and pulls in Expect Date when people are added', () => {
+    const base = build();
+    const row = base.groups
+      .flatMap((g) => g.rows)
+      .find((r) => r.line.schedulable && r.workers.length === 1);
+    expect(row).toBeDefined();
+    const id = String(row!.job.id);
+
+    const more = build({
+      orderWorkers: { ...usePlanStore.getState().orderWorkers, [id]: ['W01', 'W03', 'W12'] },
+    });
+    const after = more.rowsByJob.get(id)!;
+
+    expect(after.days!).toBeLessThan(row!.days!);
+    expect(after.expectDate!.getTime()).toBeLessThan(
+      row!.expectDate!.getTime(),
+    );
+  });
+
+  it('leaves an order unschedulable when nobody is on it', () => {
+    const b = build({ orderWorkers: {} });
+    const rows = b.groups.filter((g) => g.line.schedulable).flatMap((g) => g.rows);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.days === null && r.expectDate === null)).toBe(
+      true,
+    );
+  });
+
+  it('pulls the Expect Date in when output is booked', () => {
+    const base = build();
+    const row = base.groups
+      .flatMap((g) => g.rows)
+      .find((r) => r.line.schedulable && r.expectDate && r.job.remainingQty > 10);
+    expect(row).toBeDefined();
+    const id = String(row!.job.id);
+
+    const booked = build({
+      progress: { [id]: [{ date: '2026-09-11', qty: Math.floor(row!.job.remainingQty / 2) }] },
+    });
+    const after = booked.rowsByJob.get(id)!;
+
+    expect(after.job.completedQty).toBeGreaterThan(row!.job.completedQty);
+    expect(after.days!).toBeLessThan(row!.days!);
+  });
+
+  it('starts a successor only after its predecessor finishes', () => {
+    const b = build();
+    const withPred = [...b.rowsByJob.values()].filter((r) => r.predecessor);
+    expect(withPred.length).toBeGreaterThan(0);
+
+    for (const row of withPred) {
+      const pred = b.rowsByJob.get(String(row.predecessor));
+      if (!pred?.expectDate || !row.start) continue;
+      expect(row.start.getTime()).toBeGreaterThanOrEqual(
+        pred.expectDate.getTime(),
+      );
+    }
+  });
+
+  it('colours every scheduled row and the totals add up', () => {
+    const b = build();
+    const rows = [...b.rowsByJob.values()];
+    for (const r of rows) {
+      expect(['green', 'orange', 'red', 'grey']).toContain(r.status.color);
+    }
+    expect(b.totals.green + b.totals.orange + b.totals.red).toBeLessThanOrEqual(
+      b.totals.orders,
+    );
+    expect(b.totals.orders).toBe(rows.length);
+  });
+});

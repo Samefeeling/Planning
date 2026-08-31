@@ -18,8 +18,12 @@ const job: Job = {
   materialPrep: 'ready',
   tool: ToolId('Ned stool'),
   preferredMachine: MachineId('1300T'),
-  productType: null,
-  currentStage: null,
+  orderType: null,
+  line: null,
+  shipDate: null,
+  completedQty: 0,
+  predecessor: null,
+  assignedWorkers: [],
 };
 
 const changeover: ChangeoverInfo = {

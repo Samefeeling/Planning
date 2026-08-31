@@ -11,7 +11,7 @@
 import { create } from 'zustand';
 import type { JobId, WorkCenterId } from '@/domain/ids';
 import type { Job, WorkCenter } from '@/domain/types';
-import { areaForJob } from '@/engine/assembly/route';
+import { MAX_WORKERS_PER_ORDER } from '@/domain/assembly';
 
 /** Container id for the un-scheduled job pool. */
 export const POOL_ID = '__pool__';
@@ -24,8 +24,12 @@ interface PlanState {
   laneDelays: Record<string, number>;
   initialized: boolean;
 
-  /** Per-area crew size the supervisor allocated (assembly only). */
-  areaHeadcount: Record<string, number>;
+  /** Job id → allocated worker ids (assembly; capped at four). */
+  orderWorkers: Record<string, string[]>;
+  /** Job id → ISO day the planner dragged the bar to. */
+  orderStarts: Record<string, string>;
+  /** Job id → end-of-shift completed-quantity entries. */
+  progress: Record<string, { date: string; qty: number }[]>;
 
   /** Seed lanes from each job's home work centre; the rest go to the pool. */
   initFromDataset: (workCenters: WorkCenter[], jobs: Job[]) => void;
@@ -43,10 +47,20 @@ interface PlanState {
   clearLaneDelay: (workCenterId: WorkCenterId) => void;
   /** Replace all lane delays (e.g. loaded from persistence). */
   setLaneDelays: (delays: Record<string, number>) => void;
-  /** Set an assembly area's crew size. */
-  setAreaHeadcount: (areaId: WorkCenterId, headcount: number) => void;
-  /** Replace all area headcounts (e.g. loaded from persistence). */
-  setAreaHeadcounts: (counts: Record<string, number>) => void;
+  /** Put a worker on an order (no-op when full or already on it). */
+  assignWorker: (jobId: JobId, workerId: string) => void;
+  /** Take a worker off an order. */
+  unassignWorker: (jobId: JobId, workerId: string) => void;
+  /** Pin an order's bar to a start day (null clears the pin). */
+  setOrderStart: (jobId: JobId, isoDay: string | null) => void;
+  /** Record the quantity finished on a given day (replaces that day's entry). */
+  recordProgress: (jobId: JobId, isoDay: string, qty: number) => void;
+  /** Replace the assembly plan wholesale (e.g. loaded from persistence). */
+  setAssemblyPlan: (plan: {
+    orderWorkers?: Record<string, string[]>;
+    orderStarts?: Record<string, string>;
+    progress?: Record<string, { date: string; qty: number }[]>;
+  }) => void;
   /** Move a job into `toContainer` at `toIndex` (end if omitted). */
   moveJob: (jobId: JobId, toContainer: string, toIndex?: number) => void;
   /** Send a job back to the un-scheduled pool. */
@@ -64,13 +78,11 @@ function emptyContainers(workCenters: WorkCenter[]): Containers {
 }
 
 /**
- * Where a job belongs before the planner touches it: a moulding job goes to
- * the line the workbook has it on, an assembly job to the area its current
- * route stage runs in.
+ * Where a job belongs before the planner touches it: its assembly line, or the
+ * moulding line the workbook has it on.
  */
 function homeContainer(job: Job, known: Set<string>): string {
-  const target =
-    job.department === 'assembly' ? areaForJob(job) : job.preferredMachine;
+  const target = job.department === 'assembly' ? job.line : job.preferredMachine;
   return target && known.has(String(target)) ? String(target) : POOL_ID;
 }
 
@@ -93,7 +105,9 @@ function withoutJob(containers: Containers, jobId: JobId): Containers {
 export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
   laneDelays: {},
-  areaHeadcount: {},
+  orderWorkers: {},
+  orderStarts: {},
+  progress: {},
   initialized: false,
 
   initFromDataset(workCenters, jobs) {
@@ -131,12 +145,32 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       for (const [k, v] of Object.entries(state.laneDelays)) {
         if (known.has(k) && v > 0) laneDelays[k] = v;
       }
-      const areaHeadcount: Record<string, number> = {};
-      for (const [k, v] of Object.entries(state.areaHeadcount)) {
-        if (known.has(k)) areaHeadcount[k] = v;
+      const keep = <T,>(src: Record<string, T>): Record<string, T> => {
+        const out: Record<string, T> = {};
+        for (const [k, v] of Object.entries(src)) {
+          if (liveJobs.has(k)) out[k] = v;
+        }
+        return out;
+      };
+
+      // Crew is the supervisor's to set, but a brand-new order starts with
+      // whatever allocation the source system already has on it.
+      const orderWorkers = keep(state.orderWorkers);
+      for (const job of jobs) {
+        const key = String(job.id);
+        if (!orderWorkers[key] && job.assignedWorkers.length > 0) {
+          orderWorkers[key] = job.assignedWorkers.map(String);
+        }
       }
 
-      return { containers: next, laneDelays, areaHeadcount, initialized: true };
+      return {
+        containers: next,
+        laneDelays,
+        orderWorkers,
+        orderStarts: keep(state.orderStarts),
+        progress: keep(state.progress),
+        initialized: true,
+      };
     });
   },
 
@@ -167,17 +201,60 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ laneDelays: { ...delays } });
   },
 
-  setAreaHeadcount(areaId, headcount) {
-    set((state) => ({
-      areaHeadcount: {
-        ...state.areaHeadcount,
-        [String(areaId)]: Math.max(0, Math.round(headcount)),
-      },
-    }));
+  assignWorker(jobId, workerId) {
+    set((state) => {
+      const key = String(jobId);
+      const current = state.orderWorkers[key] ?? [];
+      if (current.includes(workerId) || current.length >= MAX_WORKERS_PER_ORDER) {
+        return state;
+      }
+      return {
+        orderWorkers: { ...state.orderWorkers, [key]: [...current, workerId] },
+      };
+    });
   },
 
-  setAreaHeadcounts(counts) {
-    set({ areaHeadcount: { ...counts } });
+  unassignWorker(jobId, workerId) {
+    set((state) => {
+      const key = String(jobId);
+      const current = state.orderWorkers[key] ?? [];
+      return {
+        orderWorkers: {
+          ...state.orderWorkers,
+          [key]: current.filter((w) => w !== workerId),
+        },
+      };
+    });
+  },
+
+  setOrderStart(jobId, isoDay) {
+    set((state) => {
+      const orderStarts = { ...state.orderStarts };
+      if (isoDay === null) delete orderStarts[String(jobId)];
+      else orderStarts[String(jobId)] = isoDay;
+      return { orderStarts };
+    });
+  },
+
+  recordProgress(jobId, isoDay, qty) {
+    set((state) => {
+      const key = String(jobId);
+      const entries = (state.progress[key] ?? []).filter(
+        (e) => e.date !== isoDay,
+      );
+      const next = [...entries, { date: isoDay, qty: Math.max(0, qty) }].sort(
+        (a, b) => a.date.localeCompare(b.date),
+      );
+      return { progress: { ...state.progress, [key]: next } };
+    });
+  },
+
+  setAssemblyPlan(plan) {
+    set((state) => ({
+      orderWorkers: plan.orderWorkers ?? state.orderWorkers,
+      orderStarts: plan.orderStarts ?? state.orderStarts,
+      progress: plan.progress ?? state.progress,
+    }));
   },
 
   moveJob(jobId, toContainer, toIndex) {
@@ -198,7 +275,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({
       containers: seed(workCenters, jobs),
       laneDelays: {},
-      areaHeadcount: {},
+      orderWorkers: {},
+      orderStarts: {},
+      progress: {},
       initialized: true,
     });
   },

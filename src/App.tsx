@@ -10,7 +10,7 @@ import { useDataStore } from '@/store/dataStore';
 import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
 import { findScheduledJob, useBoardView } from '@/store/selectors';
-import { useAssemblyBoard } from '@/store/assemblySelectors';
+import { useAssemblyGantt } from '@/store/assemblySelectors';
 import { createPlanRepository, CURRENT_PLAN_ID } from '@/persistence';
 import { useDragDrop } from '@/features/gantt/useDragDrop';
 import { GanttBoard } from '@/features/gantt/GanttBoard';
@@ -19,7 +19,7 @@ import { JobPool } from '@/features/jobpool/JobPool';
 import { JobInspector } from '@/features/inspector/JobInspector';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
-import { AssemblyBoard } from '@/features/assembly/AssemblyBoard';
+import { AssemblyGantt } from '@/features/assembly/AssemblyGantt';
 import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
 import { buildEpicorRows, toTsv } from '@/engine/epicorExport';
@@ -83,13 +83,15 @@ export default function App() {
 
   const containers = usePlanStore((s) => s.containers);
   const laneDelays = usePlanStore((s) => s.laneDelays);
-  const areaHeadcount = usePlanStore((s) => s.areaHeadcount);
+  const orderWorkers = usePlanStore((s) => s.orderWorkers);
+  const orderStarts = usePlanStore((s) => s.orderStarts);
+  const progress = usePlanStore((s) => s.progress);
   const department = useUiStore((s) => s.department);
   const pxPerHour = useUiStore((s) => s.pxPerHour);
   const setPx = useUiStore((s) => s.setPxPerHour);
 
   const board = useBoardView();
-  const assembly = useAssemblyBoard();
+  const assembly = useAssemblyGantt();
   const isAssembly = department === 'assembly';
   const dnd = useDragDrop();
   const refresh = useScheduledRefresh();
@@ -116,8 +118,7 @@ export default function App() {
       .then((persisted) => {
         if (persisted?.containers) plan.setContainers(persisted.containers);
         if (persisted?.laneDelays) plan.setLaneDelays(persisted.laneDelays);
-        if (persisted?.areaHeadcount)
-          plan.setAreaHeadcounts(persisted.areaHeadcount);
+        if (persisted?.assembly) plan.setAssemblyPlan(persisted.assembly);
         plan.reconcile(dataset.workCenters, dataset.jobs);
       })
       .catch(() => plan.reconcile(dataset.workCenters, dataset.jobs));
@@ -134,11 +135,11 @@ export default function App() {
         savedAt: new Date().toISOString(),
         containers,
         laneDelays,
-        areaHeadcount,
+        assembly: { orderWorkers, orderStarts, progress },
       });
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
-  }, [containers, laneDelays, areaHeadcount]);
+  }, [containers, laneDelays, orderWorkers, orderStarts, progress]);
 
   const activeJob = dnd.activeJobId
     ? (board?.jobsById.get(dnd.activeJobId) ??
@@ -208,7 +209,7 @@ export default function App() {
           <div className={isAssembly ? 'board-pane assembly-pane' : 'board-pane'}>
             {isAssembly ? (
               assembly ? (
-                <AssemblyBoard board={assembly} />
+                <AssemblyGantt board={assembly} />
               ) : (
                 <div className="center-fill">
                   <Spinner />

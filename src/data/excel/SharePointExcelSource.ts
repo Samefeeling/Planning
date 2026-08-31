@@ -14,6 +14,7 @@ import type {
   PoLine,
   RoutingEntry,
 } from '@/domain/types';
+import type { Worker } from '@/domain/assembly';
 import { BaseDataSource } from '@/data/DataSource';
 import { unwrap } from '@/lib/result';
 import {
@@ -121,6 +122,14 @@ export class SharePointExcelSource extends BaseDataSource {
     const { values, errors } = parseSupply(await this.sheet(SHEET.po));
     this.report('po', errors);
     return values;
+  }
+
+  /**
+   * The shift roster does not live in the workbook — it comes from the
+   * attendance system, so this source has none until that feed is wired up.
+   */
+  async fetchWorkers(): Promise<Worker[]> {
+    return [];
   }
 
   async fetchDemand(): Promise<DemandLine[]> {

@@ -1,15 +1,55 @@
 /**
- * Assembly orders not yet assigned to an area. Same role as the moulding job
- * pool: a drop target the supervisor can park work in.
+ * Assembly orders not on a line yet — the day's new work. Drop an order here
+ * to take it off the schedule.
  */
 
-import { useDroppable } from '@dnd-kit/core';
-import type { AssemblyBoardView } from '@/engine/assembly/board';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
+import type { AssemblyGanttView } from '@/engine/assembly/board';
+import type { Job } from '@/domain/types';
+import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { POOL_ID } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
-import { OrderCard } from './OrderCard';
+import { formatDay } from '@/lib/time';
 
-export function AssemblyPool({ board }: { board: AssemblyBoardView }) {
+function PoolCard({
+  job,
+  selected,
+  onSelect,
+}: {
+  job: Job;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const id = String(job.id);
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id,
+    data: { type: 'job', jobId: id },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`ord ${selected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
+      onClick={() => onSelect(id)}
+      {...listeners}
+      {...attributes}
+    >
+      <div className="ord-head">
+        <span className="ord-job">{id}</span>
+        {job.orderType && (
+          <span className="ord-type">{ORDER_TYPE_SHORT[job.orderType]}</span>
+        )}
+      </div>
+      <div className="ord-desc">{job.description || String(job.partNum)}</div>
+      <div className="ord-meta">
+        <span>{job.remainingQty} pcs</span>
+        <span>·</span>
+        <span>ship {job.shipDate ? formatDay(job.shipDate) : '—'}</span>
+      </div>
+    </div>
+  );
+}
+
+export function AssemblyPool({ board }: { board: AssemblyGanttView }) {
   const { setNodeRef, isOver } = useDroppable({
     id: POOL_ID,
     data: { type: 'pool' },
@@ -19,30 +59,17 @@ export function AssemblyPool({ board }: { board: AssemblyBoardView }) {
 
   return (
     <div ref={setNodeRef} className={`pool ${isOver ? 'drop-active' : ''}`}>
-      <h2>Unassigned · {board.pool.length}</h2>
+      <h2>New / unassigned · {board.pool.length}</h2>
       <div className="pool-list">
         {board.pool.length === 0 ? (
           <div className="pool-empty">
-            Every order has an area. Drag a card here to park it.
+            Every order is on a line. Drag one here to take it off.
           </div>
         ) : (
           board.pool.map((job) => (
-            <OrderCard
+            <PoolCard
               key={String(job.id)}
-              order={{
-                job,
-                stage: null,
-                route: [],
-                stageIndex: -1,
-                material: { level: 'unknown', earliestStart: null, shortages: [] },
-                release: {
-                  level: 'caution',
-                  releasable: false,
-                  needsOverride: false,
-                  reason: 'Not assigned to an area',
-                },
-                warnings: [],
-              }}
+              job={job}
               selected={selectedJobId === String(job.id)}
               onSelect={select}
             />

@@ -15,6 +15,7 @@ import type {
   PoLine,
   RoutingEntry,
 } from '@/domain/types';
+import type { Worker } from '@/domain/assembly';
 import { BaseDataSource, type DataSource } from './DataSource';
 import { MockSource } from './mock/MockSource';
 
@@ -54,6 +55,9 @@ class LazyExcelSource extends BaseDataSource {
   }
   async fetchDemand(): Promise<DemandLine[]> {
     return (await this.source).fetchDemand();
+  }
+  async fetchWorkers(): Promise<Worker[]> {
+    return (await this.source).fetchWorkers();
   }
 }
 

@@ -6,7 +6,7 @@
 import { MachineId } from '@/domain/ids';
 import type { WorkCenter } from '@/domain/types';
 import { MACHINE_ORDER, isVisibleMachine } from '@/domain/constants';
-import { AREAS } from '@/domain/assembly';
+import { LINES } from '@/domain/assembly';
 import { asStr, dataRows, type Sheet } from './cell';
 import type { ParseOutcome } from './types';
 
@@ -43,16 +43,15 @@ export function makeMachine(rawName: string): WorkCenter {
   return tonnage === undefined ? base : { ...base, tonnage };
 }
 
-/** The four assembly areas as work centres. */
+/** The assembly lines as work centres (PMD, UPL, ASSY, TABLE). */
 export function assemblyWorkCenters(): WorkCenter[] {
-  return AREAS.map((a) => ({
-    id: a.id,
+  return LINES.map((l) => ({
+    id: l.id,
     kind: 'area' as const,
     department: 'assembly' as const,
-    name: a.name,
-    short: a.short,
-    suggested: a.suggested,
-    sortIndex: a.sortIndex,
+    name: l.name,
+    short: l.name,
+    sortIndex: l.sortIndex,
   }));
 }
 

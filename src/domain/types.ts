@@ -16,8 +16,9 @@ import type {
   PartId,
   ToolId,
   WorkCenterId,
+  WorkerId,
 } from './ids';
-import type { MaterialPrepStatus, ProductType, StageId } from './assembly';
+import type { MaterialPrepStatus, OrderType, Worker } from './assembly';
 
 // ---------------------------------------------------------------------------
 // Master data
@@ -160,10 +161,18 @@ export interface Job {
   preferredMachine: MachineId | null;
 
   // --- assembly-specific -------------------------------------------------
-  /** A / B / C — decides which route the order follows. */
-  productType: ProductType | null;
-  /** Where the order currently sits in its route. */
-  currentStage: StageId | null;
+  /** Which of the three kinds of assembly work order this is. */
+  orderType: OrderType | null;
+  /** The line the order is planned on (UPL / ASSY / TABLE). */
+  line: WorkCenterId | null;
+  /** Agreed date the order must leave the factory. Earlier than `dueDate`. */
+  shipDate: Date | null;
+  /** Units finished so far, entered at the end of each shift. */
+  completedQty: number;
+  /** Order that must finish before this one can start, if any. */
+  predecessor: JobId | null;
+  /** Crew the source system has on the order; the supervisor may change it. */
+  assignedWorkers: WorkerId[];
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +188,8 @@ export interface PlanningDataset {
   bom: BomLine[];
   po: PoLine[];
   demand: DemandLine[];
+  /** Assembly shift roster. */
+  workers: Worker[];
   /** When the source workbook was last refreshed. */
   fetchedAt: Date;
 }

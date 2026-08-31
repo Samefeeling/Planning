@@ -14,6 +14,7 @@ import type {
   PoLine,
   RoutingEntry,
 } from '@/domain/types';
+import type { Worker } from '@/domain/assembly';
 import { ok, err, type Result } from '@/lib/result';
 
 export interface DataSource {
@@ -27,6 +28,7 @@ export interface DataSource {
   fetchBom(): Promise<BomLine[]>;
   fetchPo(): Promise<PoLine[]>;
   fetchDemand(): Promise<DemandLine[]>;
+  fetchWorkers(): Promise<Worker[]>;
 
   /** Fetch everything needed for one planning session. */
   loadAll(): Promise<Result<PlanningDataset, string>>;
@@ -46,10 +48,11 @@ export abstract class BaseDataSource implements DataSource {
   abstract fetchBom(): Promise<BomLine[]>;
   abstract fetchPo(): Promise<PoLine[]>;
   abstract fetchDemand(): Promise<DemandLine[]>;
+  abstract fetchWorkers(): Promise<Worker[]>;
 
   async loadAll(): Promise<Result<PlanningDataset, string>> {
     try {
-      const [workCenters, jobs, routing, inventory, bom, po, demand] =
+      const [workCenters, jobs, routing, inventory, bom, po, demand, workers] =
         await Promise.all([
           this.fetchWorkCenters(),
           this.fetchJobs(),
@@ -58,6 +61,7 @@ export abstract class BaseDataSource implements DataSource {
           this.fetchBom(),
           this.fetchPo(),
           this.fetchDemand(),
+          this.fetchWorkers(),
         ]);
       return ok({
         workCenters,
@@ -67,6 +71,7 @@ export abstract class BaseDataSource implements DataSource {
         bom,
         po,
         demand,
+        workers,
         fetchedAt: new Date(),
       });
     } catch (e) {

@@ -13,8 +13,12 @@ export interface PersistedPlan {
   containers: Containers;
   /** Per-line breakdown/delay offsets in hours. */
   laneDelays?: Record<string, number>;
-  /** Per-assembly-area crew size. */
-  areaHeadcount?: Record<string, number>;
+  /** Assembly plan: crew per order, pinned starts, booked output. */
+  assembly?: {
+    orderWorkers?: Record<string, string[]>;
+    orderStarts?: Record<string, string>;
+    progress?: Record<string, { date: string; qty: number }[]>;
+  };
 }
 
 export interface PlanSummary {

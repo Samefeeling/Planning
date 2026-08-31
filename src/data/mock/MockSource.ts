@@ -2,9 +2,19 @@
  * Local development / demo source. Reads a snapshot (`seed.json`) extracted
  * from the real PMD master workbook and maps it onto the domain model, so the
  * board is fully populated with no network or credentials.
+ *
+ * Seed dates are anchored to a fixed epoch; they are shifted forward so the
+ * demo always reads as "today" rather than drifting into the past.
  */
 
-import { JobId, MachineId, PartId, ToolId, ColorId, InsertId } from '@/domain/ids';
+import {
+  JobId,
+  MachineId,
+  PartId,
+  ToolId,
+  WorkCenterId,
+  WorkerId,
+} from '@/domain/ids';
 import type {
   BomLine,
   Department,
@@ -15,17 +25,35 @@ import type {
   RoutingEntry,
   WorkCenter,
 } from '@/domain/types';
-import type { MaterialPrepStatus, ProductType, StageId } from '@/domain/assembly';
+import type {
+  LineKey,
+  MaterialPrepStatus,
+  OrderType,
+  Worker,
+} from '@/domain/assembly';
 import {
   assemblyWorkCenters,
   makeMachine,
 } from '@/data/excel/parsers/machine.parser';
 import { isVisibleMachine } from '@/domain/constants';
+import { MS_PER_DAY } from '@/lib/time';
 import { BaseDataSource } from '@/data/DataSource';
 import seed from './seed.json';
 
+/** The day every seed date is expressed relative to. */
+const SEED_EPOCH = new Date('2026-06-16T00:00:00');
+
+/** Whole days to add so the seed reads as the current week. */
+function seedOffsetDays(): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((today.getTime() - SEED_EPOCH.getTime()) / MS_PER_DAY);
+}
+
+const OFFSET_MS = seedOffsetDays() * MS_PER_DAY;
+
 const toDate = (s: string | null | undefined): Date | null =>
-  s ? new Date(s) : null;
+  s ? new Date(new Date(s).getTime() + OFFSET_MS) : null;
 
 // Simulate a touch of network latency so loading states are exercised.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
@@ -42,6 +70,16 @@ export class MockSource extends BaseDataSource {
     return delay([...machines, ...assemblyWorkCenters()]);
   }
 
+  async fetchWorkers(): Promise<Worker[]> {
+    const workers: Worker[] = (seed.workers ?? []).map((w) => ({
+      id: WorkerId(w.id),
+      name: w.name,
+      skills: (w.skills ?? []) as LineKey[],
+      onShift: Boolean(w.onShift),
+    }));
+    return delay(workers);
+  }
+
   async fetchJobs(): Promise<Job[]> {
     const jobs: Job[] = seed.jobs.map((j) => ({
       id: JobId(j.jobNum),
@@ -52,9 +90,7 @@ export class MockSource extends BaseDataSource {
       qtyPerHr: j.qtyPerHr ?? null,
       laborHrs:
         j.laborHrs ??
-        (j.qtyPerHr && j.qtyPerHr > 0
-          ? (j.remainingQty ?? 0) / j.qtyPerHr
-          : 0),
+        (j.qtyPerHr && j.qtyPerHr > 0 ? (j.remainingQty ?? 0) / j.qtyPerHr : 0),
       dueDate: toDate(j.dueDate),
       reqBy: toDate(j.reqBy),
       released: Boolean(j.released),
@@ -62,8 +98,12 @@ export class MockSource extends BaseDataSource {
       materialPrep: (j.materialPrep ?? 'ready') as MaterialPrepStatus,
       tool: j.die ? ToolId(j.die) : null,
       preferredMachine: j.machine ? MachineId(j.machine) : null,
-      productType: (j.productType ?? null) as ProductType | null,
-      currentStage: (j.currentStage ?? null) as StageId | null,
+      orderType: (j.orderType ?? null) as OrderType | null,
+      line: j.line ? WorkCenterId(j.line) : null,
+      shipDate: toDate(j.shipDate),
+      completedQty: j.completedQty ?? 0,
+      predecessor: j.predecessor ? JobId(j.predecessor) : null,
+      assignedWorkers: (j.assignedWorkers ?? []).map(WorkerId),
     }));
     return delay(jobs);
   }
@@ -73,8 +113,8 @@ export class MockSource extends BaseDataSource {
       partNum: PartId(r.partNum),
       machine: MachineId(r.machine),
       tool: r.die ? ToolId(r.die) : null,
-      color: r.color ? ColorId(r.color) : null,
-      insert: r.insert ? InsertId(r.insert) : null,
+      color: r.color ? (r.color.trim().toLowerCase() as never) : null,
+      insert: r.insert ? (r.insert.trim().toLowerCase() as never) : null,
       description: r.description ?? '',
     }));
     return delay(routing);

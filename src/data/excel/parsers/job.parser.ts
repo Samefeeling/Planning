@@ -10,8 +10,7 @@
 
 import { JobId, MachineId, PartId, ToolId } from '@/domain/ids';
 import type { Department, Job } from '@/domain/types';
-import type { MaterialPrepStatus, ProductType, StageId } from '@/domain/assembly';
-import { ROUTES } from '@/domain/assembly';
+import type { MaterialPrepStatus, OrderType } from '@/domain/assembly';
 import { asBool, asDate, asNum, asStr, dataRows, type Sheet } from './cell';
 import type { ParseOutcome } from './types';
 
@@ -30,9 +29,12 @@ const C = {
   // Columns to be added to the workbook so one sheet feeds both departments
   // (see README). Absent today, so every row defaults to moulding.
   department: 35,
-  productType: 36,
+  orderType: 36,
   priority: 37,
   materialPrep: 38,
+  line: 39,
+  shipDate: 40,
+  completedQty: 41,
 } as const;
 
 const PREP_VALUES = new Set<MaterialPrepStatus>([
@@ -46,9 +48,18 @@ function readDepartment(raw: string | null): Department {
   return raw?.toLowerCase().startsWith('assem') ? 'assembly' : 'moulding';
 }
 
-function readProductType(raw: string | null): ProductType | null {
-  const t = raw?.trim().toUpperCase();
-  return t === 'A' || t === 'B' || t === 'C' ? t : null;
+const ORDER_TYPES: Record<string, OrderType> = {
+  'cutting/sewing': 'cutting-sewing',
+  'cutting-sewing': 'cutting-sewing',
+  'cut & sew': 'cutting-sewing',
+  upholstery: 'upholstery',
+  'final assembly': 'final-assembly',
+  'final-assembly': 'final-assembly',
+};
+
+function readOrderType(raw: string | null): OrderType | null {
+  const t = raw?.trim().toLowerCase();
+  return t ? (ORDER_TYPES[t] ?? null) : null;
 }
 
 function readPrep(raw: string | null): MaterialPrepStatus {
@@ -81,7 +92,7 @@ export function parseJobs(planning: Sheet): ParseOutcome<Job> {
     const machineRaw = asStr(row[C.machine]);
     const dieRaw = asStr(row[C.die]);
     const department = readDepartment(asStr(row[C.department]));
-    const productType = readProductType(asStr(row[C.productType]));
+    const lineRaw = asStr(row[C.line]);
 
     values.push({
       id: JobId(jobNum),
@@ -98,12 +109,12 @@ export function parseJobs(planning: Sheet): ParseOutcome<Job> {
       materialPrep: readPrep(asStr(row[C.materialPrep])),
       tool: dieRaw ? ToolId(dieRaw) : null,
       preferredMachine: machineRaw ? MachineId(machineRaw) : null,
-      productType,
-      // Without an explicit stage column, an assembly order starts at the head
-      // of its route.
-      currentStage: productType
-        ? ((ROUTES[productType][0] ?? null) as StageId | null)
-        : null,
+      orderType: readOrderType(asStr(row[C.orderType])),
+      line: lineRaw ? MachineId(lineRaw) : null,
+      shipDate: asDate(row[C.shipDate]),
+      completedQty: asNum(row[C.completedQty]) ?? 0,
+      predecessor: null,
+      assignedWorkers: [],
     });
   });
 

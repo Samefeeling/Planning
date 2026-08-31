@@ -18,6 +18,9 @@ import {
 } from '@dnd-kit/core';
 import { JobId } from '@/domain/ids';
 import { POOL_ID, usePlanStore } from '@/store/planStore';
+import { DAY_WIDTH } from '@/features/assembly/AssemblyGantt';
+import { DRAG_TYPE_BAR } from '@/features/assembly/OrderBar';
+import { addDays, startOfDay } from '@/engine/assembly/dates';
 
 /** Prefer the specific card target, then a lane/pool, then the nearest. */
 const collisionDetection: CollisionDetection = (args) => {
@@ -35,12 +38,32 @@ export function useDragDrop() {
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
 
-  const onDragStart = (e: DragStartEvent) => setActiveJobId(String(e.active.id));
+  const onDragStart = (e: DragStartEvent) => {
+    // Bars carry a prefixed id; the overlay only wants plain job cards.
+    const type = e.active.data.current?.type;
+    setActiveJobId(type === DRAG_TYPE_BAR ? null : String(e.active.id));
+  };
   const onDragCancel = () => setActiveJobId(null);
 
   const onDragEnd = (e: DragEndEvent) => {
     setActiveJobId(null);
-    const { over, active } = e;
+    const { over, active, delta } = e;
+
+    // An assembly bar dragged along its own row just moves its start day.
+    if (active.data.current?.type === DRAG_TYPE_BAR) {
+      const jobId = JobId(String(active.data.current.jobId));
+      const dayShift = Math.round((delta?.x ?? 0) / DAY_WIDTH);
+      if (dayShift === 0) return;
+      const { orderStarts, setOrderStart } = usePlanStore.getState();
+      const key = String(jobId);
+      const current = orderStarts[key]
+        ? startOfDay(new Date(orderStarts[key]))
+        : startOfDay(new Date());
+      const moved = addDays(current, dayShift);
+      setOrderStart(jobId, moved.toISOString());
+      return;
+    }
+
     if (!over) return;
 
     const activeJob = JobId(String(active.id));

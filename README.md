@@ -4,8 +4,8 @@ Planning for **two departments over one shared order book**:
 
 - **Moulding (PMD)** — a drag-and-drop **Gantt** across the injection-moulding
   lines, with die/colour/insert **changeovers** and **material readiness**.
-- **Assembly** — a four-area **planning board** for the sofa / chair / table
-  lines, with **route stages**, a **release gate** and **people-hours load**.
+- **Assembly** — a day-scale **Gantt** for the sofa / chair / table lines, with
+  crew allocation, **Due / Expect / Ship** dates and end-of-shift booking.
 
 It replaces the manual juggling in `PMD_Schedule_master_epicor.xlsm`. Source
 data (orders, inventory, BOM, POs, routing) is read from the same Epicor →
@@ -33,30 +33,43 @@ SharePoint workbook, refreshed **hourly and on demand**.
 
 ### Assembly board
 
-Sized for the real department: ~15 people, one white shift, supervisor
-dispatches on the floor. Deliberately **not** a multi-level routing system.
+Sized for the real department: ~15 people, one white shift, the supervisor
+dispatches on the floor. Nobody reports by the hour — the shift's output is
+booked once at the end of the day, so there is no event stream and no live
+polling.
 
-- **Four area columns** — A · General Assembly, Shared Cutting/Sewing, B · Sofa,
-  C · Chair Upholstery. Drag an order between areas to re-assign it.
-- **Three fixed routes** — A: `General Assembly`; B: `Cutting/Sewing → Frame &
-  Foam → Upholstery/Final`; C: `Cutting/Sewing → Chair Upholstery → Final
-  Assembly`. An order sits in the area its current stage runs in; C's final
-  assembly defaults to area A, as on the floor.
-- **Release gate** — an order is startable only when the *engine* says stock
-  exists **and** the material handler says the kit is picked. Anything else is
-  amber (wait) or red (blocked, needs a supervisor override with a reason).
-- **People-hours load per area** — crew size × productive hours vs the standard
-  hours queued there, so the planner sees over/under commitment before the day
-  starts. This is the assembly analogue of machine hours on the Gantt.
-- **Shortages flow from moulding** — an assembly order whose moulded component
-  is short shows red here, because both departments share one material engine.
+- **Four row groups** — `PMD` (the moulding plan, shown for context only, not
+  scheduled here), then `UPL`, `ASSY` and `TABLE`.
+- **Three kinds of work order** — Cutting/Sewing and Upholstery run on UPL;
+  Final Assembly runs on ASSY and TABLE.
+- **One row per order**: Order · Due Date · Expect Date · Ship Date · Team, then
+  the day grid with a draggable bar.
+- **Crew drives duration** — up to **4 people** per order; the bar length is
+  remaining standard hours ÷ (crew × productive hours), so adding someone
+  visibly shortens it and pulls the Expect Date in. Only people who are on
+  shift *and* qualified for that line can be picked.
+- **Book the shift** — enter the quantity finished today and the Expect Date
+  moves on its own: short of the daily target it slips out, ahead of it pulls in.
+- **Colour by date** (Ship is the booked departure, Due the later customer date):
+
+  | | Condition | Meaning |
+  | --- | --- | --- |
+  | 🟢 green | `Expect ≤ Ship` | makes the booked shipment |
+  | 🟠 orange | `Ship < Expect < Due` | misses the shipment, customer date still reachable |
+  | 🔴 red | `Expect ≥ Due` | the customer date will be missed |
+
+- **Predecessors** — an order that waits on another (moulding feeding
+  upholstery, upholstery feeding final assembly) starts only when that one
+  finishes.
+- **Material still gates release** — the shared engine flags a short component,
+  and material that only lands on a future PO pushes the bar out.
 
 ## Quick start
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173 — runs on bundled mock data
-npm test           # engine + integration tests (24)
+npm test           # engine + integration tests (56)
 npm run build      # type-check + production build
 ```
 
@@ -112,7 +125,7 @@ domain  →  lib  →  engine  →  store  →  features (UI)
 - **`engine/`** — pure, unit-tested functions. Shared: `materialAvailability`,
   `materialExplosion`, `netRequirements`, `validate`, `indexes`. Moulding:
   `changeover`, `routing`, `duration`, `constraints`, `epicorExport`. Assembly:
-  `assembly/{route,capacity,release,board}`. No React, no I/O.
+  `assembly/{duration,dates,release,board}`. No React, no I/O.
 - **`store/`** — Zustand. `dataStore` (loaded data + indexes), `planStore`
   (which job is on which line — the only mutable plan state), `selectors`
   (derives the scheduled timeline), `uiStore` (selection + zoom).
@@ -130,8 +143,7 @@ record, so nothing has to be reconciled:
 | --- | --- |
 | Planner | what / how many / when / which line or area |
 | Material handler | `MaterialStatus` — is the kit picked |
-| Supervisor | crew per area, and (stage 3) who is on each order |
-| Worker | (stage 2) progress and exceptions |
+| Supervisor | which line, who is on each order, the shift's output |
 
 Both boards are the **same derivation pattern** — a pure function from
 (orders + assignments) to a view model: `computeBoardView` for the moulding
@@ -166,14 +178,15 @@ The assembly side is being built in stages; **0 and 1 are done**.
 | --- | --- | --- |
 | 0 ✅ | Generalise the domain to work centres + departments | no |
 | 1 ✅ | Assembly planning board: areas, routes, release gate, load | no |
-| 2 | MES Live Status: event log, worker start/qty/complete, QR from the paper order | **yes** |
-| 3 | Attendance sync, area allocation, job teams, actual labour hours | yes |
+| 2 ✅ | Assembly Gantt: crew, Due/Expect/Ship, booking, colour bands, predecessors | no |
+| 3 | Persist to the real backend; attendance feed replaces the mock roster | **yes** |
 | 4 | KPI page; actual hours feed back to correct standard hours | yes |
 
-Stage 2 onward needs a real backend — 15 people on shared devices, write-heavy,
-append-only events, live refresh. `persistence/PlanRepository` is already the
-adapter seam: point `VITE_PERSIST_API_URL` at the service and add an
-`ApiPlanRepository`-style client for events/attendance.
+Because output is booked once per shift rather than reported hourly, stage 3
+needs only a modest service — read orders + roster, write the day's plan and
+booked quantities. `persistence/PlanRepository` is already the adapter seam:
+point `VITE_PERSIST_API_URL` at the service (`PersistedPlan.assembly` carries
+crew, pinned starts and booked output).
 
 ## Notes
 
@@ -185,6 +198,8 @@ adapter seam: point `VITE_PERSIST_API_URL` at the service and add an
 - **`xlsx`** is the npm SheetJS build; it carries known advisories and is only
   loaded for the (trusted, internal) Excel source. For production, consider the
   maintained SheetJS CDN build.
-- **Shift calendar.** Bars currently assume a continuous 3-shift (24 h) day;
-  `lib/time` already models 1/2/3-shift stretch for when per-job shift patterns
-  are wired in.
+- **Shift calendar.** Moulding bars assume a continuous 3-shift (24 h) day.
+  Assembly counts **calendar** days on one 8 h shift (0.75 h break); flip
+  `WORKING_DAYS_ONLY` in `domain/assembly.ts` to skip weekends.
+- **Mock dates** are anchored to a fixed epoch and shifted forward on load, so
+  the demo always reads as the current week.
