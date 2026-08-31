@@ -28,6 +28,9 @@ const PREP_LABEL: Record<MaterialPrepStatus, string> = {
   shortage: 'Shortage',
 };
 
+/** Shared empty list so an order with no bookings keeps a stable reference. */
+const NO_ENTRIES: { date: string; qty: number }[] = [];
+
 const isoDay = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
     d.getDate(),
@@ -37,9 +40,12 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
   const row = findOrderRow(board, selectedJobId);
   const recordProgress = usePlanStore((s) => s.recordProgress);
-  const entries = usePlanStore((s) =>
-    selectedJobId ? (s.progress[selectedJobId] ?? []) : [],
-  );
+  // Select the stable map, then read from it. Returning a fresh `[]` from the
+  // selector would give React a new snapshot every render and loop forever.
+  const progressByJob = usePlanStore((s) => s.progress);
+  const entries = selectedJobId
+    ? (progressByJob[selectedJobId] ?? NO_ENTRIES)
+    : NO_ENTRIES;
   const [draft, setDraft] = useState('');
 
   if (!row) {

@@ -1,15 +1,15 @@
 /**
- * The planner's working state: which jobs sit on which line, in what order.
+ * The planner's working state: which orders sit on which line, who is on them,
+ * where their bar starts, and what each shift booked.
  *
- * Everything is modelled as named "containers" of job ids — one per machine
- * plus a special pool of un-scheduled jobs — which makes drag-and-drop between
- * lanes and the pool uniform. The derived timeline (start/end, changeovers,
- * material) is computed separately in `selectors.ts`; this store only owns the
- * ordering.
+ * Placement is modelled as named "containers" of job ids — one per line plus a
+ * pool of un-assigned orders — which makes drag-and-drop uniform. The derived
+ * schedule (start, Expect Date, colour) is computed in
+ * `engine/assembly/board.ts`; this store only owns the inputs.
  */
 
 import { create } from 'zustand';
-import type { JobId, WorkCenterId } from '@/domain/ids';
+import type { JobId } from '@/domain/ids';
 import type { Job, WorkCenter } from '@/domain/types';
 import { MAX_WORKERS_PER_ORDER } from '@/domain/assembly';
 
@@ -20,8 +20,6 @@ export type Containers = Record<string, JobId[]>;
 
 interface PlanState {
   containers: Containers;
-  /** Per-line breakdown/delay offset in hours; shifts the whole lane right. */
-  laneDelays: Record<string, number>;
   initialized: boolean;
 
   /** Job id → allocated worker ids (assembly; capped at four). */
@@ -41,12 +39,6 @@ interface PlanState {
   reconcile: (workCenters: WorkCenter[], jobs: Job[]) => void;
   /** Replace the whole layout (e.g. loaded from persistence). */
   setContainers: (containers: Containers) => void;
-  /** Nudge a line's delay by a relative amount of hours (clamped ≥ 0). */
-  adjustLaneDelay: (workCenterId: WorkCenterId, deltaHours: number) => void;
-  /** Remove a line's delay. */
-  clearLaneDelay: (workCenterId: WorkCenterId) => void;
-  /** Replace all lane delays (e.g. loaded from persistence). */
-  setLaneDelays: (delays: Record<string, number>) => void;
   /** Put a worker on an order (no-op when full or already on it). */
   assignWorker: (jobId: JobId, workerId: string) => void;
   /** Take a worker off an order. */
@@ -104,7 +96,6 @@ function withoutJob(containers: Containers, jobId: JobId): Containers {
 
 export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
-  laneDelays: {},
   orderWorkers: {},
   orderStarts: {},
   progress: {},
@@ -140,11 +131,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         placed.add(String(job.id));
       }
 
-      // Drop delays and crew sizes for work centres that no longer exist.
-      const laneDelays: Record<string, number> = {};
-      for (const [k, v] of Object.entries(state.laneDelays)) {
-        if (known.has(k) && v > 0) laneDelays[k] = v;
-      }
       const keep = <T,>(src: Record<string, T>): Record<string, T> => {
         const out: Record<string, T> = {};
         for (const [k, v] of Object.entries(src)) {
@@ -165,7 +151,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
       return {
         containers: next,
-        laneDelays,
         orderWorkers,
         orderStarts: keep(state.orderStarts),
         progress: keep(state.progress),
@@ -178,28 +163,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ containers, initialized: true });
   },
 
-  adjustLaneDelay(machineId, deltaHours) {
-    const key = String(machineId);
-    set((state) => {
-      const next = Math.max(0, (state.laneDelays[key] ?? 0) + deltaHours);
-      const laneDelays = { ...state.laneDelays };
-      if (next === 0) delete laneDelays[key];
-      else laneDelays[key] = next;
-      return { laneDelays };
-    });
-  },
-
-  clearLaneDelay(machineId) {
-    set((state) => {
-      const laneDelays = { ...state.laneDelays };
-      delete laneDelays[String(machineId)];
-      return { laneDelays };
-    });
-  },
-
-  setLaneDelays(delays) {
-    set({ laneDelays: { ...delays } });
-  },
 
   assignWorker(jobId, workerId) {
     set((state) => {
@@ -274,7 +237,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   reset(workCenters, jobs) {
     set({
       containers: seed(workCenters, jobs),
-      laneDelays: {},
       orderWorkers: {},
       orderStarts: {},
       progress: {},

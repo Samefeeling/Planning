@@ -15,12 +15,15 @@ export function OrderBar({
   row,
   horizonStart,
   dayWidth,
+  readOnly = false,
   selected,
   onSelect,
 }: {
   row: OrderRow;
   horizonStart: Date;
   dayWidth: number;
+  /** PMD rows mirror the moulding plan — shown, never scheduled here. */
+  readOnly?: boolean;
   selected: boolean;
   onSelect: (jobId: string) => void;
 }) {
@@ -49,7 +52,7 @@ export function OrderBar({
       ref={setNodeRef}
       className={`bar ${row.status.color} ${selected ? 'selected' : ''} ${
         isDragging ? 'dragging' : ''
-      }`}
+      } ${readOnly ? 'readonly' : ''}`}
       style={{
         left,
         width,
@@ -59,8 +62,8 @@ export function OrderBar({
       title={`${row.job.id} · ${row.days.toFixed(1)} d with ${
         row.workers.length
       } · ${row.status.reason}`}
-      {...listeners}
-      {...attributes}
+      {...(readOnly ? {} : listeners)}
+      {...(readOnly ? {} : attributes)}
     >
       {done > 0 && (
         <div className="bar-progress" style={{ width: `${done * 100}%` }} />

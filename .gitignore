@@ -22,3 +22,6 @@ yarn-error.log*
 coverage/
 .vite/
 *.tsbuildinfo
+
+# local browser-diagnostic scratch
+.diag/

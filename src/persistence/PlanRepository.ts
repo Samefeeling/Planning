@@ -11,8 +11,6 @@ export interface PersistedPlan {
   /** ISO timestamp. */
   savedAt: string;
   containers: Containers;
-  /** Per-line breakdown/delay offsets in hours. */
-  laneDelays?: Record<string, number>;
   /** Assembly plan: crew per order, pinned starts, booked output. */
   assembly?: {
     orderWorkers?: Record<string, string[]>;
