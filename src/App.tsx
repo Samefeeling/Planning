@@ -44,6 +44,7 @@ export default function App() {
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderStarts = usePlanStore((s) => s.orderStarts);
   const progress = usePlanStore((s) => s.progress);
+  const production = usePlanStore((s) => s.production);
 
   const board = useAssemblyGantt();
   const dnd = useDragDrop();
@@ -86,11 +87,11 @@ export default function App() {
         name: 'Working plan',
         savedAt: new Date().toISOString(),
         containers,
-        assembly: { orderWorkers, orderStarts, progress },
+        assembly: { orderWorkers, orderStarts, progress, production },
       });
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
-  }, [containers, orderWorkers, orderStarts, progress]);
+  }, [containers, orderWorkers, orderStarts, progress, production]);
 
   const activeJob =
     dnd.activeJobId && board ? board.jobsById.get(dnd.activeJobId) : null;
