@@ -269,6 +269,24 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
         <span>{attendance.map((worker) => worker.name).join(' · ') || 'Attendance awaiting API'}</span>
       </div>
 
+      <div className="board-tools">
+        <strong>Timeline zoom</strong>
+        <button onClick={() => setDayWidth((w) => Math.max(44, w - 16))} aria-label="Zoom out">−</button>
+        <input aria-label="Timeline scale" type="range" min="44" max="160" step="4" value={dayWidth} onChange={(e) => setDayWidth(Number(e.target.value))} />
+        <button onClick={() => setDayWidth((w) => Math.min(160, w + 16))} aria-label="Zoom in">+</button>
+        <span>{dayWidth}px / day</span>
+        {Object.entries(visibleDates).filter(([, visible]) => !visible).map(([key]) => (
+          <button className="date-restore" key={key} onClick={() => toggleDate(key as keyof typeof visibleDates)}>+ {key}</button>
+        ))}
+      </div>
+
+      <div className="attendance-row">
+        <strong>Today on site</strong>
+        <span className="attendance-count">{attendance.length} / {board.workers.length}</span>
+        <span className="attendance-count">{allocatedOnSite} allocated · {allocationCoverage}% coverage</span>
+        <span>{attendance.map((worker) => worker.name).join(' · ') || 'Attendance awaiting API'}</span>
+      </div>
+
       <div className="assy-head">
         <div className="acell order">Order</div>
         {visibleDates.due && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Due Date</span><button onClick={() => toggleDate('due')} title="Hide Due Date">−</button></div>}
