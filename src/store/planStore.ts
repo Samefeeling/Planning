@@ -18,6 +18,29 @@ export const POOL_ID = '__pool__';
 
 export type Containers = Record<string, JobId[]>;
 
+export type PauseReason =
+  | 'material-shortage'
+  | 'waiting-previous-stage'
+  | 'equipment'
+  | 'quality'
+  | 'labour-reallocated';
+
+/** One daily ASSY_Production booking, shaped for downstream KPI.ts use. */
+export interface ProductionEntry {
+  date: string;
+  /** Quantity confirmed complete during the shift. */
+  complete: number;
+  reject: number;
+  rework: number;
+  /** Total output reported by the shift, including pieces awaiting disposition. */
+  shiftOutput: number;
+  paused: boolean;
+  pauseReason: PauseReason | null;
+  /** Explicit supervisor confirmation that no more work remains on this job. */
+  jobCompleted: boolean;
+  notes: string;
+}
+
 interface PlanState {
   containers: Containers;
   initialized: boolean;
@@ -28,6 +51,7 @@ interface PlanState {
   orderStarts: Record<string, string>;
   /** Job id → end-of-shift completed-quantity entries. */
   progress: Record<string, { date: string; qty: number }[]>;
+  production: Record<string, ProductionEntry[]>;
 
   /** Seed lanes from each job's home work centre; the rest go to the pool. */
   initFromDataset: (workCenters: WorkCenter[], jobs: Job[]) => void;
@@ -47,11 +71,13 @@ interface PlanState {
   setOrderStart: (jobId: JobId, isoDay: string | null) => void;
   /** Record the quantity finished on a given day (replaces that day's entry). */
   recordProgress: (jobId: JobId, isoDay: string, qty: number) => void;
+  recordProduction: (jobId: JobId, entry: ProductionEntry) => void;
   /** Replace the assembly plan wholesale (e.g. loaded from persistence). */
   setAssemblyPlan: (plan: {
     orderWorkers?: Record<string, string[]>;
     orderStarts?: Record<string, string>;
     progress?: Record<string, { date: string; qty: number }[]>;
+    production?: Record<string, ProductionEntry[]>;
   }) => void;
   /** Move a job into `toContainer` at `toIndex` (end if omitted). */
   moveJob: (jobId: JobId, toContainer: string, toIndex?: number) => void;
@@ -99,6 +125,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   orderWorkers: {},
   orderStarts: {},
   progress: {},
+  production: {},
   initialized: false,
 
   initFromDataset(workCenters, jobs) {
@@ -154,6 +181,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         orderWorkers,
         orderStarts: keep(state.orderStarts),
         progress: keep(state.progress),
+        production: keep(state.production),
         initialized: true,
       };
     });
@@ -212,11 +240,27 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     });
   },
 
+  recordProduction(jobId, entry) {
+    set((state) => {
+      const key = String(jobId);
+      const entries = (state.production[key] ?? []).filter(
+        (existing) => existing.date !== entry.date,
+      );
+      return {
+        production: {
+          ...state.production,
+          [key]: [...entries, entry].sort((a, b) => a.date.localeCompare(b.date)),
+        },
+      };
+    });
+  },
+
   setAssemblyPlan(plan) {
     set((state) => ({
       orderWorkers: plan.orderWorkers ?? state.orderWorkers,
       orderStarts: plan.orderStarts ?? state.orderStarts,
       progress: plan.progress ?? state.progress,
+      production: plan.production ?? state.production,
     }));
   },
 
@@ -240,6 +284,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       orderWorkers: {},
       orderStarts: {},
       progress: {},
+      production: {},
       initialized: true,
     });
   },

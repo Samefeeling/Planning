@@ -8,6 +8,8 @@
     "node": "^18.0.0 || ^20.0.0 || >=22.0.0"
   },
   "scripts": {
+    "doctor": "node scripts/doctor.mjs",
+    "predev": "node scripts/doctor.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

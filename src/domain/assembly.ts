@@ -108,6 +108,8 @@ export interface Worker {
   position?: string;
   /** Who they report to; shown so the supervisor picks from their own people. */
   supervisor?: string;
+  /** ISO days the worker is unavailable; supplied by the future attendance API. */
+  plannedLeave?: string[];
 }
 
 /** Nobody is allocated to more than this many orders' worth of work at once. */

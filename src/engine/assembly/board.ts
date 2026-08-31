@@ -58,6 +58,8 @@ export interface OrderRow {
   waitingOnPredecessor: boolean;
   /** Smallest crew that would hit the ship date, when one exists. */
   crewToHitShip: number | null;
+  /** Explicitly closed during today's shift; retained until tomorrow for confirmation. */
+  completedToday: boolean;
 }
 
 export interface LineGroup {
@@ -97,6 +99,8 @@ export interface AssemblyInputs {
   orderStarts: Record<string, string>;
   /** Job id → end-of-shift completed-quantity entries. */
   progress: Record<string, { date: string; qty: number }[]>;
+  /** Daily production confirmations, including explicit job completion. */
+  production?: Record<string, { date: string; jobCompleted: boolean }[]>;
   workers: Worker[];
   today: Date;
 }
@@ -146,6 +150,7 @@ function mouldingContextRows(
         predecessor: null,
         waitingOnPredecessor: false,
         crewToHitShip: null,
+        completedToday: false,
       };
     });
 }
@@ -154,6 +159,14 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const { dataset, indexes, containers, orderWorkers, orderStarts, today } =
     input;
   const progress = input.progress ?? {};
+  const production = input.production ?? {};
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const completionDate = (job: Job): string | null =>
+    (production[String(job.id)] ?? [])
+      .filter((entry) => entry.jobCompleted)
+      .map((entry) => entry.date)
+      .sort()
+      .at(-1) ?? null;
 
   /**
    * Fold the shift's completed-quantity entries into the order, so the bar
@@ -175,6 +188,9 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
 
   const assemblyJobs = dataset.jobs
     .filter((j) => j.department === 'assembly')
+    // A completed order remains grey for the confirmation day, then leaves
+    // both the lanes and the unassigned pool on the next calendar day.
+    .filter((j) => !completionDate(j) || completionDate(j)! >= todayKey)
     .map(withProgress);
   const jobsById = new Map(assemblyJobs.map((j) => [String(j.id), j]));
   const workersById = new Map(input.workers.map((w) => [String(w.id), w]));
@@ -216,6 +232,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       .filter((w): w is Worker => Boolean(w));
 
     const days = durationDays(job, workers.length);
+    const completedToday = completionDate(job) === todayKey;
 
     // Earliest start: the line's queue, the planner's drag, the predecessor.
     const cursor = lineCursor.get(String(line.id)) ?? horizonStart;
@@ -242,16 +259,27 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       start = startOfDay(material.earliestStart);
     }
 
-    const expectDate = days === null ? null : addDays(start, days);
-    const status = scheduleStatus(expectDate, job.shipDate, job.dueDate);
+    const expectDate = completedToday
+      ? horizonStart
+      : days === null
+        ? null
+        : addDays(start, days);
+    const status = completedToday
+      ? {
+          color: 'grey' as const,
+          shipSlackDays: null,
+          dueSlackDays: null,
+          reason: 'Job completed today',
+        }
+      : scheduleStatus(expectDate, job.shipDate, job.dueDate);
 
     const row: OrderRow = {
       job,
       line,
       workers,
-      start: days === null ? null : start,
+      start: completedToday ? horizonStart : days === null ? null : start,
       expectDate,
-      days,
+      days: completedToday ? 0 : days,
       dailyTarget: dailyTargetQty(job, workers.length),
       status,
       material,
@@ -267,10 +295,11 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
             ),
           )
         : null,
+      completedToday,
     };
 
     rowsByJob.set(id, row);
-    if (expectDate) lineCursor.set(String(line.id), expectDate);
+    if (expectDate && !completedToday) lineCursor.set(String(line.id), expectDate);
     return row;
   };
 

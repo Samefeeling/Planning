@@ -11,6 +11,7 @@ import { computeAssemblyGantt } from '@/engine/assembly/board';
 import { usePlanStore } from '@/store/planStore';
 import { LINES } from '@/domain/assembly';
 import type { PlanningDataset } from '@/domain/types';
+import type { ProductionEntry } from '@/store/planStore';
 
 let dataset: PlanningDataset;
 
@@ -26,6 +27,7 @@ function build(over: {
   orderWorkers?: Record<string, string[]>;
   orderStarts?: Record<string, string>;
   progress?: Record<string, { date: string; qty: number }[]>;
+  production?: Record<string, ProductionEntry[]>;
 } = {}) {
   const indexes = buildIndexes(dataset);
   usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
@@ -37,6 +39,7 @@ function build(over: {
     orderWorkers: over.orderWorkers ?? state.orderWorkers,
     orderStarts: over.orderStarts ?? {},
     progress: over.progress ?? {},
+    production: over.production ?? {},
     workers: dataset.workers,
     today: TODAY,
   });
@@ -120,6 +123,38 @@ describe('assembly Gantt (mock data)', () => {
 
     expect(after.job.completedQty).toBeGreaterThan(row!.job.completedQty);
     expect(after.days!).toBeLessThan(row!.days!);
+  });
+
+  it('greys a completed job today and removes it the following day', () => {
+    const base = build();
+    const row = [...base.rowsByJob.values()][0];
+    const completed: ProductionEntry = {
+      date: '2026-09-11',
+      shiftOutput: 8,
+      complete: 8,
+      reject: 0,
+      rework: 0,
+      paused: false,
+      pauseReason: null,
+      jobCompleted: true,
+      notes: '',
+    };
+    const today = build({ production: { [String(row.job.id)]: [completed] } });
+    expect(today.rowsByJob.get(String(row.job.id))?.completedToday).toBe(true);
+    expect(today.rowsByJob.get(String(row.job.id))?.status.color).toBe('grey');
+
+    const tomorrow = computeAssemblyGantt({
+      dataset,
+      indexes: buildIndexes(dataset),
+      containers: usePlanStore.getState().containers,
+      orderWorkers: usePlanStore.getState().orderWorkers,
+      orderStarts: {},
+      progress: {},
+      production: { [String(row.job.id)]: [completed] },
+      workers: dataset.workers,
+      today: new Date('2026-09-12T00:00:00'),
+    });
+    expect(tomorrow.jobsById.has(String(row.job.id))).toBe(false);
   });
 
   it('starts a successor only after its predecessor finishes', () => {

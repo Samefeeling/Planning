@@ -52,6 +52,18 @@ describe('parseOperators', () => {
     expect(v[0].onShift).toBe(false);
   });
 
+  it('reads planned annual leave for future load-rate capacity', () => {
+    const { values: v } = parseOperators([
+      {
+        id: '10',
+        Operator: 'Leave P.',
+        Skills: 'ASSY',
+        PlannedAnnualLeave: '2026-09-14; 2026-09-15',
+      },
+    ]);
+    expect(v[0].plannedLeave).toEqual(['2026-09-14', '2026-09-15']);
+  });
+
   it('matches columns however they are cased or spaced', () => {
     const { values: v } = parseOperators([
       { id: '4', Title: 'Legacy Row', skills: 'upl', 'Team Leader': 'Mei' },
