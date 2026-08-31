@@ -198,20 +198,6 @@ export interface PlanningDataset {
 // Computed / derived (engine outputs) — see engine/*
 // ---------------------------------------------------------------------------
 
-export type ChangeoverKind = 'tool' | 'color' | 'insert';
-
-/** Why and how long a changeover between two adjacent jobs takes. */
-export interface ChangeoverInfo {
-  required: boolean;
-  kinds: ChangeoverKind[];
-  /** Total setup minutes added before the job can run. */
-  minutes: number;
-  /** Short human summary, e.g. "D/C → Ned stool, colour purge". */
-  summary: string;
-  fromTool: ToolId | null;
-  toTool: ToolId | null;
-}
-
 export type MaterialStatusLevel = 'ok' | 'short' | 'covered' | 'unknown';
 
 /** Shortage detail for a single component of a job. */
@@ -232,40 +218,4 @@ export interface MaterialStatus {
   /** Earliest date all components are available (null = ready now). */
   earliestStart: Date | null;
   shortages: ComponentShortage[];
-}
-
-/** Severity buckets for plan validation messages. */
-export type WarningSeverity = 'error' | 'warning' | 'info';
-
-export interface PlanWarning {
-  jobId: JobId;
-  severity: WarningSeverity;
-  code:
-    | 'not-routable'
-    | 'material-short'
-    | 'due-date-risk'
-    | 'no-labor-hours'
-    | 'unassigned';
-  message: string;
-}
-
-/**
- * A job placed on the timeline of a specific machine — the unit the Gantt
- * renders. Produced by `store/selectors` from the plan + engine.
- */
-export interface ScheduledJob {
-  job: Job;
-  machine: MachineId;
-  /** Zero-based position within the lane. */
-  index: number;
-  /** Wall-clock window the bar occupies. */
-  start: Date;
-  end: Date;
-  /** Run time (hours) excluding setup — the productive part of the bar. */
-  runHours: number;
-  changeover: ChangeoverInfo;
-  material: MaterialStatus;
-  /** Routing chosen for this (part, machine), if one exists. */
-  routing: RoutingEntry | null;
-  warnings: PlanWarning[];
 }

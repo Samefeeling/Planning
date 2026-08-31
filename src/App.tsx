@@ -1,75 +1,32 @@
 /**
  * Application shell: loads data, bootstraps/persists the plan, wires the global
- * drag-and-drop context, and lays out the board, job pool and inspector.
+ * drag-and-drop context, and lays out the assembly board, order pool and
+ * inspector.
  */
 
 import { useEffect, useRef } from 'react';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
-import type { Department } from '@/domain/types';
 import { useDataStore } from '@/store/dataStore';
 import { usePlanStore } from '@/store/planStore';
-import { useUiStore } from '@/store/uiStore';
-import { findScheduledJob, useBoardView } from '@/store/selectors';
 import { useAssemblyGantt } from '@/store/assemblySelectors';
 import { createPlanRepository, CURRENT_PLAN_ID } from '@/persistence';
-import { useDragDrop } from '@/features/gantt/useDragDrop';
-import { GanttBoard } from '@/features/gantt/GanttBoard';
-import { JobCardBody } from '@/features/gantt/JobCard';
-import { JobPool } from '@/features/jobpool/JobPool';
-import { JobInspector } from '@/features/inspector/JobInspector';
-import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
-import { RefreshControl } from '@/features/refresh/RefreshControl';
+import { useDragDrop } from '@/features/assembly/useDragDrop';
 import { AssemblyGantt } from '@/features/assembly/AssemblyGantt';
 import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
-import { buildEpicorRows, toTsv } from '@/engine/epicorExport';
-import { Badge, Button, Spinner } from '@/ui';
+import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
+import { RefreshControl } from '@/features/refresh/RefreshControl';
+import { ORDER_TYPE_SHORT } from '@/domain/assembly';
+import { Badge, Spinner } from '@/ui';
 
 const repo = createPlanRepository();
 
-function Legend({ department }: { department: Department }) {
-  if (department === 'assembly') {
-    return (
-      <div className="legend">
-        <Badge variant="ok">Ready</Badge>
-        <Badge variant="warn">Waiting material / kit</Badge>
-        <Badge variant="error">Blocked</Badge>
-      </div>
-    );
-  }
+function Legend() {
   return (
     <div className="legend">
-      <Badge variant="ok">Material OK</Badge>
-      <Badge variant="warn">PO covers</Badge>
-      <Badge variant="error">Short</Badge>
-      <Badge variant="tool">Die</Badge>
-      <Badge variant="color">Colour</Badge>
-      <Badge variant="insert">Insert</Badge>
-    </div>
-  );
-}
-
-const DEPARTMENTS: { id: Department; label: string }[] = [
-  { id: 'moulding', label: 'Moulding (PMD)' },
-  { id: 'assembly', label: 'Assembly' },
-];
-
-function DepartmentTabs() {
-  const department = useUiStore((s) => s.department);
-  const setDepartment = useUiStore((s) => s.setDepartment);
-  return (
-    <div className="tabs" role="tablist">
-      {DEPARTMENTS.map((d) => (
-        <button
-          key={d.id}
-          role="tab"
-          aria-selected={department === d.id}
-          className={`tab ${department === d.id ? 'active' : ''}`}
-          onClick={() => setDepartment(d.id)}
-        >
-          {d.label}
-        </button>
-      ))}
+      <Badge variant="ok">On ship date</Badge>
+      <Badge variant="warn">Past ship</Badge>
+      <Badge variant="error">Past due</Badge>
     </div>
   );
 }
@@ -82,17 +39,11 @@ export default function App() {
   const sourceName = useDataStore((s) => s.source.name);
 
   const containers = usePlanStore((s) => s.containers);
-  const laneDelays = usePlanStore((s) => s.laneDelays);
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderStarts = usePlanStore((s) => s.orderStarts);
   const progress = usePlanStore((s) => s.progress);
-  const department = useUiStore((s) => s.department);
-  const pxPerHour = useUiStore((s) => s.pxPerHour);
-  const setPx = useUiStore((s) => s.setPxPerHour);
 
-  const board = useBoardView();
-  const assembly = useAssemblyGantt();
-  const isAssembly = department === 'assembly';
+  const board = useAssemblyGantt();
   const dnd = useDragDrop();
   const refresh = useScheduledRefresh();
 
@@ -117,14 +68,13 @@ export default function App() {
       .load()
       .then((persisted) => {
         if (persisted?.containers) plan.setContainers(persisted.containers);
-        if (persisted?.laneDelays) plan.setLaneDelays(persisted.laneDelays);
         if (persisted?.assembly) plan.setAssemblyPlan(persisted.assembly);
         plan.reconcile(dataset.workCenters, dataset.jobs);
       })
       .catch(() => plan.reconcile(dataset.workCenters, dataset.jobs));
   }, [status, dataset]);
 
-  // Debounced autosave of the planner's layout (placements + line delays).
+  // Debounced autosave of the planner's layout.
   useEffect(() => {
     if (!bootstrapped.current) return;
     window.clearTimeout(saveTimer.current);
@@ -134,65 +84,23 @@ export default function App() {
         name: 'Working plan',
         savedAt: new Date().toISOString(),
         containers,
-        laneDelays,
         assembly: { orderWorkers, orderStarts, progress },
       });
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
-  }, [containers, laneDelays, orderWorkers, orderStarts, progress]);
+  }, [containers, orderWorkers, orderStarts, progress]);
 
-  const activeJob = dnd.activeJobId
-    ? (board?.jobsById.get(dnd.activeJobId) ??
-      assembly?.jobsById.get(dnd.activeJobId) ??
-      null)
-    : null;
-  const activeScheduled = activeJob
-    ? findScheduledJob(board, dnd.activeJobId)
-    : null;
-
-  const copyToEpicor = async () => {
-    if (!board) return;
-    const tsv = toTsv(buildEpicorRows(board.lanes));
-    try {
-      await navigator.clipboard.writeText(tsv);
-    } catch {
-      // Clipboard blocked (e.g. insecure context) — surface the text instead.
-      window.prompt('Copy the Epicor return rows:', tsv);
-    }
-  };
+  const activeJob =
+    dnd.activeJobId && board ? board.jobsById.get(dnd.activeJobId) : null;
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>Resero Planning</h1>
-        <DepartmentTabs />
+        <span className="sub">Assembly schedule</span>
         <Badge variant="info">{sourceName}</Badge>
         <div className="spacer" />
-        <Legend department={department} />
-        {!isAssembly && (
-          <div className="zoom">
-            <span className="sub">Zoom</span>
-            <Button
-              icon
-              onClick={() => setPx(pxPerHour - 3)}
-              aria-label="Zoom out"
-            >
-              −
-            </Button>
-            <Button
-              icon
-              onClick={() => setPx(pxPerHour + 3)}
-              aria-label="Zoom in"
-            >
-              +
-            </Button>
-          </div>
-        )}
-        {!isAssembly && (
-          <Button onClick={() => void copyToEpicor()} disabled={!board}>
-            Copy → Epicor
-          </Button>
-        )}
+        <Legend />
         <RefreshControl onRefresh={() => void refresh()} />
       </header>
 
@@ -206,57 +114,38 @@ export default function App() {
         onDragCancel={dnd.onDragCancel}
       >
         <div className="app-body">
-          <div className={isAssembly ? 'board-pane assembly-pane' : 'board-pane'}>
-            {isAssembly ? (
-              assembly ? (
-                <AssemblyGantt board={assembly} />
-              ) : (
-                <div className="center-fill">
-                  <Spinner />
-                  <span>Loading assembly orders…</span>
-                </div>
-              )
-            ) : board ? (
-              <GanttBoard board={board} />
+          <div className="board-pane assembly-pane">
+            {board ? (
+              <AssemblyGantt board={board} />
             ) : (
               <div className="center-fill">
                 <Spinner />
-                <span>Loading schedule…</span>
+                <span>Loading assembly orders…</span>
               </div>
             )}
           </div>
           <aside className="side-pane">
-            {isAssembly ? (
-              assembly && (
-                <>
-                  <AssemblyPool board={assembly} />
-                  <AssemblyInspector board={assembly} />
-                </>
-              )
-            ) : (
-              board && (
-                <>
-                  <JobPool jobs={board.pool} />
-                  <JobInspector board={board} />
-                </>
-              )
+            {board && (
+              <>
+                <AssemblyPool board={board} />
+                <AssemblyInspector board={board} />
+              </>
             )}
           </aside>
         </div>
 
         <DragOverlay dropAnimation={null}>
           {activeJob ? (
-            <div
-              className={`job compact ${
-                activeScheduled ? `mat-${activeScheduled.material.level}` : ''
-              }`}
-              style={{ cursor: 'grabbing' }}
-            >
-              <JobCardBody
-                job={activeJob}
-                scheduled={activeScheduled ?? undefined}
-                variant="pool"
-              />
+            <div className="ord" style={{ cursor: 'grabbing', width: 240 }}>
+              <div className="ord-head">
+                <span className="ord-job">{String(activeJob.id)}</span>
+                {activeJob.orderType && (
+                  <span className="ord-type">
+                    {ORDER_TYPE_SHORT[activeJob.orderType]}
+                  </span>
+                )}
+              </div>
+              <div className="ord-desc">{activeJob.description}</div>
             </div>
           ) : null}
         </DragOverlay>

@@ -11,10 +11,8 @@ import type {
   PlanningDataset,
   PoLine,
 } from '@/domain/types';
-import { buildRoutingIndex, type RoutingIndex } from './routing';
 
 export interface DataIndexes {
-  routing: RoutingIndex;
   inventoryByPart: Map<PartId, InventoryItem>;
   poByPart: Map<PartId, PoLine[]>;
   /** Keyed by job number string. */
@@ -35,13 +33,12 @@ function groupBy<T, K>(items: T[], keyOf: (t: T) => K | null): Map<K, T[]> {
 }
 
 export function buildIndexes(
-  data: Pick<PlanningDataset, 'routing' | 'inventory' | 'po' | 'bom'>,
+  data: Pick<PlanningDataset, 'inventory' | 'po' | 'bom'>,
 ): DataIndexes {
   const inventoryByPart = new Map<PartId, InventoryItem>();
   for (const i of data.inventory) inventoryByPart.set(i.partNum, i);
 
   return {
-    routing: buildRoutingIndex(data.routing),
     inventoryByPart,
     poByPart: groupBy(data.po, (p) => p.partNum),
     bomByJob: groupBy(data.bom, (b) => (b.jobNum ? String(b.jobNum) : null)),
