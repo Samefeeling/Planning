@@ -15,6 +15,8 @@ interface DataState {
   dataset: PlanningDataset | null;
   indexes: DataIndexes | null;
   error: string | null;
+  /** Non-fatal source problems from the last load. */
+  warnings: string[];
   source: DataSource;
 
   /** Fetch everything from the current source and rebuild indexes. */
@@ -28,24 +30,29 @@ export const useDataStore = create<DataState>((set, get) => ({
   dataset: null,
   indexes: null,
   error: null,
+  warnings: [],
   source: createDataSource(),
 
   async load() {
-    set({ status: 'loading', error: null });
-    const result = await get().source.loadAll();
+    set({ status: 'loading', error: null, warnings: [] });
+    const source = get().source;
+    const result = await source.loadAll();
+    // Collected during the load, so read them after it settles.
+    const warnings = [...(source.warnings ?? [])];
     if (result.ok) {
       set({
         status: 'ready',
         dataset: result.value,
         indexes: buildIndexes(result.value),
         error: null,
+        warnings,
       });
     } else {
-      set({ status: 'error', error: result.error });
+      set({ status: 'error', error: result.error, warnings });
     }
   },
 
   setSource(source) {
-    set({ source });
+    set({ source, warnings: [] });
   },
 }));

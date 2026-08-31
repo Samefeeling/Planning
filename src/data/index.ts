@@ -1,9 +1,9 @@
 /**
  * Composition root for the data layer: pick a source from configuration.
- *   VITE_DATA_SOURCE = "mock" (default) | "excel"
+ *   VITE_DATA_SOURCE = "mock" (default) | "planning-csv" | "excel"
  *
  * The live Excel source (and its heavy SheetJS dependency) is loaded lazily, so
- * the default mock build doesn't ship the parser.
+ * neither the mock nor the CSV build ships the parser.
  */
 
 import type {
@@ -18,8 +18,9 @@ import type {
 import type { Worker } from '@/domain/assembly';
 import { BaseDataSource, type DataSource } from './DataSource';
 import { MockSource } from './mock/MockSource';
+import { PlanningCsvSource } from './csv/PlanningCsvSource';
 
-export type DataSourceKind = 'mock' | 'excel';
+export type DataSourceKind = 'mock' | 'planning-csv' | 'excel';
 
 /**
  * Defers loading `SharePointExcelSource` (and `xlsx`) until the first fetch,
@@ -66,6 +67,8 @@ export function createDataSource(
     'mock',
 ): DataSource {
   switch (kind) {
+    case 'planning-csv':
+      return new PlanningCsvSource();
     case 'excel':
       return new LazyExcelSource();
     case 'mock':

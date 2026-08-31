@@ -44,6 +44,9 @@ function Summary({ board }: { board: AssemblyGanttView }) {
       <span className="pill green">{totals.green} on ship date</span>
       <span className="pill orange">{totals.orange} past ship</span>
       <span className="pill red">{totals.red} past due</span>
+      {totals.needsCrew > 0 && (
+        <span className="pill grey">{totals.needsCrew} need crew</span>
+      )}
       <span className="pill grey">{board.pool.length} unassigned</span>
     </div>
   );

@@ -1,0 +1,114 @@
+/**
+ * The shift roster from the SharePoint list `ASSY_Operator`.
+ *
+ * Columns: Operator | Position | Skills | Supervisor.
+ *
+ * `Skills` decides who may be allocated to an order, so it is normalised onto
+ * the four line keys. It is written by hand, and a multi-choice column comes
+ * back from Graph as an array while a text column comes back as one delimited
+ * string — both are accepted, as are the long names people actually type
+ * ("Upholstery", "Final Assembly") alongside the short codes.
+ *
+ * Attendance is *not* in the list — the supervisor confirms who is in each
+ * morning — so everyone is on shift unless the list grows an `OnShift` column.
+ */
+
+import { WorkerId } from '@/domain/ids';
+import type { LineKey, Worker } from '@/domain/assembly';
+import type { ListItemFields } from './lists.client';
+import type { ParseOutcome } from '@/data/excel/parsers/types';
+
+/** Column aliases, most-specific first; matched case/separator-insensitively. */
+const COLUMNS = {
+  operator: ['Operator', 'OperatorName', 'FullName', 'Name', 'Title'],
+  position: ['Position', 'Role', 'JobTitle'],
+  skills: ['Skills', 'Skill', 'SkillSet', 'Lines'],
+  supervisor: ['Supervisor', 'Manager', 'TeamLeader'],
+  onShift: ['OnShift', 'Active', 'Present'],
+} as const;
+
+type Column = keyof typeof COLUMNS;
+
+const norm = (s: string): string => s.replace(/[\s_.-]+/g, '').toLowerCase();
+
+/** What people write in the Skills column → the line it qualifies them for. */
+const SKILL_TO_LINE: [RegExp, LineKey][] = [
+  [/^(upl|uph|upholster|cutting|sewing|cutsew|cut&sew)/, 'UPL'],
+  [/^(table|tbl)/, 'TABLE'],
+  [/^(assy|assembl|finalassembl|sofa|chair)/, 'ASSY'],
+  [/^(pmd|mould|mold|press)/, 'PMD'],
+];
+
+function readSkills(raw: unknown): LineKey[] {
+  const parts = Array.isArray(raw)
+    ? raw.map(String)
+    : String(raw ?? '').split(/[,;/|+]+/);
+
+  const out: LineKey[] = [];
+  for (const part of parts) {
+    const key = norm(part);
+    if (!key) continue;
+    const hit = SKILL_TO_LINE.find(([re]) => re.test(key));
+    if (hit && !out.includes(hit[1])) out.push(hit[1]);
+  }
+  return out;
+}
+
+/** Pick a field by any of its accepted names. */
+function field(row: ListItemFields, column: Column): unknown {
+  const byName = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(row)) {
+    const key = norm(k);
+    if (!byName.has(key)) byName.set(key, v);
+  }
+  for (const name of COLUMNS[column]) {
+    const v = byName.get(norm(name));
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
+}
+
+const text = (v: unknown): string => (v === undefined ? '' : String(v).trim());
+
+export function parseOperators(rows: ListItemFields[]): ParseOutcome<Worker> {
+  const values: Worker[] = [];
+  const errors: string[] = [];
+  const seen = new Set<string>();
+
+  rows.forEach((row, i) => {
+    const name = text(field(row, 'operator'));
+    if (!name) return; // blank row
+
+    // The list item id is the durable key — a rename must not orphan the
+    // allocations already saved against this person.
+    const id = text(row.id) || name;
+    if (seen.has(id)) return;
+    seen.add(id);
+
+    const skills = readSkills(field(row, 'skills'));
+    if (skills.length === 0) {
+      errors.push(
+        `ASSY_Operator row ${i + 1} (${name}): no recognised skill — ` +
+          `cannot be allocated to any line`,
+      );
+    }
+
+    const onShiftRaw = field(row, 'onShift');
+    const position = text(field(row, 'position'));
+    const supervisor = text(field(row, 'supervisor'));
+
+    values.push({
+      id: WorkerId(id),
+      name,
+      skills,
+      onShift:
+        onShiftRaw === undefined
+          ? true
+          : !['false', 'no', 'n', '0'].includes(text(onShiftRaw).toLowerCase()),
+      ...(position ? { position } : {}),
+      ...(supervisor ? { supervisor } : {}),
+    });
+  });
+
+  return { values, errors };
+}

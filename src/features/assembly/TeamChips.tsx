@@ -23,6 +23,12 @@ export function TeamChips({
   const onIt = new Set(row.workers.map((w) => String(w.id)));
   const full = row.workers.length >= MAX_WORKERS_PER_ORDER;
 
+  /** Roster detail for the hover title: "Sewer · reports to Mei". */
+  const detail = (w: Worker): string =>
+    [w.position, w.supervisor && `reports to ${w.supervisor}`]
+      .filter(Boolean)
+      .join(' · ');
+
   // Only people who are in today and qualified for this line.
   const candidates = roster.filter(
     (w) =>
@@ -35,7 +41,9 @@ export function TeamChips({
         <button
           key={String(w.id)}
           className="chip"
-          title={`${w.name} — click to remove`}
+          title={[`${w.name} — click to remove`, detail(w)]
+            .filter(Boolean)
+            .join('\n')}
           onClick={(e) => {
             e.stopPropagation();
             unassign(row.job.id, String(w.id));
@@ -70,13 +78,16 @@ export function TeamChips({
                   <button
                     key={String(w.id)}
                     className="picker-item"
+                    title={detail(w)}
                     onClick={() => {
                       assign(row.job.id, String(w.id));
                       setPicking(false);
                     }}
                   >
                     {w.name}
-                    <span className="picker-skills">{w.skills.join(' · ')}</span>
+                    <span className="picker-skills">
+                      {w.position ?? w.skills.join(' · ')}
+                    </span>
                   </button>
                 ))
               )}

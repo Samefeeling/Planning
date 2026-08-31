@@ -52,8 +52,16 @@ function seedOffsetDays(): number {
 
 const OFFSET_MS = seedOffsetDays() * MS_PER_DAY;
 
-const toDate = (s: string | null | undefined): Date | null =>
-  s ? new Date(new Date(s).getTime() + OFFSET_MS) : null;
+/**
+ * Shift a seed date onto the current week. Returns null for blanks and for the
+ * Excel error strings (`#N/A`) that survive extraction — otherwise they become
+ * an Invalid Date, which is *truthy* and slips past every `if (job.dueDate)`.
+ */
+const toDate = (s: string | null | undefined): Date | null => {
+  if (!s) return null;
+  const t = new Date(s).getTime();
+  return Number.isFinite(t) ? new Date(t + OFFSET_MS) : null;
+};
 
 // Simulate a touch of network latency so loading states are exercised.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
@@ -92,6 +100,7 @@ export class MockSource extends BaseDataSource {
         j.laborHrs ??
         (j.qtyPerHr && j.qtyPerHr > 0 ? (j.remainingQty ?? 0) / j.qtyPerHr : 0),
       dueDate: toDate(j.dueDate),
+      startDate: toDate(j.startDate),
       reqBy: toDate(j.reqBy),
       released: Boolean(j.released),
       priority: j.priority ?? 3,

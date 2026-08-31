@@ -16,6 +16,7 @@ import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
+import { CsvLoader } from '@/features/source/CsvLoader';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { Badge, Spinner } from '@/ui';
 
@@ -36,6 +37,7 @@ export default function App() {
   const error = useDataStore((s) => s.error);
   const dataset = useDataStore((s) => s.dataset);
   const load = useDataStore((s) => s.load);
+  const warnings = useDataStore((s) => s.warnings);
   const sourceName = useDataStore((s) => s.source.name);
 
   const containers = usePlanStore((s) => s.containers);
@@ -101,10 +103,18 @@ export default function App() {
         <Badge variant="info">{sourceName}</Badge>
         <div className="spacer" />
         <Legend />
+        <CsvLoader />
         <RefreshControl onRefresh={() => void refresh()} />
       </header>
 
       {error && <div className="banner">Data error: {error}</div>}
+      {warnings.length > 0 && (
+        <div className="banner warn">
+          {/* Only the first few; the rest are usually the same problem. */}
+          {warnings.slice(0, 3).join(' · ')}
+          {warnings.length > 3 && ` · +${warnings.length - 3} more`}
+        </div>
+      )}
 
       <DndContext
         sensors={dnd.sensors}

@@ -28,6 +28,7 @@ const C = {
   die: 14,
   // Columns to be added to the workbook so one sheet feeds both departments
   // (see README). Absent today, so every row defaults to moulding.
+  startDate: 34,
   department: 35,
   orderType: 36,
   priority: 37,
@@ -103,6 +104,7 @@ export function parseJobs(planning: Sheet): ParseOutcome<Job> {
       qtyPerHr: qtyPerHr ?? null,
       laborHrs,
       dueDate: asDate(row[C.dueDate]),
+      startDate: asDate(row[C.startDate]),
       reqBy: asDate(row[C.reqBy]),
       released: asBool(row[C.released]),
       priority: asNum(row[C.priority]) ?? 3,

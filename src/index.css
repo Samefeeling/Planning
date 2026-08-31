@@ -55,9 +55,14 @@ button {
 }
 
 /* ---- layout ------------------------------------------------------------ */
+/*
+ * Column flex, not `grid-template-rows: auto 1fr` — the row count is not fixed.
+ * A banner between the header and the body would otherwise take the `1fr` and
+ * push the board into an implicit row.
+ */
 .app {
-  display: grid;
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
 }
@@ -85,6 +90,7 @@ button {
 }
 
 .app-body {
+  flex: 1;
   display: grid;
   grid-template-columns: 1fr 320px;
   min-height: 0;
@@ -291,6 +297,12 @@ button {
   color: var(--error);
   font-size: 12px;
   border-bottom: 1px solid var(--border);
+}
+
+/* Source data loaded, but something in it needs the planner's attention. */
+.banner.warn {
+  background: var(--warn-dim);
+  color: var(--warn);
 }
 
 /* ---- assembly gantt ---------------------------------------------------- */

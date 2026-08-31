@@ -22,6 +22,7 @@ const job = (laborHrs: number, remaining: number, done = 0): Job => ({
   qtyPerHr: null,
   laborHrs,
   dueDate: null,
+  startDate: null,
   reqBy: null,
   released: true,
   priority: 3,

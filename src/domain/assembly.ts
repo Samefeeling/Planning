@@ -96,6 +96,7 @@ export const ORDER_TYPE_SHORT: Record<OrderType, string> = {
 // People
 // ---------------------------------------------------------------------------
 
+/** One row of the `ASSY_Operator` SharePoint list. */
 export interface Worker {
   id: WorkerId;
   name: string;
@@ -103,6 +104,10 @@ export interface Worker {
   skills: LineKey[];
   /** On shift today. Attendance is confirmed by the supervisor each morning. */
   onShift: boolean;
+  /** Job title from the roster, e.g. "Upholsterer". */
+  position?: string;
+  /** Who they report to; shown so the supervisor picks from their own people. */
+  supervisor?: string;
 }
 
 /** Nobody is allocated to more than this many orders' worth of work at once. */

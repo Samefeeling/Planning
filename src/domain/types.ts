@@ -142,6 +142,8 @@ export interface Job {
    */
   laborHrs: number;
   dueDate: Date | null;
+  /** Scheduled start from the source system, when it carries one. */
+  startDate: Date | null;
   /** Material "required by" date (planning `Req. By`). */
   reqBy: Date | null;
   released: boolean;

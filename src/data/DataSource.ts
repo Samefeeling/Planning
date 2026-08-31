@@ -21,6 +21,13 @@ export interface DataSource {
   /** Identifier for diagnostics, e.g. "mock" or "sharepoint-excel". */
   readonly name: string;
 
+  /**
+   * Non-fatal problems from the last load — a column that could not be
+   * matched, a person with no usable skill. The data still loaded; these are
+   * shown to the planner so bad source data is visible rather than silent.
+   */
+  readonly warnings?: readonly string[];
+
   fetchWorkCenters(): Promise<WorkCenter[]>;
   fetchJobs(): Promise<Job[]>;
   fetchRouting(): Promise<RoutingEntry[]>;

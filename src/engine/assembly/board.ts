@@ -76,7 +76,14 @@ export interface AssemblyGanttView {
   workers: Worker[];
   rowsByJob: Map<string, OrderRow>;
   jobsById: Map<string, Job>;
-  totals: { orders: number; green: number; orange: number; red: number };
+  totals: {
+    orders: number;
+    green: number;
+    orange: number;
+    red: number;
+    /** Placed on a line but with nobody on them, so they have no dates yet. */
+    needsCrew: number;
+  };
 }
 
 export interface AssemblyInputs {
@@ -105,13 +112,16 @@ function mouldingContextRows(
     earliestStart: null,
     shortages: [],
   };
+  /** When moulding plans to run it: its own start, else its due date. */
+  const plannedStart = (j: Job): Date | null => j.startDate ?? j.dueDate;
+
   return dataset.jobs
-    .filter((j) => j.department === 'moulding' && j.dueDate)
-    .sort((a, b) => (a.dueDate!.getTime() ?? 0) - (b.dueDate!.getTime() ?? 0))
+    .filter((j) => j.department === 'moulding' && plannedStart(j))
+    .sort((a, b) => plannedStart(a)!.getTime() - plannedStart(b)!.getTime())
     .slice(0, 6)
     .map((job) => {
       const days = Math.max(0.25, job.laborHrs / 24);
-      const start = startOfDay(job.dueDate ?? today);
+      const start = startOfDay(plannedStart(job) ?? today);
       return {
         job,
         line,
@@ -303,6 +313,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       green: scheduled.filter((r) => r.status.color === 'green').length,
       orange: scheduled.filter((r) => r.status.color === 'orange').length,
       red: scheduled.filter((r) => r.status.color === 'red').length,
+      needsCrew: scheduled.filter((r) => r.days === null).length,
     },
   };
 }

@@ -8,8 +8,9 @@ dispatches on the floor. Nobody reports by the hour: the shift's output is
 booked once at the end of the day, so there is no event stream and no live
 polling.
 
-Source data (orders, inventory, BOM, POs) comes from the Epicor → SharePoint
-master workbook, refreshed **hourly and on demand**.
+Source data comes from Epicor via SharePoint, refreshed **hourly and on
+demand**: orders from the `Planning1.csv` export, people from the
+`ASSY_Operator` list, and the material picture from the master workbook.
 
 ## What it does
 
@@ -47,7 +48,7 @@ master workbook, refreshed **hourly and on demand**.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 — runs on bundled mock data
-npm test           # engine + integration tests (39)
+npm test           # engine, adapter and integration tests (77)
 npm run build      # type-check + production build
 ```
 
@@ -62,12 +63,71 @@ Configure via `.env.local` (see `.env.example`):
 | `VITE_DATA_SOURCE` | Behaviour |
 | ------------------ | --------- |
 | `mock` (default)   | Bundled `seed.json`. Instant, offline. |
+| `planning-csv`     | Orders from `Planning1.csv`, people from the `ASSY_Operator` SharePoint list. |
 | `excel`            | Fetch the master workbook from SharePoint (Microsoft Graph) and parse it with SheetJS. Falls back to a manual file upload if Graph isn't configured. |
 
-The Excel source (and the heavy `xlsx` dependency) is **lazy-loaded**, so the
-default mock build never ships the parser.
+The Excel source (and the heavy `xlsx` dependency) is **lazy-loaded**, so
+neither the mock nor the CSV build ships the parser.
 
-### Sheet → domain mapping
+Whichever is configured, **Load CSV** in the header parses a `Planning1.csv`
+picked from disk through exactly the same code — the quickest way to check an
+export against the board without wiring up Graph auth.
+
+### `Planning1.csv` → domain
+
+Columns are matched **by header name, not position** (`mapHeaders` strips the
+`JobHead_` / `JobOper_` / `Calculated_` prefix), so reordering the BAQ is safe.
+
+| CSV column | Becomes | Note |
+| --- | --- | --- |
+| `JobHead_JobNum` | order id | first occurrence wins |
+| `JobHead_PartNum` / `PartDescription` | part, description | |
+| the `PMD` / `ASSY` column | line + department | `PMD` and press names → moulding; `UPL`/`ASSY`/`TABLE` → assembly |
+| `JobHead_ProdQty` − `Calculated_RemainingQty` | completed qty | drives the progress fill |
+| `JobHead_StartDate` | start (PMD row) + material `Req. By` | |
+| `JobHead_ReqDueDate` | **Due Date** | |
+| `Calculated_LaborHrs` | bar length | falls back to `RemainingQty × JobOper_ProdStandard` |
+| `JobOper_ProdStandard` | run rate | inverted to qty/hr |
+
+If no header matches the `PMD`/`ASSY` column, the parser finds it by looking for
+the column whose values *are* line names — so an unfamiliar BAQ alias still
+works.
+
+**Not in today's export**, and read automatically once added: `ShipDate`,
+`OrderType`, `Predecessor`, `MaterialStatus`. Two consequences worth knowing:
+
+- **No Ship Date means no green/orange band.** The colour rule compares Expect
+  against Ship first; with Ship absent every order is green until it passes its
+  Due Date. This is the one column worth adding first.
+- **Order type** is inferred from the line where that is unambiguous — ASSY and
+  TABLE only run Final Assembly. UPL runs both Cutting/Sewing and Upholstery, so
+  its orders show no type until the column exists.
+
+The CSV carries no inventory, BOM or POs, so under `planning-csv` the material
+engine sees nothing and every order reads as material-OK. Use `excel` when the
+shortage view matters.
+
+### `ASSY_Operator` → roster
+
+| List column | Becomes |
+| --- | --- |
+| `Operator` | name |
+| `Skills` | which lines the person may be allocated to |
+| `Position`, `Supervisor` | shown on the crew chip / picker |
+
+`Skills` is normalised onto the four lines, so both short codes and what people
+actually type work: *Cutting/Sewing* and *Upholstery* → `UPL`, *Final Assembly*
+→ `ASSY`, *Table* → `TABLE`. A multi-choice column (array) and a delimited text
+column both parse. Anyone with no recognised skill is reported in the warning
+banner, because they can never be allocated.
+
+Attendance is **not** in the list — the supervisor confirms who is in each
+morning — so everyone counts as on shift unless an `OnShift` column is added.
+
+Workers are keyed by SharePoint **list item id**, not name, so renaming someone
+does not orphan the allocations already saved against them.
+
+### Sheet → domain mapping (`excel` source)
 
 | Workbook sheet | Parser | Used for |
 | --- | --- | --- |
@@ -83,9 +143,9 @@ To drive assembly from the same sheet, add these columns to `planning`
 otherwise): `Department`, `OrderType`, `Priority`, `MaterialStatus`, `Line`,
 `ShipDate`, `CompletedQty`.
 
-The shift roster is **not** in the workbook — it comes from attendance. The
-mock source supplies one; `SharePointExcelSource.fetchWorkers()` returns empty
-until that feed is wired up.
+The shift roster is **not** in the workbook — it is the `ASSY_Operator` list
+above. The mock source supplies one; `SharePointExcelSource.fetchWorkers()`
+returns empty.
 
 ## Architecture
 
@@ -101,8 +161,9 @@ domain  →  lib  →  engine  →  store  →  features (UI)
 - **`domain/`** — pure types, branded ids, constants. Zero dependencies.
   `assembly.ts` holds the lines, the three work-order types and the shift
   constants.
-- **`data/`** — the `DataSource` contract with two implementations (`mock`,
-  `excel`). Each sheet has its own lenient parser with explicit column mapping.
+- **`data/`** — the `DataSource` contract with three implementations (`mock`,
+  `csv/PlanningCsvSource`, `excel`). Every parser is lenient and reports what it
+  could not read as a warning rather than failing the load.
 - **`engine/`** — pure, unit-tested functions. Shared: `materialAvailability`,
   `materialExplosion`, `netRequirements`, `indexes`. Assembly:
   `assembly/{duration,dates,release,board}`. No React, no I/O.
@@ -111,8 +172,8 @@ domain  →  lib  →  engine  →  store  →  features (UI)
   state), `assemblySelectors` (derives the schedule), `uiStore` (selection).
 - **`persistence/`** — `PlanRepository` with a REST (`ApiPlanRepository`) and a
   localStorage fallback; the working plan autosaves.
-- **`features/`** — `assembly` (board, rows, bars, crew chips, inspector, dnd)
-  and `refresh`.
+- **`features/`** — `assembly` (board, rows, bars, crew chips, inspector, dnd),
+  `refresh` and `source` (the manual CSV loader).
 
 ### How the schedule is derived
 
@@ -133,14 +194,20 @@ re-lays-out the board with no separate update path.
 | Stage | Scope | Backend |
 | --- | --- | --- |
 | 1 ✅ | Assembly Gantt on mock data: crew, dates, booking, colours, predecessors | no |
-| 2 | Persist to the real backend; attendance feed replaces the mock roster | **yes** |
-| 3 | KPI view; actual hours feed back to correct standard hours | yes |
+| 1b ✅ | Read the real sources: `Planning1.csv` orders, `ASSY_Operator` roster | no |
+| 2 | Persist the plan to the real backend | **yes** |
+| 3 | Merge with the PMD dashboard into one page | yes |
+| 4 | KPI view; actual hours feed back to correct standard hours | yes |
 
 Because output is booked once per shift rather than reported hourly, stage 2
-needs only a modest service — read orders + roster, write the day's plan and
-booked quantities. `persistence/PlanRepository` is already the adapter seam:
-point `VITE_PERSIST_API_URL` at the service (`PersistedPlan.assembly` carries
-crew, pinned starts and booked output).
+needs only a modest service — write the day's plan and booked quantities back.
+`persistence/PlanRepository` is already the adapter seam: point
+`VITE_PERSIST_API_URL` at the service (`PersistedPlan.assembly` carries crew,
+pinned starts and booked output).
+
+Stage 3 is already half-built: `Planning1.csv` holds PMD and assembly rows in
+one file, and `PlanningCsvSource` splits them by the `PMD`/`ASSY` column, so
+both pages can read one source without a second fetch.
 
 ## Notes
 
