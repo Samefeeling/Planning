@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
 import { parsePlanningCsv } from '@/data/csv/planning.parser';
+import { remainingHours } from '@/engine/assembly/duration';
 import { parseCsv, normalizeHeader, mapHeaders } from '@/lib/csv';
 
 const sample = readFileSync(
@@ -79,6 +80,29 @@ describe('parsePlanningCsv', () => {
     expect(jobs.get('018140-1-1')!.laborHrs).toBeCloseTo(2.1, 5);
   });
 
+  it('prefers RemainingLaborHrs when the export carries it', () => {
+    const withRemaining = sample
+      .replace('Calculated_LaborHrs', 'Calculated_RemainingLaborHrs')
+      .replace(',2.1,', ',3.6,');
+    const j = byId(withRemaining).get('018140-1-1')!;
+    expect(j.laborHrs).toBeCloseTo(3.6, 5);
+  });
+
+  it('grosses the remaining hours up to the whole order', () => {
+    // 18 of 30 left at 0.12 h/pc = 2.16 h remaining, so the order is 3.6 h.
+    // Taking the export's figure as the total would discount it twice and
+    // schedule 1.3 h of work that still has to be done.
+    const partlyDone = sample.replace(
+      '018140-1-1,CSSL01436,"Cosmic Stool, walnut",ASSY,30,30,2026-09-10T00:00:00,2026-09-11T00:00:00,2.1',
+      '018140-1-1,CSSL01436,"Cosmic Stool, walnut",ASSY,30,18,2026-09-10T00:00:00,2026-09-11T00:00:00,2.16',
+    );
+    const j = byId(partlyDone).get('018140-1-1')!;
+    expect(j.remainingQty).toBe(18);
+    expect(j.completedQty).toBe(12);
+    expect(j.laborHrs).toBeCloseTo(3.6, 5);
+    expect(remainingHours(j)).toBeCloseTo(2.16, 5);
+  });
+
   it('derives labour hours from qty x ProdStandard when the column is absent', () => {
     const withoutHours = [
       'JobHead_JobNum,JobHead_PartNum,JobHead_Department,Calculated_RemainingQty,JobOper_ProdStandard',
@@ -107,10 +131,37 @@ describe('parsePlanningCsv', () => {
     expect(j.remainingQty).toBe(18);
   });
 
-  it('maps ReqDueDate to the due date and StartDate to the start', () => {
-    const j = jobs.get('SFM507615')!;
-    expect(j.dueDate?.toISOString().slice(0, 10)).toBe('2026-09-30');
-    expect(j.startDate?.toISOString().slice(0, 10)).toBe('2026-09-29');
+  it('maps ReqDueDate to the due date', () => {
+    const due = jobs.get('SFM507615')!.dueDate!;
+    expect([due.getFullYear(), due.getMonth() + 1, due.getDate()]).toEqual([
+      2026, 9, 30,
+    ]);
+  });
+
+  it('folds StartDate and StartHour into one instant', () => {
+    // 2026-09-29T00:00:00 + 23.3 h → 29 Sep 23:18.
+    const s = jobs.get('SFM507615')!.startDate!;
+    expect([s.getFullYear(), s.getMonth() + 1, s.getDate()]).toEqual([
+      2026, 9, 29,
+    ]);
+    expect([s.getHours(), s.getMinutes()]).toEqual([23, 18]);
+  });
+
+  it('keeps midnight when the export carries no StartHour', () => {
+    const noHour = sample
+      .replace(',JobHead_StartHour', '')
+      .replace(/,2[123]\.\d+(?=\n|$)/gm, '');
+    const s = byId(noHour).get('SFM507615')!.startDate!;
+    expect([s.getHours(), s.getMinutes()]).toEqual([0, 0]);
+  });
+
+  it('reads a date-only column as local midnight, not UTC', () => {
+    const dateOnly = sample.replace(/2026-09-30T00:00:00/g, '2026-09-30');
+    const due = byId(dateOnly).get('SFM507615')!.dueDate!;
+    expect([due.getFullYear(), due.getMonth() + 1, due.getDate()]).toEqual([
+      2026, 9, 30,
+    ]);
+    expect(due.getHours()).toBe(0);
   });
 
   it('infers Final Assembly for lines that run only that', () => {

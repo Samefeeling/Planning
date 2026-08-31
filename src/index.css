@@ -392,6 +392,18 @@ button {
   padding: 6px 4px;
   font-size: 10px;
 }
+/* Start carries a time of day under the date, so it stacks. */
+.acell.date.start {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  line-height: 1.2;
+}
+.date-hour {
+  font-size: 9.5px;
+  color: var(--faint);
+  font-weight: 600;
+}
 .acell.date.expect {
   font-weight: 700;
 }
@@ -517,6 +529,29 @@ button {
   padding: 0 7px;
   font-size: 10px;
   font-weight: 650;
+}
+/* The line's work load — remaining standard hours and who is on it. */
+.agroup-load {
+  background: #dbeafe;
+  color: #1e3a8a;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.agroup-crew {
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.agroup-gap {
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--warn);
+  background: var(--warn-dim);
+  border-radius: 999px;
+  padding: 0 7px;
 }
 
 /* bars */
@@ -658,8 +693,150 @@ button {
   cursor: pointer;
 }
 .board-tools input { width: 150px; }
-.attendance-row { background: #eff6ff; color: #1e3a8a; }
+.attendance-row { background: #eff6ff; color: #1e3a8a; overflow: visible; }
 .attendance-count { padding: 2px 8px; border-radius: 999px; background: #dbeafe; font-weight: 700; }
+/* No `margin-left: auto` — the board is far wider than the viewport, so that
+   would push this off the right-hand edge of a scrolled-left page. */
+.board-load {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- per-person week load ---------------------------------------------- */
+.attendance-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.worker-load-anchor {
+  position: relative;
+}
+.worker-name {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+}
+.worker-name:hover,
+.worker-name.open {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+.worker-load {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 40;
+  width: 430px;
+  max-width: 78vw;
+  padding: 9px 11px 11px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(30, 41, 59, 0.28);
+  cursor: default;
+}
+.wl-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 8px;
+  align-items: baseline;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.wl-head strong { font-size: 13px; }
+.wl-sub {
+  grid-column: 1;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.wl-close {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  align-self: start;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.wl-summary {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.wl-summary b { color: var(--text); font-size: 13px; }
+.wl-pct {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ok-dim);
+  color: var(--ok);
+  font-weight: 700;
+}
+.wl-pct.over { background: var(--error-dim); color: var(--error); }
+.wl-days {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+}
+.wl-days li {
+  display: grid;
+  grid-template-columns: 68px 58px 46px 1fr;
+  gap: 7px;
+  align-items: center;
+  padding: 2.5px 0;
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+}
+.wl-days li.leave { opacity: 0.55; }
+.wl-day { color: var(--muted); }
+.wl-meter {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.wl-meter i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.wl-meter i.over { background: var(--error); }
+.wl-hours { font-weight: 650; text-align: right; }
+.wl-hours.over { color: var(--error); }
+.wl-orders {
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wl-warn {
+  margin: 8px 0 0;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: var(--error-dim);
+  color: var(--error);
+  font-size: 10.5px;
+}
 .date-head { flex-direction: column; gap: 3px; text-align: center; line-height: 1.15; }
 .date-head button { width: 22px; height: 18px; line-height: 12px; }
 .production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 8px; }

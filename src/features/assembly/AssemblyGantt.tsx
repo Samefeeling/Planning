@@ -15,12 +15,14 @@ import type {
 } from '@/engine/assembly/board';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { addDays } from '@/engine/assembly/dates';
+import { dayKey } from '@/engine/assembly/workload';
 import { useUiStore } from '@/store/uiStore';
 import { OrderBar } from './OrderBar';
 import { TeamChips } from './TeamChips';
+import { WorkerLoadChip } from './WorkerLoadChip';
 
 const DEFAULT_DAY_WIDTH = 92;
-// Must match the widths in index.css (--order-w, --date-w x3, --team-w),
+// Must match the widths in index.css (--order-w, --date-w x4, --team-w),
 // otherwise the header's day columns drift out of line with the row tracks.
 const ORDER_W = 200;
 const DATE_W = 62;
@@ -34,12 +36,24 @@ const SHORT_FMT = new Intl.DateTimeFormat(undefined, {
   day: '2-digit',
   month: '2-digit',
 });
+const TIME_FMT = new Intl.DateTimeFormat(undefined, {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 
 const fmt = (d: Date | null): string => (d ? SHORT_FMT.format(d) : '—');
-const dayKey = (d: Date): string =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate(),
-  ).padStart(2, '0')}`;
+
+/**
+ * The time of day Epicor scheduled the order to start (`JobHead_StartHour`).
+ * Midnight means the export carried no hour, so there is nothing to show.
+ */
+const startTime = (d: Date | null): string | null =>
+  d && (d.getHours() !== 0 || d.getMinutes() !== 0) ? TIME_FMT.format(d) : null;
+
+/** Which of the four date columns are on, in the order they are drawn. */
+type DateCols = Record<'start' | 'due' | 'expect' | 'ship', boolean>;
+const DATE_ORDER = ['start', 'due', 'expect', 'ship'] as const;
 
 function OrderRowView({
   row,
@@ -56,7 +70,7 @@ function OrderRowView({
   selected: boolean;
   onSelect: (id: string) => void;
   dayWidth: number;
-  visibleDates: Record<'due' | 'expect' | 'ship', boolean>;
+  visibleDates: DateCols;
 }) {
   const isContext = !row.line.schedulable;
   let dateOffset = ORDER_W;
@@ -66,9 +80,11 @@ function OrderRowView({
     dateOffset += DATE_W;
     return style;
   };
+  const startStyle = frozenDate(visibleDates.start);
   const dueStyle = frozenDate(visibleDates.due);
   const expectStyle = frozenDate(visibleDates.expect);
   const shipStyle = frozenDate(visibleDates.ship);
+  const startAt = row.job.startDate;
   return (
     <div
       className={`arow ${selected ? 'selected' : ''} ${isContext ? 'context' : ''} ${row.completedToday ? 'completed-today' : ''}`}
@@ -83,6 +99,18 @@ function OrderRowView({
         )}
         <span className="order-desc">{row.job.description}</span>
       </div>
+      {visibleDates.start && (
+        <div
+          className="acell date frozen start"
+          style={startStyle}
+          title={startAt ? `Scheduled start ${startAt.toLocaleString()}` : 'No scheduled start in the export'}
+        >
+          <span>{fmt(startAt)}</span>
+          {startTime(startAt) && (
+            <span className="date-hour">{startTime(startAt)}</span>
+          )}
+        </div>
+      )}
       {visibleDates.due && <div className="acell date frozen" style={dueStyle}>{fmt(row.job.dueDate)}</div>}
       {visibleDates.expect && <div className={`acell date expect frozen ${row.status.color}`} style={expectStyle}>
         {fmt(row.expectDate)}
@@ -130,7 +158,7 @@ function LineGroupView({
   selectedJobId: string | null;
   onSelect: (id: string) => void;
   dayWidth: number;
-  visibleDates: Record<'due' | 'expect' | 'ship', boolean>;
+  visibleDates: DateCols;
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -139,6 +167,7 @@ function LineGroupView({
     data: { type: 'line', lineId: String(group.line.id) },
     disabled: !group.line.schedulable,
   });
+  const load = group.load;
 
   return (
     <section
@@ -152,6 +181,25 @@ function LineGroupView({
           <span className="agroup-note">plan only</span>
         )}
         <span className="agroup-count">{group.rows.length}</span>
+
+        {/* The line's own work load: remaining standard hours, and how long
+            the crew on it needs to clear them. */}
+        <span
+          className="agroup-load"
+          title="Work load — standard hours still to run on this line"
+        >
+          {load.hours.toFixed(1)} h
+        </span>
+        {group.line.schedulable && (
+          <span className="agroup-crew">
+            {load.crew === 0
+              ? 'nobody allocated'
+              : `${load.crew} on line · ${load.daysOfWork!.toFixed(1)} d at ${load.capacityPerDay.toFixed(1)} h/day`}
+          </span>
+        )}
+        {load.needsCrew > 0 && (
+          <span className="agroup-gap">{load.needsCrew} need crew</span>
+        )}
       </button>
 
       {!collapsed && (group.rows.length === 0 ? (
@@ -184,7 +232,12 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const select = useUiStore((s) => s.select);
   const selectedJobId = useUiStore((s) => s.selectedJobId);
   const [dayWidth, setDayWidth] = useState(DEFAULT_DAY_WIDTH);
-  const [visibleDates, setVisibleDates] = useState({ due: true, expect: true, ship: true });
+  const [visibleDates, setVisibleDates] = useState<DateCols>({
+    start: true,
+    due: true,
+    expect: true,
+    ship: true,
+  });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const days = Array.from({ length: board.horizonDays }, (_, i) =>
@@ -194,17 +247,16 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const dateCount = Object.values(visibleDates).filter(Boolean).length;
   const labelWidth = ORDER_W + DATE_W * dateCount + TEAM_W;
   const attendance = board.workers.filter((worker) => worker.onShift);
+  const allRows = board.groups.flatMap((group) => group.rows);
   const allocated = new Set(
-    board.groups.flatMap((group) =>
-      group.rows.flatMap((row) => row.workers.map((worker) => String(worker.id))),
-    ),
+    allRows.flatMap((row) => row.workers.map((worker) => String(worker.id))),
   );
   const attendanceIds = new Set(attendance.map((worker) => String(worker.id)));
   const allocatedOnSite = [...allocated].filter((id) => attendanceIds.has(id)).length;
   const allocationCoverage = attendance.length
     ? Math.round((allocatedOnSite / attendance.length) * 100)
     : 0;
-  const toggleDate = (key: keyof typeof visibleDates) =>
+  const toggleDate = (key: keyof DateCols) =>
     setVisibleDates((current) => ({ ...current, [key]: !current[key] }));
   let headerOffset = ORDER_W;
   const headerLeft = () => {
@@ -223,8 +275,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     const availableIds = new Set(
       availableWorkers.map((worker) => String(worker.id)),
     );
-    const assigned = board.groups
-      .flatMap((group) => group.rows)
+    const assigned = allRows
       .filter(
         (row) =>
           row.line.schedulable &&
@@ -257,38 +308,38 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
         <input aria-label="Timeline scale" type="range" min="44" max="160" step="4" value={dayWidth} onChange={(e) => setDayWidth(Number(e.target.value))} />
         <button onClick={() => setDayWidth((w) => Math.min(160, w + 16))} aria-label="Zoom in">+</button>
         <span>{dayWidth}px / day</span>
-        {Object.entries(visibleDates).filter(([, visible]) => !visible).map(([key]) => (
-          <button className="date-restore" key={key} onClick={() => toggleDate(key as keyof typeof visibleDates)}>+ {key}</button>
+        {DATE_ORDER.filter((key) => !visibleDates[key]).map((key) => (
+          <button className="date-restore" key={key} onClick={() => toggleDate(key)}>+ {key}</button>
         ))}
+        <span className="board-load" title="Standard hours still to run across every scheduled order">
+          {board.totals.remainingHours.toFixed(0)} h on the board
+        </span>
       </div>
 
+      {/* Click a name for that person's week — see WorkerLoadChip. */}
       <div className="attendance-row">
         <strong>Today on site</strong>
         <span className="attendance-count">{attendance.length} / {board.workers.length}</span>
         <span className="attendance-count">{allocatedOnSite} allocated · {allocationCoverage}% coverage</span>
-        <span>{attendance.map((worker) => worker.name).join(' · ') || 'Attendance awaiting API'}</span>
-      </div>
-
-      <div className="board-tools">
-        <strong>Timeline zoom</strong>
-        <button onClick={() => setDayWidth((w) => Math.max(44, w - 16))} aria-label="Zoom out">−</button>
-        <input aria-label="Timeline scale" type="range" min="44" max="160" step="4" value={dayWidth} onChange={(e) => setDayWidth(Number(e.target.value))} />
-        <button onClick={() => setDayWidth((w) => Math.min(160, w + 16))} aria-label="Zoom in">+</button>
-        <span>{dayWidth}px / day</span>
-        {Object.entries(visibleDates).filter(([, visible]) => !visible).map(([key]) => (
-          <button className="date-restore" key={key} onClick={() => toggleDate(key as keyof typeof visibleDates)}>+ {key}</button>
-        ))}
-      </div>
-
-      <div className="attendance-row">
-        <strong>Today on site</strong>
-        <span className="attendance-count">{attendance.length} / {board.workers.length}</span>
-        <span className="attendance-count">{allocatedOnSite} allocated · {allocationCoverage}% coverage</span>
-        <span>{attendance.map((worker) => worker.name).join(' · ') || 'Attendance awaiting API'}</span>
+        {attendance.length === 0 ? (
+          <span>Attendance awaiting API</span>
+        ) : (
+          <span className="attendance-names">
+            {attendance.map((worker) => (
+              <WorkerLoadChip
+                key={String(worker.id)}
+                worker={worker}
+                rows={allRows}
+                from={board.horizonStart}
+              />
+            ))}
+          </span>
+        )}
       </div>
 
       <div className="assy-head">
         <div className="acell order">Order</div>
+        {visibleDates.start && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Start Date</span><button onClick={() => toggleDate('start')} title="Hide Start Date">−</button></div>}
         {visibleDates.due && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Due Date</span><button onClick={() => toggleDate('due')} title="Hide Due Date">−</button></div>}
         {visibleDates.expect && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Expect Date</span><button onClick={() => toggleDate('expect')} title="Hide Expect Date">−</button></div>}
         {visibleDates.ship && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Ship Date</span><button onClick={() => toggleDate('ship')} title="Hide Ship Date">−</button></div>}

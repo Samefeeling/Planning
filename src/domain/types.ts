@@ -136,13 +136,19 @@ export interface Job {
   /** Units per hour the part runs at on its line (planning `qty/hr`). */
   qtyPerHr: number | null;
   /**
-   * Calculated_LaborHrs — total run time for the order. This is the bar
-   * length on the Gantt. Derived from remainingQty / qtyPerHr when the
-   * workbook does not carry it directly.
+   * Standard hours for the **whole** order, completed part included. The bar
+   * length is the remaining share of it (`engine/assembly/duration`), so that
+   * booking output during the shift shortens the bar.
+   *
+   * The Epicor export carries the *remaining* hours
+   * (`Calculated_RemainingLaborHrs`); the CSV adapter grosses that back up.
    */
   laborHrs: number;
   dueDate: Date | null;
-  /** Scheduled start from the source system, when it carries one. */
+  /**
+   * Scheduled start from the source system, when it carries one. From
+   * `JobHead_StartDate` + `JobHead_StartHour`, so it carries a time of day.
+   */
   startDate: Date | null;
   /** Material "required by" date (planning `Req. By`). */
   reqBy: Date | null;

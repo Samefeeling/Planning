@@ -35,6 +35,7 @@ import {
   startOfDay,
   type ScheduleStatus,
 } from './dates';
+import { lineLoad, type LineLoad } from './workload';
 
 export interface OrderRow {
   job: Job;
@@ -65,6 +66,8 @@ export interface OrderRow {
 export interface LineGroup {
   line: LineDef;
   rows: OrderRow[];
+  /** Work still queued on the line, and how long its crew needs to clear it. */
+  load: LineLoad;
 }
 
 export interface AssemblyGanttView {
@@ -85,6 +88,8 @@ export interface AssemblyGanttView {
     red: number;
     /** Placed on a line but with nobody on them, so they have no dates yet. */
     needsCrew: number;
+    /** Standard hours still to run across every scheduled order. */
+    remainingHours: number;
   };
 }
 
@@ -303,16 +308,22 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     return row;
   };
 
+  const withLoad = (line: LineDef, rows: OrderRow[]): LineGroup => ({
+    line,
+    rows,
+    load: lineLoad(rows),
+  });
+
   for (const { line, ids } of pending) {
     const rows = ids
       .map((id) => resolve(id, new Set()))
       .filter((r): r is OrderRow => r !== null);
-    groups.push({ line, rows });
+    groups.push(withLoad(line, rows));
   }
 
   // PMD context row on top.
   const pmd = LINES.find((l) => !l.schedulable)!;
-  groups.unshift({ line: pmd, rows: mouldingContextRows(dataset, pmd, today) });
+  groups.unshift(withLoad(pmd, mouldingContextRows(dataset, pmd, today)));
   groups.sort((a, b) => a.line.sortIndex - b.line.sortIndex);
 
   const pool = assemblyJobs.filter((j) => !placed.has(String(j.id)));
@@ -343,6 +354,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       orange: scheduled.filter((r) => r.status.color === 'orange').length,
       red: scheduled.filter((r) => r.status.color === 'red').length,
       needsCrew: scheduled.filter((r) => r.days === null).length,
+      remainingHours: totalRemainingHours(scheduled),
     },
   };
 }

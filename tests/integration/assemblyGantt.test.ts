@@ -8,6 +8,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { MockSource } from '@/data/mock/MockSource';
 import { buildIndexes } from '@/engine/indexes';
 import { computeAssemblyGantt } from '@/engine/assembly/board';
+import { workerLoad } from '@/engine/assembly/workload';
+import { remainingHours } from '@/engine/assembly/duration';
 import { usePlanStore } from '@/store/planStore';
 import { LINES } from '@/domain/assembly';
 import type { PlanningDataset } from '@/domain/types';
@@ -169,6 +171,49 @@ describe('assembly Gantt (mock data)', () => {
         pred.expectDate.getTime(),
       );
     }
+  });
+
+  it('carries a work load on every line group and on the board total', () => {
+    const b = build();
+    const summed = b.groups
+      .filter((g) => g.line.schedulable)
+      .reduce((s, g) => s + g.load.hours, 0);
+
+    expect(summed).toBeGreaterThan(0);
+    expect(summed).toBeCloseTo(b.totals.remainingHours, 6);
+
+    for (const g of b.groups) {
+      if (!g.line.schedulable || g.rows.length === 0) continue;
+      expect(g.load.crew).toBeGreaterThan(0);
+      // Days to clear the queue = hours ÷ what the crew delivers in a day.
+      expect(g.load.daysOfWork).toBeCloseTo(
+        g.load.hours / g.load.capacityPerDay,
+        6,
+      );
+    }
+  });
+
+  it('books a person’s week against the orders they are actually on', () => {
+    const b = build();
+    const row = [...b.rowsByJob.values()].find((r) => r.workers.length > 0)!;
+    const person = row.workers[0];
+    const load = workerLoad(
+      person,
+      b.groups.flatMap((g) => g.rows),
+      b.horizonStart,
+    );
+
+    expect(load.orderCount).toBeGreaterThan(0);
+    expect(load.totalHours).toBeGreaterThan(0);
+    // Nobody can be booked for more hours than the orders they are on hold.
+    const theirs = [...b.rowsByJob.values()].filter((r) =>
+      r.workers.some((w) => String(w.id) === String(person.id)),
+    );
+    const ceiling = theirs.reduce(
+      (s, r) => s + remainingHours(r.job) / r.workers.length,
+      0,
+    );
+    expect(load.totalHours).toBeLessThanOrEqual(ceiling + 1e-6);
   });
 
   it('colours every scheduled row and the totals add up', () => {

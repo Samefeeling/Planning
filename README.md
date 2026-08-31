@@ -18,8 +18,15 @@ demand**: orders from the `Planning1.csv` export, people from the
   out, not draggable, never scheduled here), then `UPL`, `ASSY` and `TABLE`.
 - **Three kinds of work order** — Cutting/Sewing and Upholstery run on UPL;
   Final Assembly runs on ASSY and TABLE.
-- **One row per order**: Order · Due Date · Expect Date · Ship Date · Team,
-  beside the day grid with a draggable bar.
+- **One row per order**: Order · Start Date · Due Date · Expect Date · Ship
+  Date · Team, beside the day grid with a draggable bar. Start is Epicor's own
+  scheduled start, to the hour; any column can be hidden to make room.
+- **Work load, in standard hours** — the remaining hours of an order
+  (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
+  its bar covers. Shown three ways: per line on the group header, for the whole
+  board beside the zoom, and per person — click a name in the "Today on site"
+  row for their week, day by day, against a shift's capacity. Someone on two
+  orders at once shows a day over 7.25 h and is flagged.
 - **Crew drives duration** — up to **4 people** per order; bar length is
   remaining standard hours ÷ (crew × productive hours), so adding someone
   visibly shortens it and pulls the Expect Date in. The picker offers only
@@ -57,7 +64,7 @@ Needs **Node 18, 20 or 22** (Vite 6's requirement). `.nvmrc` and
 nvm use            # or: nvm install 22
 npm install
 npm run dev        # http://localhost:5173 — runs on bundled mock data
-npm test           # engine, adapter and integration tests (77)
+npm test           # engine, adapter and integration tests (99)
 npm run build      # type-check + production build
 ```
 
@@ -109,10 +116,17 @@ Columns are matched **by header name, not position** (`mapHeaders` strips the
 | `JobHead_PartNum` / `PartDescription` | part, description | |
 | the `PMD` / `ASSY` column | line + department | `PMD` and press names → moulding; `UPL`/`ASSY`/`TABLE` → assembly |
 | `JobHead_ProdQty` − `Calculated_RemainingQty` | completed qty | drives the progress fill |
-| `JobHead_StartDate` | start (PMD row) + material `Req. By` | |
+| `JobHead_StartDate` + `JobHead_StartHour` | **Start Date** and material `Req. By` | the hour is decimal — `23.67` is 23:40 |
 | `JobHead_ReqDueDate` | **Due Date** | |
-| `Calculated_LaborHrs` | bar length | falls back to `RemainingQty × JobOper_ProdStandard` |
+| `Calculated_RemainingLaborHrs` | work load and bar length | falls back to `Calculated_LaborHrs`, then to `RemainingQty × JobOper_ProdStandard` |
 | `JobOper_ProdStandard` | run rate | inverted to qty/hr |
+
+Both hours columns hold the work **remaining**, not the order total — in the
+sample `LaborHrs` equals `RemainingQty × ProdStandard` exactly. The board needs
+a total, because booking output during the shift has to shrink the bar, so the
+adapter reduces the export to hours-per-unit and grosses it back up. Reading the
+remaining figure as the total would discount it a second time and under-schedule
+every part-run order.
 
 If no header matches the `PMD`/`ASSY` column, the parser finds it by looking for
 the column whose values *are* line names — so an unfamiliar BAQ alias still
@@ -192,7 +206,7 @@ domain  →  lib  →  engine  →  store  →  features (UI)
   could not read as a warning rather than failing the load.
 - **`engine/`** — pure, unit-tested functions. Shared: `materialAvailability`,
   `materialExplosion`, `netRequirements`, `indexes`. Assembly:
-  `assembly/{duration,dates,release,board}`. No React, no I/O.
+  `assembly/{duration,dates,release,board,workload}`. No React, no I/O.
 - **`store/`** — Zustand. `dataStore` (loaded data + indexes), `planStore`
   (placement, crew, pinned starts, booked output — the only mutable plan
   state), `assemblySelectors` (derives the schedule), `uiStore` (selection).

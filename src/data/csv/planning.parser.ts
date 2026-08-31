@@ -13,9 +13,11 @@
  * export and a hand-tidied file parse the same way.
  *
  * Derivations the export leaves implicit:
- *   laborHrs    = RemainingQty x ProdStandard   (hours per unit)
- *   qtyPerHr    = 1 / ProdStandard
  *   completedQty = ProdQty - RemainingQty
+ *   hoursPerUnit = RemainingLaborHrs / RemainingQty, else ProdStandard
+ *   laborHrs     = hoursPerUnit x (RemainingQty + completedQty)
+ *   qtyPerHr     = 1 / hoursPerUnit
+ *   startDate    = StartDate + StartHour
  */
 
 import { JobId, MachineId, PartId, WorkCenterId } from '@/domain/ids';
@@ -37,8 +39,10 @@ type Field =
   | 'prodQty'
   | 'remainingQty'
   | 'startDate'
+  | 'startHour'
   | 'dueDate'
   | 'laborHrs'
+  | 'remainingLaborHrs'
   | 'prodStandard'
   | 'shipDate'
   | 'orderType'
@@ -73,7 +77,11 @@ const ALIASES: Record<Field, readonly string[]> = {
   prodQty: ['ProdQty', 'Qty', 'OrderQty'],
   remainingQty: ['RemainingQty', 'QtyRemaining'],
   startDate: ['StartDate', 'SchedStartDate'],
+  // Decimal hour of the day the order starts, e.g. 23.67 for 23:40.
+  startHour: ['StartHour', 'SchedStartHour'],
   dueDate: ['ReqDueDate', 'DueDate'],
+  // Both are *remaining* work; `RemainingLaborHrs` is the one Resero plans on.
+  remainingLaborHrs: ['RemainingLaborHrs', 'RemainingLabourHrs', 'RemLaborHrs'],
   laborHrs: ['LaborHrs', 'ProdHours', 'TotalHours'],
   prodStandard: ['ProdStandard', 'EstProdHours', 'HoursPerPiece'],
   // Not in today's export — read if they get added (see README).
@@ -114,11 +122,34 @@ const num = (v: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * Epicor writes `2026-09-10T00:00:00` with no zone, which JS reads as local time
+ * — what a shop-floor date should be. A bare `2026-09-10` it reads as *UTC*
+ * midnight instead, which lands on the previous day west of Greenwich, so that
+ * form is pinned to local midnight by hand.
+ */
 const date = (v: string): Date | null => {
   if (v === '') return null;
-  const d = new Date(v);
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  const d = ymd
+    ? new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]))
+    : new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 };
+
+/**
+ * The scheduled start, which Epicor splits across two columns:
+ * `JobHead_StartDate` is midnight of the day (`2026-09-10T00:00:00`) and
+ * `JobHead_StartHour` the decimal hour within it (`23.67` → 23:40). Neither
+ * says when the order runs on its own, so they are folded into one instant.
+ */
+function startInstant(day: string, hour: string): Date | null {
+  const midnight = date(day);
+  if (!midnight) return null;
+  const h = num(hour);
+  if (h === null || h <= 0) return midnight;
+  return new Date(midnight.getTime() + h * 3_600_000);
+}
 
 /**
  * Which line/department a row belongs to. `PMD` and the moulding press names
@@ -225,19 +256,35 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
 
     const placement = readPlacement(cell(row, col.line));
     const prodQty = num(cell(row, col.prodQty));
-    const remainingQty =
-      num(cell(row, col.remainingQty)) ?? prodQty ?? 0;
+    const remainingQty = num(cell(row, col.remainingQty)) ?? prodQty ?? 0;
+    const explicitDone = num(cell(row, col.completedQty));
+    const completedQty =
+      explicitDone ?? (prodQty !== null ? Math.max(0, prodQty - remainingQty) : 0);
+    const totalQty = remainingQty + completedQty;
+
+    // Epicor's hours columns hold the work *remaining*, not the order total —
+    // `RemainingLaborHrs` says so, and in the sample `LaborHrs` equals
+    // RemainingQty x ProdStandard exactly. The board needs a total, because
+    // booking output during the shift has to shrink the bar, so reduce the
+    // export to hours-per-unit and gross it back up. Taking the remaining
+    // figure as the total instead would discount it twice on a part-run order.
     const prodStandard = num(cell(row, col.prodStandard));
+    const remainingLaborHrs =
+      num(cell(row, col.remainingLaborHrs)) ?? num(cell(row, col.laborHrs));
+    const hoursPerUnit =
+      remainingLaborHrs !== null && remainingQty > 0
+        ? remainingLaborHrs / remainingQty
+        : prodStandard;
     const laborHrs =
-      num(cell(row, col.laborHrs)) ??
-      (prodStandard !== null ? remainingQty * prodStandard : 0);
+      hoursPerUnit !== null && totalQty > 0
+        ? hoursPerUnit * totalQty
+        : (remainingLaborHrs ?? 0);
 
     if (laborHrs <= 0) {
       errors.push(`Planning1.csv row ${i + 2} (${jobNum}): no labour hours`);
     }
 
     const line = placement?.line ?? null;
-    const explicitDone = num(cell(row, col.completedQty));
     const predecessor = cell(row, col.predecessor);
     const releasedRaw = cell(row, col.released).toLowerCase();
 
@@ -247,10 +294,13 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
       partNum: PartId(partNum),
       description: cell(row, col.description),
       remainingQty,
-      qtyPerHr: prodStandard && prodStandard > 0 ? 1 / prodStandard : null,
+      qtyPerHr: hoursPerUnit && hoursPerUnit > 0 ? 1 / hoursPerUnit : null,
       laborHrs,
       dueDate: date(cell(row, col.dueDate)),
-      startDate: date(cell(row, col.startDate)),
+      startDate: startInstant(
+        cell(row, col.startDate),
+        cell(row, col.startHour),
+      ),
       // Material has to be at the line when the order starts.
       reqBy: date(cell(row, col.startDate)),
       released:
@@ -264,9 +314,7 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
       orderType: readOrderType(cell(row, col.orderType), line),
       line,
       shipDate: date(cell(row, col.shipDate)),
-      completedQty:
-        explicitDone ??
-        (prodQty !== null ? Math.max(0, prodQty - remainingQty) : 0),
+      completedQty,
       predecessor: predecessor ? JobId(predecessor) : null,
       assignedWorkers: [],
     });
