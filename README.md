@@ -102,8 +102,9 @@ default mock build never ships the parser.
 | `data return to Epicor`   | `engine/epicorExport`           | output projection |
 
 To feed both departments from one sheet, add these columns to `planning`
-(the parser reads them when present and defaults every row to moulding
-otherwise): `Department`, `ProductType`, `Priority`, `MaterialStatus`.
+(`job.parser` reads them when present and defaults every row to moulding
+otherwise): `Department`, `OrderType`, `Priority`, `MaterialStatus`, `Line`,
+`ShipDate`, `CompletedQty`.
 
 ## Architecture
 
@@ -118,8 +119,8 @@ domain  →  lib  →  engine  →  store  →  features (UI)
 
 - **`domain/`** — pure types, branded ids and tunable constants. Zero
   dependencies. A `WorkCenter` is either a moulding machine or an assembly
-  area, so both boards are lanes over one id space; `assembly.ts` holds the
-  areas, routes and stages.
+  line, so both boards are lanes over one id space; `assembly.ts` holds the
+  lines, the three work-order types and the shift constants.
 - **`data/`** — the `DataSource` contract with two implementations (`mock`,
   `excel`). Each sheet has its own lenient parser with explicit column mapping.
 - **`engine/`** — pure, unit-tested functions. Shared: `materialAvailability`,
@@ -147,8 +148,9 @@ record, so nothing has to be reconciled:
 
 Both boards are the **same derivation pattern** — a pure function from
 (orders + assignments) to a view model: `computeBoardView` for the moulding
-Gantt, `computeAssemblyBoard` for the assembly columns. The MES event log slots
-into the second one without changing the UI.
+Gantt, `computeAssemblyGantt` for the assembly rows. Booked output is just
+another input to that function, so the backend feed slots in without changing
+the UI.
 
 The material engine is shared verbatim, which is what makes the combination
 worth more than two separate apps: a short moulded part turns the downstream
