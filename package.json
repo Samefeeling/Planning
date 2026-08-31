@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PMD production scheduling board — drag-and-drop Gantt for injection-moulding lines, sourced from the Epicor/SharePoint master schedule.",
+  "description": "Assembly scheduling board — day-scale Gantt for the sofa, chair and table lines, sourced from Epicor via SharePoint.",
+  "engines": {
+    "node": "^18.0.0 || ^20.0.0 || >=22.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

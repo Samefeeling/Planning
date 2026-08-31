@@ -45,7 +45,12 @@ demand**: orders from the `Planning1.csv` export, people from the
 
 ## Quick start
 
+Needs **Node 18, 20 or 22** (Vite 6's requirement). `.nvmrc` and
+`.devcontainer/` pin 22; on an older Node, `npm run dev` fails with
+`crypto$2.getRandomValues is not a function`.
+
 ```bash
+nvm use            # or: nvm install 22
 npm install
 npm run dev        # http://localhost:5173 — runs on bundled mock data
 npm test           # engine, adapter and integration tests (77)

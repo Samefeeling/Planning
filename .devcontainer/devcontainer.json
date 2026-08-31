@@ -1,0 +1,13 @@
+{
+  "name": "Resero Planning",
+  // Vite 6 needs Node ^18 || ^20 || >=22. Codespaces' default image can be
+  // older, which fails at `npm run dev` with
+  // "crypto$2.getRandomValues is not a function" — pin it here instead.
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "postCreateCommand": "npm install",
+  "forwardPorts": [5173, 4173],
+  "portsAttributes": {
+    "5173": { "label": "Vite dev server", "onAutoForward": "openBrowser" },
+    "4173": { "label": "Vite preview", "onAutoForward": "silent" }
+  }
+}
