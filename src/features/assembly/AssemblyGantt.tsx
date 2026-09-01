@@ -7,7 +7,7 @@
  */
 
 import { useDroppable } from '@dnd-kit/core';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type {
   AssemblyGanttView,
   LineGroup,
@@ -15,7 +15,7 @@ import type {
 } from '@/engine/assembly/board';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { addDays } from '@/engine/assembly/dates';
-import { boardDayLoads } from '@/engine/assembly/workload';
+import { boardDayLoads, rosterLoad } from '@/engine/assembly/workload';
 import { useUiStore } from '@/store/uiStore';
 import { OrderBar } from './OrderBar';
 import { TeamChips } from './TeamChips';
@@ -261,7 +261,16 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const dateCount = Object.values(visibleDates).filter(Boolean).length;
   const labelWidth = ORDER_W + QTY_W + DATE_W * dateCount + TEAM_W;
   const attendance = board.workers.filter((worker) => worker.onShift);
-  const allRows = board.groups.flatMap((group) => group.rows);
+  const allRows = useMemo(
+    () => board.groups.flatMap((group) => group.rows),
+    [board],
+  );
+  // Every name in the header carries five load squares, so the whole roster's
+  // week is worked out once here rather than once per chip on every render.
+  const rosterLoads = useMemo(
+    () => rosterLoad(board.workers, allRows, board.horizonStart),
+    [board, allRows],
+  );
   const allocated = new Set(
     allRows.flatMap((row) => row.workers.map((worker) => String(worker.id))),
   );
@@ -317,9 +326,19 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
         <span className="board-load" title="Standard hours still to run across every scheduled order">
           {board.totals.remainingHours.toFixed(0)} h on the board
         </span>
+        {board.dependencyWarnings.length > 0 && (
+          <span
+            className="board-warn"
+            title={board.dependencyWarnings.join('\n')}
+          >
+            {board.dependencyWarnings.length} material link
+            {board.dependencyWarnings.length === 1 ? '' : 's'} not used
+          </span>
+        )}
       </div>
 
-      {/* Click a name for that person's week — see WorkerLoadChip. */}
+      {/* Five squares per name, one per working day; click for the detail —
+          see WorkerLoadChip. */}
       <div className="attendance-row">
         <strong>Today on site</strong>
         <span className="attendance-count">{attendance.length} / {board.workers.length}</span>
@@ -328,14 +347,16 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           <span>Attendance awaiting API</span>
         ) : (
           <span className="attendance-names">
-            {attendance.map((worker) => (
-              <WorkerLoadChip
-                key={String(worker.id)}
-                worker={worker}
-                rows={allRows}
-                from={board.horizonStart}
-              />
-            ))}
+            {attendance.map((worker) => {
+              const load = rosterLoads.get(String(worker.id));
+              return load ? (
+                <WorkerLoadChip
+                  key={String(worker.id)}
+                  worker={worker}
+                  load={load}
+                />
+              ) : null;
+            })}
           </span>
         )}
       </div>

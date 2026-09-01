@@ -11,8 +11,16 @@
  * That is what makes any bar draggable, not just the first on the line: there
  * is no single queue pinning the rest of the line behind it.
  *
- * Two hard constraints still push a bar later: a predecessor that has not
- * finished, and material that has not landed.
+ * Two hard constraints still push a bar later: a component another order is
+ * still making, and material that has not landed.
+ *
+ * ## What waits for what
+ *
+ * `JobMaterialReq.csv` says which components each order consumes, and
+ * `engine/assembly/dependencies` turns those into the orders that build them.
+ * An order starts no earlier than the last of them finishes — so a chair on
+ * ASSY sits behind its cover on UPL and its shell on a moulding press, and
+ * pulling any of those forward pulls the chair forward with it.
  *
  * ## Where a bar ends
  *
@@ -26,7 +34,6 @@
  * Pure — same shape as `computeBoardView` for moulding.
  */
 
-import type { JobId } from '@/domain/ids';
 import type { Job, MaterialStatus, PlanningDataset } from '@/domain/types';
 import {
   DEFAULT_HORIZON_DAYS,
@@ -39,6 +46,7 @@ import type { DataIndexes } from '@/engine/indexes';
 import { explodeMaterials } from '@/engine/materialExplosion';
 import { materialAvailability } from '@/engine/materialAvailability';
 import { releaseCheck, type ReleaseCheck } from './release';
+import { buildDependencies, type Dependency } from './dependencies';
 import {
   crewNeededFor,
   dailyTargetQty,
@@ -75,10 +83,10 @@ export interface OrderRow {
   status: ScheduleStatus;
   material: MaterialStatus;
   release: ReleaseCheck;
-  /** Predecessor order id, when this one waits on another. */
-  predecessor: JobId | null;
-  /** True when the bar was pushed later by its predecessor. */
-  waitingOnPredecessor: boolean;
+  /** Orders this one waits on, with the component each supplies. */
+  predecessors: Dependency[];
+  /** The one actually holding the bar back, when any is; else null. */
+  waitingOn: Dependency | null;
   /** Smallest crew that would hit the ship date, when one exists. */
   crewToHitShip: number | null;
   /** Explicitly closed during today's shift; retained until tomorrow for confirmation. */
@@ -103,6 +111,8 @@ export interface AssemblyGanttView {
   workers: Worker[];
   rowsByJob: Map<string, OrderRow>;
   jobsById: Map<string, Job>;
+  /** Material links that could not be used, e.g. a circular one. */
+  dependencyWarnings: string[];
   totals: {
     orders: number;
     green: number;
@@ -163,56 +173,78 @@ function claimSlot(
   return { start: pinned ? want : slots[first], slot: first };
 }
 
-/** Orders on the PMD row are shown for context, using their own dates. */
-function mouldingContextRows(
-  dataset: PlanningDataset,
-  line: LineDef,
-  today: Date,
-): OrderRow[] {
-  const noMaterial: MaterialStatus = {
-    level: 'unknown',
-    earliestStart: null,
-    shortages: [],
-  };
-  /** When moulding plans to run it: its own start, else its due date. */
-  const plannedStart = (j: Job): Date | null => j.startDate ?? j.dueDate;
+/** Moulding rows keep moulding's own dates; this board does not schedule them. */
+const MOULDING_MATERIAL: MaterialStatus = {
+  level: 'unknown',
+  earliestStart: null,
+  shortages: [],
+};
 
-  return dataset.jobs
-    .filter((j) => j.department === 'moulding' && plannedStart(j))
-    .sort((a, b) => plannedStart(a)!.getTime() - plannedStart(b)!.getTime())
-    .slice(0, 6)
-    .map((job) => {
-      const days = Math.max(0.25, job.laborHrs / 24);
-      const start = startOfDay(plannedStart(job) ?? today);
-      return {
-        job,
-        line,
-        workers: [],
-        start,
-        expectDate: addDays(start, days),
-        days,
-        slot: 0,
-        overtime: false,
-        dailyTarget: 0,
-        status: {
-          color: 'grey' as const,
-          shipSlackDays: null,
-          dueSlackDays: null,
-          reason: 'Moulding plan — shown for context, not scheduled here',
-        },
-        material: noMaterial,
-        release: {
-          level: 'ready' as const,
-          releasable: true,
-          needsOverride: false,
-          reason: 'Moulding plan',
-        },
-        predecessor: null,
-        waitingOnPredecessor: false,
-        crewToHitShip: null,
-        completedToday: false,
-      };
-    });
+/** When moulding plans to run an order: its own start, else its due date. */
+const mouldingStart = (j: Job): Date | null => j.startDate ?? j.dueDate;
+
+/**
+ * One moulding order as a board row.
+ *
+ * Read-only: the dates are moulding's, not ours. The row exists so the press
+ * work is visible above the assembly lines, and so an assembly order that
+ * needs one of these shells can be held behind the run that makes it.
+ */
+function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
+  const days = Math.max(0.25, job.laborHrs / 24);
+  const start = startOfDay(mouldingStart(job) ?? today);
+  return {
+    job,
+    line,
+    workers: [],
+    start,
+    expectDate: addDays(start, days),
+    days,
+    slot: 0,
+    overtime: false,
+    dailyTarget: 0,
+    status: {
+      color: 'grey' as const,
+      shipSlackDays: null,
+      dueSlackDays: null,
+      reason: 'Moulding plan — shown for context, not scheduled here',
+    },
+    material: MOULDING_MATERIAL,
+    release: {
+      level: 'ready' as const,
+      releasable: true,
+      needsOverride: false,
+      reason: 'Moulding plan',
+    },
+    predecessors: [],
+    waitingOn: null,
+    crewToHitShip: null,
+    completedToday: false,
+  };
+}
+
+/**
+ * Which moulding orders the PMD row shows.
+ *
+ * Every press job assembly is waiting on, because those are the ones a
+ * supervisor needs to be able to see and chase, then the next few by date to
+ * fill the row out.
+ */
+function mouldingContextRows(
+  rows: Map<string, OrderRow>,
+  neededIds: Set<string>,
+  fill: number,
+): OrderRow[] {
+  const byDate = (a: OrderRow, b: OrderRow): number =>
+    a.start!.getTime() - b.start!.getTime();
+  const needed = [...neededIds]
+    .map((id) => rows.get(id))
+    .filter((r): r is OrderRow => Boolean(r));
+  const rest = [...rows.values()]
+    .filter((r) => !neededIds.has(String(r.job.id)) && mouldingStart(r.job))
+    .sort(byDate)
+    .slice(0, Math.max(0, fill - needed.length));
+  return [...needed, ...rest].sort(byDate);
 }
 
 export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
@@ -256,6 +288,22 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const jobsById = new Map(assemblyJobs.map((j) => [String(j.id), j]));
   const workersById = new Map(input.workers.map((w) => [String(w.id), w]));
   const horizonStart = startOfDay(today);
+
+  // The moulding plan, as rows. Built for every press job rather than the few
+  // that fit on screen, because any of them may be the one an assembly order
+  // is waiting for.
+  const pmdLine = LINES.find((l) => !l.schedulable)!;
+  const mouldingRows = new Map<string, OrderRow>(
+    dataset.jobs
+      .filter((j) => j.department === 'moulding')
+      .map((j) => [String(j.id), mouldingRow(j, pmdLine, today)]),
+  );
+
+  // What waits for what, over both departments — a chair waits for its shell.
+  const { byJob: dependsOn, warnings: dependencyWarnings } = buildDependencies(
+    [...assemblyJobs, ...[...mouldingRows.values()].map((r) => r.job)],
+    dataset.jobLinks ?? [],
+  );
 
   const rowsByJob = new Map<string, OrderRow>();
   const placed = new Set<string>();
@@ -331,13 +379,17 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     // Where the order asks to be, before the line's capacity has its say.
     let want = wantedStart(id);
 
-    let waitingOnPredecessor = false;
-    const predId = job.predecessor ? String(job.predecessor) : null;
-    if (predId) {
-      const pred = resolve(predId, seen);
+    // Nothing can start before the last of its components is finished. A
+    // predecessor on another assembly line is scheduled the same way as this
+    // one, so it is resolved first; a moulding predecessor keeps its own dates.
+    const predecessors = dependsOn.get(id) ?? [];
+    let waitingOn: Dependency | null = null;
+    for (const dep of predecessors) {
+      const predId = String(dep.onJobId);
+      const pred = resolve(predId, seen) ?? mouldingRows.get(predId) ?? null;
       if (pred?.expectDate && pred.expectDate > want) {
         want = pred.expectDate;
-        waitingOnPredecessor = true;
+        waitingOn = dep;
       }
     }
 
@@ -388,8 +440,8 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       status,
       material,
       release: releaseCheck(material, job.materialPrep),
-      predecessor: job.predecessor,
-      waitingOnPredecessor,
+      predecessors,
+      waitingOn,
       crewToHitShip: job.shipDate
         ? crewNeededFor(
             job,
@@ -425,9 +477,16 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     groups.push(withLoad(line, rows));
   }
 
-  // PMD context row on top.
-  const pmd = LINES.find((l) => !l.schedulable)!;
-  groups.unshift(withLoad(pmd, mouldingContextRows(dataset, pmd, today)));
+  // PMD context row on top, led by the press work assembly is waiting for.
+  const neededMoulding = new Set(
+    [...rowsByJob.values()]
+      .flatMap((r) => r.predecessors)
+      .map((d) => String(d.onJobId))
+      .filter((id) => mouldingRows.has(id)),
+  );
+  groups.unshift(
+    withLoad(pmdLine, mouldingContextRows(mouldingRows, neededMoulding, 6)),
+  );
   groups.sort((a, b) => a.line.sortIndex - b.line.sortIndex);
 
   const pool = assemblyJobs.filter((j) => !placed.has(String(j.id)));
@@ -452,6 +511,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     workers: input.workers,
     rowsByJob,
     jobsById,
+    dependencyWarnings,
     totals: {
       orders: scheduled.length,
       green: scheduled.filter((r) => r.status.color === 'green').length,

@@ -7,7 +7,7 @@
  * ship date, and the material picture behind the release gate.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { findOrderRow } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
@@ -51,7 +51,17 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   // point is to give the width back to the schedule so it reaches further out.
   // Picking any order brings the pane back.
   const closePane = useUiStore((s) => s.setSidePane);
+  const select = useUiStore((s) => s.select);
   const row = findOrderRow(board, selectedJobId);
+  // Every row on the board, moulding included — an order can be waiting on a
+  // press job, which is not among the scheduled assembly rows.
+  const rowsById = useMemo(
+    () =>
+      new Map(
+        board.groups.flatMap((g) => g.rows).map((r) => [String(r.job.id), r]),
+      ),
+    [board],
+  );
   const recordProgress = usePlanStore((s) => s.recordProgress);
   const recordProduction = usePlanStore((s) => s.recordProduction);
   // Select the stable map, then read from it. Returning a fresh `[]` from the
@@ -177,10 +187,43 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
         >
           {status.reason}
         </Badge>
-        {row.waitingOnPredecessor && row.predecessor && (
-          <Badge variant="neutral">Waits on {String(row.predecessor)}</Badge>
+        {row.waitingOn && (
+          <Badge variant="neutral">
+            Waits on {String(row.waitingOn.onJobId)}
+          </Badge>
         )}
       </div>
+
+      {row.predecessors.length > 0 && (
+        <>
+          <div className="section-title">Needs finished first</div>
+          <ul className="dep-list">
+            {row.predecessors.map((dep) => {
+              const on = rowsById.get(String(dep.onJobId));
+              const holding = row.waitingOn?.onJobId === dep.onJobId;
+              return (
+                <li key={String(dep.onJobId)} className={holding ? 'holding' : ''}>
+                  <button
+                    type="button"
+                    className="dep-job"
+                    title="Show this order on the board"
+                    onClick={() => select(String(dep.onJobId))}
+                  >
+                    {String(dep.onJobId)}
+                  </button>
+                  <span className="dep-part">
+                    {dep.part ? String(dep.part) : 'named in the order export'}
+                  </span>
+                  <span className="dep-when">
+                    {on?.line.name ?? '—'}
+                    {on?.expectDate ? ` · ${formatDay(on.expectDate)}` : ''}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
 
       <div className="section-title">Crew &amp; pace</div>
       <dl className="kv">

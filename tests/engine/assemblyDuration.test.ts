@@ -33,7 +33,7 @@ const job = (laborHrs: number, remaining: number, done = 0): Job => ({
   line: null,
   shipDate: null,
   completedQty: done,
-  predecessor: null,
+  predecessors: [],
   assignedWorkers: [],
 });
 

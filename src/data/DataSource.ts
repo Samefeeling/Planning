@@ -9,6 +9,7 @@ import type {
   DemandLine,
   InventoryItem,
   Job,
+  JobMaterialLink,
   WorkCenter,
   PlanningDataset,
   PoLine,
@@ -36,6 +37,11 @@ export interface DataSource {
   fetchPo(): Promise<PoLine[]>;
   fetchDemand(): Promise<DemandLine[]>;
   fetchWorkers(): Promise<Worker[]>;
+  /**
+   * Order-to-order material links. Optional: a source with none simply
+   * schedules every order independently.
+   */
+  fetchJobLinks?(): Promise<JobMaterialLink[]>;
 
   /** Fetch everything needed for one planning session. */
   loadAll(): Promise<Result<PlanningDataset, string>>;
@@ -57,19 +63,34 @@ export abstract class BaseDataSource implements DataSource {
   abstract fetchDemand(): Promise<DemandLine[]>;
   abstract fetchWorkers(): Promise<Worker[]>;
 
+  /** No links unless a source overrides this — see `PlanningCsvSource`. */
+  async fetchJobLinks(): Promise<JobMaterialLink[]> {
+    return [];
+  }
+
   async loadAll(): Promise<Result<PlanningDataset, string>> {
     try {
-      const [workCenters, jobs, routing, inventory, bom, po, demand, workers] =
-        await Promise.all([
-          this.fetchWorkCenters(),
-          this.fetchJobs(),
-          this.fetchRouting(),
-          this.fetchInventory(),
-          this.fetchBom(),
-          this.fetchPo(),
-          this.fetchDemand(),
-          this.fetchWorkers(),
-        ]);
+      const [
+        workCenters,
+        jobs,
+        routing,
+        inventory,
+        bom,
+        po,
+        demand,
+        workers,
+        jobLinks,
+      ] = await Promise.all([
+        this.fetchWorkCenters(),
+        this.fetchJobs(),
+        this.fetchRouting(),
+        this.fetchInventory(),
+        this.fetchBom(),
+        this.fetchPo(),
+        this.fetchDemand(),
+        this.fetchWorkers(),
+        this.fetchJobLinks(),
+      ]);
       return ok({
         workCenters,
         jobs,
@@ -78,6 +99,7 @@ export abstract class BaseDataSource implements DataSource {
         bom,
         po,
         demand,
+        jobLinks,
         workers,
         fetchedAt: new Date(),
       });

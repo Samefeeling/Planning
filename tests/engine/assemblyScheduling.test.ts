@@ -19,7 +19,7 @@ import {
   type Worker,
 } from '@/domain/assembly';
 import { isWeekend } from '@/engine/assembly/dates';
-import type { Job, PlanningDataset } from '@/domain/types';
+import type { Job, JobMaterialLink, PlanningDataset } from '@/domain/types';
 
 const UPL = LINES.find((l) => l.key === 'UPL')!;
 
@@ -55,7 +55,7 @@ const job = (id: string, days: number, over: Partial<Job> = {}): Job => ({
   line: UPL.id,
   shipDate: null,
   completedQty: 0,
-  predecessor: null,
+  predecessors: [],
   assignedWorkers: [],
   ...over,
 });
@@ -65,6 +65,7 @@ function board(
   over: {
     orderStarts?: Record<string, string>;
     orderOvertime?: Record<string, boolean>;
+    jobLinks?: JobMaterialLink[];
     today?: Date;
   } = {},
 ) {
@@ -85,6 +86,7 @@ function board(
     bom: [],
     po: [],
     demand: [],
+    jobLinks: over.jobLinks ?? [],
     workers,
     fetchedAt: THU,
   };
@@ -92,7 +94,12 @@ function board(
   return computeAssemblyGantt({
     dataset,
     indexes: buildIndexes(dataset),
-    containers: { [String(UPL.id)]: jobs.map((j) => j.id) },
+    // Moulding orders belong to the press, not to an assembly line.
+    containers: {
+      [String(UPL.id)]: jobs
+        .filter((j) => j.department === 'assembly')
+        .map((j) => j.id),
+    },
     // One person each, so a bar is exactly as long as the order's days.
     orderWorkers: Object.fromEntries(
       jobs.map((j, i) => [String(j.id), [`W${i}`]]),
@@ -223,5 +230,127 @@ describe('the closed weekend', () => {
     expect(row.status.color).toBe('red');
     // The commitment itself is untouched — only the expectation moved.
     expect(row.job.dueDate).toEqual(day(14));
+  });
+});
+
+describe('waiting on the orders that build the components', () => {
+  const link = (
+    jobNum: string,
+    parent: string,
+    child: string,
+  ): JobMaterialLink => ({
+    jobNum: JobId(jobNum),
+    parentPart: PartId(parent),
+    childPart: PartId(child),
+    requiredQty: 1,
+  });
+
+  it('starts the parent when the child order finishes, not before', () => {
+    const cover = job('COVER1', 1, { partNum: PartId('COVER') });
+    const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
+    const b = board([cover, chair], {
+      jobLinks: [link('CHAIR1', 'CHAIR', 'COVER')],
+    });
+
+    const upstream = b.rowsByJob.get('COVER1')!;
+    const downstream = b.rowsByJob.get('CHAIR1')!;
+
+    // Both could have started today — the line has three free positions — so
+    // the only thing holding the chair back is the cover.
+    expect(upstream.start).toEqual(THU);
+    expect(downstream.start).toEqual(upstream.expectDate);
+    expect(downstream.start).toEqual(day(11));
+    expect(String(downstream.waitingOn!.onJobId)).toBe('COVER1');
+    expect(String(downstream.waitingOn!.part)).toBe('COVER');
+  });
+
+  it('waits for the Monday when the child order finishes on a Friday', () => {
+    // Two days from Thursday runs out the end of Friday. There is no working
+    // Saturday to hand the components over on, so the parent starts Monday.
+    const cover = job('COVER1', 2, { partNum: PartId('COVER') });
+    const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
+    const b = board([cover, chair], {
+      jobLinks: [link('CHAIR1', 'CHAIR', 'COVER')],
+    });
+
+    expect(b.rowsByJob.get('COVER1')!.expectDate).toEqual(day(12));
+    expect(b.rowsByJob.get('CHAIR1')!.start).toEqual(day(14));
+  });
+
+  it('waits for the last component, not the first one it reads', () => {
+    const quick = job('COVER1', 1, { partNum: PartId('COVER') });
+    const slow = job('FRAME1', 3, { partNum: PartId('FRAME') });
+    const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
+    const b = board([quick, slow, chair], {
+      jobLinks: [
+        link('CHAIR1', 'CHAIR', 'COVER'),
+        link('CHAIR1', 'CHAIR', 'FRAME'),
+      ],
+    });
+
+    const row = b.rowsByJob.get('CHAIR1')!;
+    expect(row.predecessors).toHaveLength(2);
+    expect(row.start).toEqual(b.rowsByJob.get('FRAME1')!.expectDate);
+    expect(String(row.waitingOn!.onJobId)).toBe('FRAME1');
+  });
+
+  it('holds an assembly order behind the press job making its shell', () => {
+    // The moulding row keeps moulding's own dates; assembly reads them.
+    const shell = job('SFM1', 1, {
+      department: 'moulding',
+      partNum: PartId('SHELL'),
+      line: null,
+      startDate: day(16),
+      laborHrs: 24, // a full day on a press running around the clock
+    });
+    const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
+    const b = board([shell, chair], {
+      jobLinks: [link('CHAIR1', 'CHAIR', 'SHELL')],
+    });
+
+    const row = b.rowsByJob.get('CHAIR1')!;
+    expect(row.start).toEqual(day(17));
+    expect(String(row.waitingOn!.onJobId)).toBe('SFM1');
+
+    // And the press job is on the PMD row, so it can be seen and chased.
+    const pmd = b.groups.find((g) => !g.line.schedulable)!;
+    expect(pmd.rows.map((r) => String(r.job.id))).toContain('SFM1');
+  });
+
+  it('leaves an order alone when nobody is making its components', () => {
+    const table = job('TBL1', 1, { partNum: PartId('TABLE') });
+    const b = board([table], { jobLinks: [link('TBL1', 'TABLE', 'MDF-TOP')] });
+
+    expect(b.rowsByJob.get('TBL1')!.start).toEqual(THU);
+    expect(b.rowsByJob.get('TBL1')!.waitingOn).toBeNull();
+  });
+
+  it('moves the whole chain when the first order is dragged out', () => {
+    const cover = job('COVER1', 1, { partNum: PartId('COVER') });
+    const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
+    const links = [link('CHAIR1', 'CHAIR', 'COVER')];
+
+    const before = board([cover, chair], { jobLinks: links });
+    const after = board([cover, chair], {
+      jobLinks: links,
+      orderStarts: { COVER1: day(14).toISOString() },
+    });
+
+    expect(before.rowsByJob.get('CHAIR1')!.start).toEqual(day(11));
+    expect(after.rowsByJob.get('CHAIR1')!.start).toEqual(day(15));
+    // Pushed out by three working days, and still nothing touched a Due Date.
+    expect(after.rowsByJob.get('CHAIR1')!.job.dueDate).toEqual(day(30));
+  });
+
+  it('schedules both ends of a circular pair rather than deadlocking', () => {
+    const a = job('A', 1, { partNum: PartId('PA') });
+    const b2 = job('B', 1, { partNum: PartId('PB') });
+    const b = board([a, b2], {
+      jobLinks: [link('A', 'PA', 'PB'), link('B', 'PB', 'PA')],
+    });
+
+    expect(b.rowsByJob.get('A')!.start).not.toBeNull();
+    expect(b.rowsByJob.get('B')!.start).not.toBeNull();
+    expect(b.dependencyWarnings[0]).toMatch(/Circular/);
   });
 });

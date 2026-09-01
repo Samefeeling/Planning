@@ -40,9 +40,13 @@ plan goes back the other way, into the `ASSY_Production` list.
 - **Work load, in standard hours** — the remaining hours of an order
   (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
   its bar covers. Shown three ways: per line on the group header, for the whole
-  board beside the zoom, and per person — click a name in the "Today on site"
-  row for their week, day by day, against a shift's capacity. Someone on two
-  orders at once shows a day over 7.25 h and is flagged.
+  board beside the zoom, and per person — every name in the "Today on site" row
+  carries **five 10px squares**, one per working day, in the same green/orange/
+  red bands; an idle day is drawn hollow so empty never reads as comfortable,
+  and planned leave is hatched. Click a name for the same week in full, day by
+  day, against a shift's capacity. Someone on two orders at once shows a day
+  over 7.25 h and is flagged. A week holds five working days, so the squares
+  and the popup cover exactly the same window.
 - **Crew drives duration** — up to **4 people** per order; bar length is
   remaining standard hours ÷ (crew × productive hours), so adding someone
   visibly shortens it and pulls the Expect Date in. The picker offers only
@@ -68,8 +72,16 @@ plan goes back the other way, into the `ASSY_Production` list.
 
   The bands are exhaustive and non-overlapping.
 
-- **Predecessors** — an order waiting on another (moulding feeding upholstery,
-  upholstery feeding final assembly) starts only when that one finishes.
+- **Dependencies across the four lines** — `JobMaterialReq.csv` says what each
+  order consumes (`JobMtl_JobNum` builds `JobHead_PartNum` from
+  `JobMtl_PartNum`). Wherever another open order is still making one of those
+  components, the parent cannot start until that order finishes — a chair on
+  ASSY waits for its cover on UPL and its shell on a press. An order waits for
+  the *latest* of its components; the bar carries a `⇠` marker and the
+  inspector lists each one, which order supplies it and when, with the one
+  actually holding it up in bold. A component nobody is making is bought in or
+  on the shelf, and constrains nothing. Press jobs that assembly is waiting on
+  are pulled to the front of the PMD row so they can be chased.
 - **Material gates release** — a short component is flagged, and material that
   only lands on a future PO pushes the bar out.
 
@@ -114,15 +126,17 @@ Configure via `.env.local` (see `.env.example`):
 | `VITE_DATA_SOURCE` | Behaviour |
 | ------------------ | --------- |
 | `mock` (default)   | Bundled `seed.json`. Instant, offline. |
-| `planning-csv`     | Orders from `Planning1.csv`, people from the `ASSY_Operator` SharePoint list. |
+| `planning-csv`     | Orders from `Planning1.csv`, dependencies from `JobMaterialReq.csv`, people from the `ASSY_Operator` SharePoint list. |
 | `excel`            | Fetch the master workbook from SharePoint (Microsoft Graph) and parse it with SheetJS. Falls back to a manual file upload if Graph isn't configured. |
 
 The Excel source (and the heavy `xlsx` dependency) is **lazy-loaded**, so
 neither the mock nor the CSV build ships the parser.
 
-Whichever is configured, **Load CSV** in the header parses a `Planning1.csv`
-picked from disk through exactly the same code — the quickest way to check an
-export against the board without wiring up Graph auth.
+Whichever is configured, **Load CSV** in the header parses files picked from
+disk through exactly the same code — the quickest way to check an export
+against the board without wiring up Graph auth. Select both `Planning1.csv` and
+`JobMaterialReq.csv` at once: which is which is decided by the header row, not
+the file name, so a copy saved out of Excel still lands in the right parser.
 
 ### `Planning1.csv` → domain
 
@@ -151,8 +165,37 @@ If no header matches the `PMD`/`ASSY` column, the parser finds it by looking for
 the column whose values *are* line names — so an unfamiliar BAQ alias still
 works.
 
-**Not in today's export**, and read automatically once added: `ShipDate`,
-`OrderType`, `Predecessor`, `MaterialStatus`. Two consequences worth knowing:
+### `JobMaterialReq.csv` → the dependency chain
+
+The second BAQ export, one row per component of an order. Three columns carry
+the whole chain; the rest are ignored.
+
+| CSV column | Becomes | Note |
+| --- | --- | --- |
+| `JobMtl_JobNum` | the order that consumes | must also appear in `Planning1.csv`, or the row is skipped |
+| `JobHead_PartNum` | the part that order builds | cross-checked against the order export; a disagreement is warned about, not fatal |
+| `JobMtl_PartNum` | the component consumed | this is what creates the wait |
+| `JobMtl_RequiredQty` | quantity | carried, not yet used for scheduling |
+
+Both part columns end in `PartNum`, so header matching deliberately strips only
+the `JobHead_` prefix — a bare `PartNum` is never taken for the component,
+because one part column cannot say which end of a link it is.
+
+The rule, in `engine/assembly/dependencies.ts`: for each component, find the
+open order whose `PartNum` is that component. If there is one, the consumer
+waits for it to finish. If there is none, the component is bought in or already
+on the shelf and nothing waits. Where several batches of the same part are
+open, the consumer waits for the one scheduled **first** — the earliest supply
+it could take, not all of them — with ties broken on job number so the same
+export always yields the same schedule. Circular links (two orders each listing
+the other's part) are broken deterministically and reported in the header.
+
+An order that has no material export at all schedules exactly as before, so
+this file is optional.
+
+**Not in today's order export**, and read automatically once added:
+`ShipDate`, `OrderType`, `Predecessor`, `MaterialStatus`. Two consequences
+worth knowing:
 
 - **No Ship Date means no green/orange band.** The colour rule compares Expect
   against Ship first; with Ship absent every order is green until it passes its
@@ -287,7 +330,8 @@ domain  →  lib  →  engine  →  store  →  features (UI)
   could not read as a warning rather than failing the load.
 - **`engine/`** — pure, unit-tested functions. Shared: `materialAvailability`,
   `materialExplosion`, `netRequirements`, `indexes`. Assembly:
-  `assembly/{duration,dates,release,board,workload}`. No React, no I/O.
+  `assembly/{duration,dates,release,board,workload,dependencies}`. No React,
+  no I/O.
 - **`store/`** — Zustand. `dataStore` (loaded data + indexes), `planStore`
   (placement, crew, pinned starts, booked output — the only mutable plan
   state), `assemblySelectors` (derives the schedule), `uiStore` (selection).
@@ -305,8 +349,8 @@ domain  →  lib  →  engine  →  store  →  features (UI)
 1. folds in the booked output, shrinking the remaining work;
 2. divides that by the crew to get the bar length in days;
 3. starts it where it asks to start — the planner's drag, else Epicor's
-   scheduled start — pushed later by a predecessor that has not finished, by
-   material still on a PO, or by the weekend;
+   scheduled start — pushed later by any order still making one of its
+   components, by material still on a PO, or by the weekend;
 4. gives it one of the line's three build positions, queueing it behind the
    first to free only when all three are busy *and* the planner did not put it
    there by hand;

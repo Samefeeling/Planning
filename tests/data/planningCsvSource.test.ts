@@ -20,7 +20,13 @@ const ROSTER = {
   ],
 };
 
+const LINKS = [
+  'JobMtl_JobNum,JobHead_PartNum,JobMtl_PartNum,JobMtl_RequiredQty',
+  '018140-1-1,CSSL01436,7911FR,30',
+].join('\n');
+
 const CSV_URL = 'https://example.test/Planning1.csv';
+const LINKS_URL = 'https://example.test/JobMaterialReq.csv';
 const SP: SharePointConfig = {
   siteUrl: 'https://contoso.sharepoint.com/sites/PMD',
   filePath: '',
@@ -35,6 +41,9 @@ function stubNetwork(roster: unknown = ROSTER) {
     calls.push(url);
     if (url === CSV_URL) {
       return new Response(CSV, { status: 200 });
+    }
+    if (url === LINKS_URL) {
+      return new Response(LINKS, { status: 200 });
     }
     if (url.includes('/lists/')) {
       return new Response(JSON.stringify(roster), {
@@ -134,6 +143,57 @@ describe('PlanningCsvSource', () => {
     expect(res.value.jobs).toHaveLength(2); // orders still schedule
     expect(res.value.workers).toEqual([]);
     expect(s.warnings.join(' ')).toContain('403');
+  });
+
+  it('leaves jobLinks empty when no material export is configured', async () => {
+    const calls = stubNetwork();
+    const res = await source().loadAll();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.jobLinks).toEqual([]);
+    // And it does not go looking for one.
+    expect(calls.some((u) => u.includes('JobMaterialReq'))).toBe(false);
+  });
+
+  it('reads JobMaterialReq.csv when it is configured', async () => {
+    stubNetwork();
+    const s = new PlanningCsvSource(
+      { url: CSV_URL, filePath: '', linksUrl: LINKS_URL },
+      SP,
+    );
+    const res = await s.loadAll();
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.jobLinks).toHaveLength(1);
+    expect(res.value.jobLinks[0]).toMatchObject({
+      jobNum: '018140-1-1',
+      childPart: '7911FR',
+      requiredQty: 30,
+    });
+  });
+
+  it('still schedules when the material export is unreachable', async () => {
+    // Losing the dependencies costs the chain, not the board.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === CSV_URL
+          ? new Response(CSV, { status: 200 })
+          : new Response('nope', { status: 404 }),
+      ),
+    );
+    const s = new PlanningCsvSource(
+      { url: CSV_URL, filePath: '', linksUrl: LINKS_URL },
+      SP,
+    );
+    const res = await s.loadAll();
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.jobs).toHaveLength(2);
+    expect(res.value.jobLinks).toEqual([]);
+    expect(s.warnings.join(' ')).toContain('JobMaterialReq.csv');
   });
 
   it('fails the load when the CSV itself cannot be fetched', async () => {

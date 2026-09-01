@@ -1,10 +1,11 @@
 /**
- * The live source: orders from `Planning1.csv`, people from the SharePoint list
- * `ASSY_Operator`.
+ * The live source: orders from `Planning1.csv`, what those orders consume from
+ * `JobMaterialReq.csv`, and people from the SharePoint list `ASSY_Operator`.
  *
- * The CSV carries both PMD and assembly rows, so one fetch feeds the whole
- * board — the PMD lane mirrors moulding's plan and the three assembly lines are
- * scheduled here.
+ * The order export carries both PMD and assembly rows, so one fetch feeds the
+ * whole board — the PMD lane mirrors moulding's plan and the three assembly
+ * lines are scheduled here. The material export is what ties them together:
+ * a chair cannot start before the press job making its shell is finished.
  *
  * What the export does *not* carry: inventory, BOM, POs and demand. Those come
  * from the master workbook, so the material engine sees nothing here and every
@@ -18,6 +19,7 @@ import type {
   DemandLine,
   InventoryItem,
   Job,
+  JobMaterialLink,
   PoLine,
   RoutingEntry,
   WorkCenter,
@@ -35,11 +37,13 @@ import {
 import { fetchListItems } from '@/data/sharepoint/lists.client';
 import { parseOperators } from '@/data/sharepoint/operator.parser';
 import {
+  fetchJobMaterialCsv,
   fetchPlanningCsv,
   readCsvConfigFromEnv,
   type CsvSourceConfig,
 } from './csv.client';
 import { parsePlanningCsv } from './planning.parser';
+import { parseJobMaterialCsv } from './materialReq.parser';
 
 /** Display name of the roster list in SharePoint. */
 export const OPERATOR_LIST = 'ASSY_Operator';
@@ -51,6 +55,7 @@ export class PlanningCsvSource extends BaseDataSource {
   readonly warnings: string[] = [];
 
   private jobsOnce: Promise<Job[]> | null = null;
+  private linksOnce: Promise<JobMaterialLink[]> | null = null;
 
   constructor(
     private readonly csv: CsvSourceConfig = readCsvConfigFromEnv(),
@@ -75,9 +80,10 @@ export class PlanningCsvSource extends BaseDataSource {
     }));
   }
 
-  /** Drop the memoised CSV so the next load re-fetches. */
+  /** Drop the memoised CSVs so the next load re-fetches. */
   invalidate(): void {
     this.jobsOnce = null;
+    this.linksOnce = null;
     this.warnings.length = 0;
   }
 
@@ -92,6 +98,26 @@ export class PlanningCsvSource extends BaseDataSource {
 
   async fetchJobs(): Promise<Job[]> {
     return this.orders;
+  }
+
+  /**
+   * The dependency chain. Absent or unreadable links leave every order
+   * standing on its own, which is worth a warning but never a failed load —
+   * the schedule is more useful with no dependencies than not at all.
+   */
+  override async fetchJobLinks(): Promise<JobMaterialLink[]> {
+    return (this.linksOnce ??= fetchJobMaterialCsv(this.csv, this.sp).then(
+      (res) => {
+        if (!res.ok) {
+          this.warnings.push(res.error);
+          return [];
+        }
+        if (res.value === null) return []; // no material export configured
+        const { values, errors } = parseJobMaterialCsv(res.value);
+        this.warnings.push(...errors);
+        return values;
+      },
+    ));
   }
 
   /**

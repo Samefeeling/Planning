@@ -115,7 +115,7 @@ export function parseJobs(planning: Sheet): ParseOutcome<Job> {
       line: lineRaw ? MachineId(lineRaw) : null,
       shipDate: asDate(row[C.shipDate]),
       completedQty: asNum(row[C.completedQty]) ?? 0,
-      predecessor: null,
+      predecessors: [],
       assignedWorkers: [],
     });
   });

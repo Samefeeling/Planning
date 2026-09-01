@@ -315,7 +315,9 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
       line,
       shipDate: date(cell(row, col.shipDate)),
       completedQty,
-      predecessor: predecessor ? JobId(predecessor) : null,
+      // The order export rarely names one; the material file is where the
+      // dependency chain really comes from (`engine/assembly/dependencies`).
+      predecessors: predecessor ? [JobId(predecessor)] : [],
       assignedWorkers: [],
     });
   });

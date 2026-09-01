@@ -3,14 +3,19 @@
  *
  * The supervisor's question at the top of the board is "who has room?", which
  * the crew chips on the rows cannot answer — those show one order at a time.
- * Clicking a name here opens the other view: the same hours, totalled per day
- * across every order the person is on, against a shift's worth of capacity.
+ * Five squares beside the name answer it at a glance, one per working day in
+ * the same green/orange/red bands as the day columns; clicking opens the full
+ * view, the same hours totalled per day across every order the person is on.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Worker } from '@/domain/assembly';
-import type { OrderRow } from '@/engine/assembly/board';
-import { LOAD_WINDOW_DAYS, workerLoad } from '@/engine/assembly/workload';
+import {
+  LOAD_WINDOW_DAYS,
+  dayBand,
+  loadPreview,
+  type WorkerLoad,
+} from '@/engine/assembly/workload';
 
 const DAY_FMT = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',
@@ -22,22 +27,14 @@ const hrs = (n: number): string => `${n.toFixed(1)} h`;
 
 export function WorkerLoadChip({
   worker,
-  rows,
-  from,
+  load,
 }: {
   worker: Worker;
-  /** Every scheduled row on the board — an order counts wherever it sits. */
-  rows: OrderRow[];
-  from: Date;
+  /** This person's week, computed once for the whole roster by the board. */
+  load: WorkerLoad;
 }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
-
-  // Only worth computing for the one person whose panel is open.
-  const load = useMemo(
-    () => (open ? workerLoad(worker, rows, from) : null),
-    [open, worker, rows, from],
-  );
 
   useEffect(() => {
     if (!open) return;
@@ -57,9 +54,22 @@ export function WorkerLoadChip({
     };
   }, [open]);
 
-  const pct = load?.capacityHours
+  const pct = load.capacityHours
     ? Math.round((load.totalHours / load.capacityHours) * 100)
     : 0;
+  const preview = loadPreview(load);
+
+  /** What one square means, spelled out for the hover. */
+  const dayTitle = (day: (typeof preview)[number]): string => {
+    const when = DAY_FMT.format(day.date);
+    if (day.capacity <= 0) {
+      return day.hours > 0
+        ? `${when} — ${hrs(day.hours)} booked on a day off`
+        : `${when} — planned leave`;
+    }
+    if (day.hours <= 0) return `${when} — free`;
+    return `${when} — ${hrs(day.hours)} of ${hrs(day.capacity)} (${Math.round(day.pct)}%)`;
+  };
 
   return (
     <span className="worker-load-anchor" ref={wrap}>
@@ -67,13 +77,21 @@ export function WorkerLoadChip({
         type="button"
         className={`worker-name ${open ? 'open' : ''}`}
         aria-expanded={open}
+        aria-label={`${worker.name} — ${pct}% booked over ${preview.length} working days`}
         title={`${worker.name} — ${LOAD_WINDOW_DAYS}-day work load`}
         onClick={() => setOpen((o) => !o)}
       >
         {worker.name}
+        {/* One square per working day. Decorative for a screen reader — the
+            button's label already carries the number. */}
+        <span className="wl-dots" aria-hidden="true">
+          {preview.map((day) => (
+            <i key={day.key} className={`wl-dot ${day.dot}`} title={dayTitle(day)} />
+          ))}
+        </span>
       </button>
 
-      {open && load && (
+      {open && (
         <div className="worker-load" role="dialog" aria-label={`${worker.name} work load`}>
           <header className="wl-head">
             <strong>{worker.name}</strong>
@@ -110,31 +128,40 @@ export function WorkerLoadChip({
           <ol className="wl-days">
             {load.days.map((day) => {
               const over = day.over;
+              // Same bands as the squares, so the two views of one week can
+              // never read differently.
+              const band = dayBand(day);
               const fill = day.capacity
                 ? Math.min(100, (day.hours / day.capacity) * 100)
                 : day.hours > 0
                   ? 100
                   : 0;
               return (
-                <li key={day.key} className={day.onLeave ? 'leave' : ''}>
+                <li
+                  key={day.key}
+                  className={`${day.onLeave ? 'leave' : ''} ${
+                    // A closed day recedes — unless work landed on it, which
+                    // is the one weekend case worth looking at.
+                    day.working ? '' : day.hours > 0 ? 'overtime' : 'closed'
+                  }`}
+                >
                   <span className="wl-day">{DAY_FMT.format(day.date)}</span>
                   <span className="wl-meter">
-                    <i
-                      className={over ? 'over' : ''}
-                      style={{ width: `${fill}%` }}
-                    />
+                    <i className={band} style={{ width: `${fill}%` }} />
                   </span>
                   <span className={`wl-hours ${over ? 'over' : ''}`}>
                     {day.hours > 0 ? hrs(day.hours) : '—'}
                   </span>
                   <span className="wl-orders">
-                    {day.onLeave
-                      ? 'planned leave'
-                      : day.entries.length === 0
-                        ? 'free'
-                        : day.entries
-                            .map((e) => `${e.line} · ${e.description}`)
-                            .join('  |  ')}
+                    {day.entries.length > 0
+                      ? day.entries
+                          .map((e) => `${e.line} · ${e.description}`)
+                          .join('  |  ')
+                      : day.onLeave
+                        ? 'planned leave'
+                        : day.working
+                          ? 'free'
+                          : 'factory closed'}
                   </span>
                 </li>
               );
@@ -145,7 +172,7 @@ export function WorkerLoadChip({
             <p className="wl-warn">
               Booked past a full shift on {load.overloadedDays} day
               {load.overloadedDays === 1 ? '' : 's'} — they are on more than one
-              order at once.
+              order at once, on leave, or at the weekend.
             </p>
           )}
         </div>

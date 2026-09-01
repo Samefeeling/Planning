@@ -159,17 +159,23 @@ describe('assembly Gantt (mock data)', () => {
     expect(tomorrow.jobsById.has(String(row.job.id))).toBe(false);
   });
 
-  it('starts a successor only after its predecessor finishes', () => {
+  it('starts a successor only after every predecessor finishes', () => {
     const b = build();
-    const withPred = [...b.rowsByJob.values()].filter((r) => r.predecessor);
+    const rows = b.groups.flatMap((g) => g.rows);
+    const byId = new Map(rows.map((r) => [String(r.job.id), r]));
+    const withPred = [...b.rowsByJob.values()].filter(
+      (r) => r.predecessors.length > 0,
+    );
     expect(withPred.length).toBeGreaterThan(0);
 
     for (const row of withPred) {
-      const pred = b.rowsByJob.get(String(row.predecessor));
-      if (!pred?.expectDate || !row.start) continue;
-      expect(row.start.getTime()).toBeGreaterThanOrEqual(
-        pred.expectDate.getTime(),
-      );
+      for (const dep of row.predecessors) {
+        const pred = byId.get(String(dep.onJobId));
+        if (!pred?.expectDate || !row.start) continue;
+        expect(row.start.getTime()).toBeGreaterThanOrEqual(
+          pred.expectDate.getTime(),
+        );
+      }
     }
   });
 

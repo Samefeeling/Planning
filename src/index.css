@@ -288,6 +288,47 @@ button {
   margin: 0;
   font-weight: 500;
 }
+/* ---- what an order is waiting for -------------------------------------- */
+.dep-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  font-size: 12px;
+}
+.dep-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+  border-top: 1px solid var(--border);
+}
+/* The one actually holding the bar back; the others are already clear. */
+.dep-list li.holding .dep-job {
+  color: var(--text);
+  font-weight: 700;
+}
+.dep-job {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+.dep-job:hover { color: var(--accent); }
+.dep-part {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dep-when { color: var(--faint); font-size: 11px; }
+
 .shortage-row {
   display: flex;
   justify-content: space-between;
@@ -896,6 +937,15 @@ button {
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
+/* Material links the dependency graph had to drop — hover for which. */
+.board-warn {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--warn-dim);
+  color: #92400e;
+  font-weight: 650;
+  cursor: help;
+}
 
 /* ---- per-person week load ---------------------------------------------- */
 .attendance-names {
@@ -909,6 +959,9 @@ button {
 }
 .worker-name {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -922,6 +975,36 @@ button {
 .worker-name.open {
   background: #dbeafe;
   border-color: #93c5fd;
+}
+/*
+ * Five squares, one per working day of the window, in the same bands as the
+ * day columns above the board. An idle day is drawn hollow rather than green:
+ * empty and comfortable look nothing alike to a supervisor hunting for room.
+ */
+.wl-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+.wl-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+}
+.wl-dot.green { background: var(--ok); }
+.wl-dot.orange { background: var(--warn); }
+.wl-dot.red { background: var(--error); }
+.wl-dot.idle {
+  background: transparent;
+  border-color: #93c5fd;
+}
+.wl-dot.leave {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--surface-3) 0 2px,
+    transparent 2px 4px
+  );
+  border-color: var(--border);
 }
 .worker-load {
   position: absolute;
@@ -998,7 +1081,13 @@ button {
   font-size: 11px;
   border-top: 1px solid var(--border);
 }
-.wl-days li.leave { opacity: 0.55; }
+.wl-days li.leave,
+.wl-days li.closed { opacity: 0.55; }
+.wl-days li.overtime .wl-day::after {
+  content: ' OT';
+  color: #b45309;
+  font-weight: 700;
+}
 .wl-day { color: var(--muted); }
 .wl-meter {
   height: 7px;
@@ -1006,12 +1095,15 @@ button {
   background: var(--surface-3);
   overflow: hidden;
 }
+/* Same bands as the squares beside the name and the day columns above. */
 .wl-meter i {
   display: block;
   height: 100%;
-  background: var(--ok);
+  background: var(--surface-3);
 }
-.wl-meter i.over { background: var(--error); }
+.wl-meter i.green { background: var(--ok); }
+.wl-meter i.orange { background: var(--warn); }
+.wl-meter i.red { background: var(--error); }
 .wl-hours { font-weight: 650; text-align: right; }
 .wl-hours.over { color: var(--error); }
 .wl-orders {

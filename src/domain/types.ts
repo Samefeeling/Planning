@@ -116,6 +116,28 @@ export interface DemandLine {
   reqQty: number;
 }
 
+/**
+ * One material line of a production order, from `JobMaterialReq.csv`.
+ *
+ * Order `jobNum` builds `parentPart` and consumes `childPart` to do it. That is
+ * what ties the four lines together: wherever another open order is still
+ * making `childPart`, this one cannot start until that order is finished.
+ *
+ *   JobMtl_JobNum   JobHead_PartNum   JobMtl_PartNum
+ *   ASM80010        PDSC-FA747        PDSC00747U      ← waits on the UPL order
+ *   ASM8002         PDSC00747U        PDSC00747       ← which waits on cut&sew
+ */
+export interface JobMaterialLink {
+  /** `JobMtl_JobNum` — the order that consumes the material. */
+  jobNum: JobId;
+  /** `JobHead_PartNum` — the part that order builds. */
+  parentPart: PartId;
+  /** `JobMtl_PartNum` — the component it consumes. */
+  childPart: PartId;
+  /** Quantity of the component the order needs, when the export carries it. */
+  requiredQty: number | null;
+}
+
 // ---------------------------------------------------------------------------
 // Production orders (jobs)
 // ---------------------------------------------------------------------------
@@ -177,8 +199,15 @@ export interface Job {
   shipDate: Date | null;
   /** Units finished so far, entered at the end of each shift. */
   completedQty: number;
-  /** Order that must finish before this one can start, if any. */
-  predecessor: JobId | null;
+  /**
+   * Orders that must finish before this one can start.
+   *
+   * Mostly derived: `JobMaterialReq.csv` says which components an order
+   * consumes, and any component another open order is still making is a
+   * predecessor (`engine/assembly/dependencies`). An explicit `Predecessor`
+   * column in the order export is merged in on top.
+   */
+  predecessors: JobId[];
   /** Crew the source system has on the order; the supervisor may change it. */
   assignedWorkers: WorkerId[];
 }
@@ -196,6 +225,8 @@ export interface PlanningDataset {
   bom: BomLine[];
   po: PoLine[];
   demand: DemandLine[];
+  /** Order-to-order material links, the source of the dependency chain. */
+  jobLinks: JobMaterialLink[];
   /** Assembly shift roster. */
   workers: Worker[];
   /** When the source workbook was last refreshed. */

@@ -88,8 +88,14 @@ export function OrderBar({
           OT
         </span>
       )}
-      {row.waitingOnPredecessor && (
-        <span className="bar-wait" title="Waiting on the previous order">
+      {row.waitingOn && (
+        <span
+          className="bar-wait"
+          title={
+            `Held until ${String(row.waitingOn.onJobId)} is finished` +
+            (row.waitingOn.part ? ` — it makes ${String(row.waitingOn.part)}` : '')
+          }
+        >
           ⇠
         </span>
       )}

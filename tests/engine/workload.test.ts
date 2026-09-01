@@ -13,9 +13,13 @@ import type { Job } from '@/domain/types';
 import type { OrderRow } from '@/engine/assembly/board';
 import { addDays, addWorkingDays } from '@/engine/assembly/dates';
 import {
+  LOAD_PREVIEW_DAYS,
   boardDayLoads,
+  dayBand,
   lineLoad,
   loadBand,
+  loadPreview,
+  rosterLoad,
   workerLoad,
 } from '@/engine/assembly/workload';
 
@@ -51,7 +55,7 @@ const job = (id: string, laborHrs: number, done = 0): Job => ({
   line: null,
   shipDate: null,
   completedQty: done,
-  predecessor: null,
+  predecessors: [],
   assignedWorkers: [],
 });
 
@@ -83,8 +87,8 @@ const row = (
   status: { color: 'green', shipSlackDays: null, dueSlackDays: null, reason: '' },
   material: { level: 'ok', earliestStart: null, shortages: [] },
   release: { level: 'ready', releasable: true, needsOverride: false, reason: '' },
-  predecessor: null,
-  waitingOnPredecessor: false,
+  predecessors: [],
+  waitingOn: null,
   crewToHitShip: null,
   completedToday: false,
   ...over,
@@ -157,8 +161,9 @@ describe('workerLoad', () => {
     expect(load.orderCount).toBe(2);
     // Utilisation is over the whole window, so a clash on one day does not
     // hide the fact that the rest of the week is free — `overloadedDays` is
-    // what flags the clash.
-    expect(load.utilisation).toBeCloseTo(14.5 / (7 * 7.25), 6);
+    // what flags the clash. The window is seven days but only five of them
+    // are worked, so that is what the person can deliver.
+    expect(load.utilisation).toBeCloseTo(14.5 / (5 * 7.25), 6);
   });
 
   it('gives a day of planned leave no capacity', () => {
@@ -166,7 +171,8 @@ describe('workerLoad', () => {
     const load = workerLoad(w, [], MON);
     expect(load.days[1].onLeave).toBe(true);
     expect(load.days[1].capacity).toBe(0);
-    expect(load.capacityHours).toBeCloseTo(6 * PRODUCTIVE_HOURS_PER_PERSON, 6);
+    // Five working days in the window, one of them taken as leave.
+    expect(load.capacityHours).toBeCloseTo(4 * PRODUCTIVE_HOURS_PER_PERSON, 6);
   });
 
   it('charges nothing to the closed weekend a bar spans', () => {
@@ -202,6 +208,70 @@ describe('workerLoad', () => {
     const load = workerLoad(a, [row(job('A', 7.25), [b], 0, 1), closed], MON);
     expect(load.totalHours).toBe(0);
     expect(load.orderCount).toBe(0);
+  });
+});
+
+describe('the squares beside a name', () => {
+  it('draws one per working day, never the closed weekend', () => {
+    const w = worker('W1');
+    const preview = loadPreview(workerLoad(w, [], MON));
+
+    expect(preview).toHaveLength(LOAD_PREVIEW_DAYS);
+    expect(preview.map((d) => d.date.getDay())).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('bands a day the same way the day columns do', () => {
+    const w = worker('W1');
+    // Monday full (100%), Tuesday a little over half (58%), the rest free.
+    const load = workerLoad(
+      w,
+      [row(job('A', 7.25), [w], 0, 1), row(job('B', 4.25), [w], 1, 1)],
+      MON,
+    );
+    const preview = loadPreview(load);
+
+    expect(preview[0].dot).toBe('red');
+    expect(preview[1].dot).toBe('green');
+    expect(Math.round(preview[1].pct)).toBe(59);
+  });
+
+  it('draws an empty day hollow rather than green', () => {
+    // 0% passes `loadBand` as green, which would read as "comfortably
+    // loaded" — the opposite of what an idle day means to a supervisor.
+    const preview = loadPreview(workerLoad(worker('W1'), [], MON));
+    expect(preview.every((d) => d.dot === 'idle')).toBe(true);
+    expect(loadBand(0)).toBe('green');
+  });
+
+  it('marks planned leave, and calls work booked over it over', () => {
+    const off = worker('W1', ['2026-09-15']);
+    expect(loadPreview(workerLoad(off, [], MON))[1].dot).toBe('leave');
+
+    const booked = workerLoad(off, [row(job('A', 7.25), [off], 1, 1)], MON);
+    expect(loadPreview(booked)[1].dot).toBe('red');
+  });
+
+  it('bands the popup exactly as it bands the squares', () => {
+    // Two views of one week must never disagree about a day's colour.
+    const w = worker('W1');
+    const load = workerLoad(
+      w,
+      [row(job('A', 7.25), [w], 0, 1), row(job('B', 4.25), [w], 1, 1)],
+      MON,
+    );
+    const preview = loadPreview(load);
+    expect(load.days.filter((d) => d.working).slice(0, 5).map(dayBand)).toEqual(
+      preview.map((d) => d.dot),
+    );
+  });
+
+  it('does the whole roster in one pass, keyed by id', () => {
+    const [a, b] = [worker('W1'), worker('W2')];
+    const loads = rosterLoad([a, b], [row(job('A', 7.25), [a], 0, 1)], MON);
+
+    expect([...loads.keys()]).toEqual(['W1', 'W2']);
+    expect(loads.get('W1')!.totalHours).toBeCloseTo(7.25, 6);
+    expect(loads.get('W2')!.totalHours).toBe(0);
   });
 });
 

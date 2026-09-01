@@ -13286,5 +13286,19 @@
     "UPL",
     "ASSY",
     "TABLE"
+  ],
+  "jobLinks": [
+    { "jobNum": "ASM8002", "parentPart": "PDSC00747U", "childPart": "PDSC00747", "requiredQty": 30 },
+    { "jobNum": "ASM80010", "parentPart": "PDSC-FA747", "childPart": "PDSC00747U", "requiredQty": 30 },
+    { "jobNum": "ASM8004", "parentPart": "SFA2S-CHARU", "childPart": "SFA2S-CHAR", "requiredQty": 12 },
+    { "jobNum": "ASM80012", "parentPart": "SFA-FA2S", "childPart": "SFA2S-CHARU", "requiredQty": 12 },
+    { "jobNum": "ASM8008", "parentPart": "POPL-ASM460", "childPart": "G11881000", "requiredQty": 240 },
+    { "jobNum": "ASM8008", "parentPart": "POPL-ASM460", "childPart": "POPL00548", "requiredQty": 240 },
+    { "jobNum": "ASM80011", "parentPart": "POPL-ASM430", "childPart": "POPL00430", "requiredQty": 96 },
+    { "jobNum": "ASM8009", "parentPart": "BFF-ASM-L", "childPart": "FW40002", "requiredQty": 60 },
+    { "jobNum": "ASM8009", "parentPart": "BFF-ASM-L", "childPart": "FW40017", "requiredQty": 60 },
+    { "jobNum": "ASM80013", "parentPart": "NEDSTL-PK", "childPart": "V11694", "requiredQty": 88 },
+    { "jobNum": "ASM80014", "parentPart": "TBL1200-MDF", "childPart": "MDF-TOP-1200", "requiredQty": 40 },
+    { "jobNum": "ASM80014", "parentPart": "TBL1200-MDF", "childPart": "LEG-SET-4", "requiredQty": 40 }
   ]
 }

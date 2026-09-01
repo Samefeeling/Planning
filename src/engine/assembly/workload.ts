@@ -23,6 +23,15 @@ export { isWeekend };
 export const LOAD_WINDOW_DAYS = 7;
 
 /**
+ * Squares drawn beside a name in the board header.
+ *
+ * Five, because a calendar week holds exactly five working days and the
+ * factory is shut for the other two — so the squares and the popup are two
+ * views of the same window rather than two different weeks.
+ */
+export const LOAD_PREVIEW_DAYS = 5;
+
+/**
  * Slack before a day counts as over-booked, in hours. A bar sized to fit its
  * crew exactly lands on 7.25 h through a chain of divisions, so a bare `>`
  * would flag half the board as overtime on floating-point dust. 36 seconds is
@@ -45,12 +54,18 @@ export interface DayLoad {
   date: Date;
   /** Standard hours booked on this person for the day. */
   hours: number;
-  /** Hours they can actually work: a full shift, or none while on leave. */
+  /**
+   * Hours they can actually work: a full shift on an open day, none while on
+   * leave and none at the weekend. Anything booked against a zero reads as
+   * over — which is right, because that is what overtime is.
+   */
   capacity: number;
   /** Booked past what they can work — they are on two orders at once. */
   over: boolean;
   /** Off the roster for the day, so `capacity` is zero by design. */
   onLeave: boolean;
+  /** A day the factory runs. Saturday and Sunday are closed. */
+  working: boolean;
   entries: LoadEntry[];
 }
 
@@ -244,7 +259,8 @@ export function workerLoad(
 
     entries.sort((a, b) => b.hours - a.hours);
     const hours = entries.reduce((s, e) => s + e.hours, 0);
-    const capacity = onLeave ? 0 : PRODUCTIVE_HOURS_PER_PERSON;
+    const working = !isWeekend(date);
+    const capacity = onLeave || !working ? 0 : PRODUCTIVE_HOURS_PER_PERSON;
     days.push({
       key,
       date,
@@ -252,6 +268,7 @@ export function workerLoad(
       capacity,
       over: hours > capacity + OVER_TOLERANCE_HOURS,
       onLeave,
+      working,
       entries,
     });
   }
@@ -268,6 +285,76 @@ export function workerLoad(
     orderCount: jobs.size,
     overloadedDays: days.filter((d) => d.over).length,
   };
+}
+
+/**
+ * Every person's week in one pass, keyed by worker id.
+ *
+ * The header draws a load square per person per working day, so the board needs
+ * all of them on every render; computing them together keeps that to a single
+ * walk of the rows instead of one per name.
+ */
+export function rosterLoad(
+  workers: Worker[],
+  rows: OrderRow[],
+  from: Date,
+  dayCount: number = LOAD_WINDOW_DAYS,
+): Map<string, WorkerLoad> {
+  return new Map(
+    workers.map((w) => [String(w.id), workerLoad(w, rows, from, dayCount)]),
+  );
+}
+
+/** How a single day reads, as a square or as a meter. */
+export type LoadDot = 'leave' | 'idle' | LoadBand;
+
+/**
+ * The colour for one day, used by both views of a person's week so they can
+ * never tell different stories. Work booked against no capacity — planned
+ * leave, or a weekend — is fully over: there is no shift to absorb it.
+ */
+export function dayBand(day: DayLoad): LoadDot {
+  if (day.hours <= 0) return day.onLeave ? 'leave' : 'idle';
+  if (day.capacity <= 0) return 'red';
+  return loadBand((day.hours / day.capacity) * 100);
+}
+
+/** One square: a working day boiled down to a colour. */
+export interface LoadPreviewDay {
+  key: string;
+  date: Date;
+  hours: number;
+  capacity: number;
+  /** booked ÷ available, as a percentage. Zero when they cannot work. */
+  pct: number;
+  onLeave: boolean;
+  dot: LoadDot;
+}
+
+/**
+ * The squares for one person: the working days of their window, in order.
+ *
+ * Closed days are left out rather than drawn grey — the supervisor is reading
+ * these to find room for an order, and the factory offers none at the weekend.
+ * Work booked on a day with no capacity (leave, or an approved weekend) counts
+ * as fully over: there is no shift to absorb it.
+ */
+export function loadPreview(
+  load: WorkerLoad,
+  count: number = LOAD_PREVIEW_DAYS,
+): LoadPreviewDay[] {
+  return load.days
+    .filter((d) => d.working)
+    .slice(0, count)
+    .map((d) => ({
+      key: d.key,
+      date: d.date,
+      hours: d.hours,
+      capacity: d.capacity,
+      pct: d.capacity > 0 ? (d.hours / d.capacity) * 100 : 0,
+      onLeave: d.onLeave,
+      dot: dayBand(d),
+    }));
 }
 
 /** Work still queued on a line, and how long its crew needs to clear it. */

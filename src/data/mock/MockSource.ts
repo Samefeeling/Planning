@@ -21,6 +21,7 @@ import type {
   DemandLine,
   InventoryItem,
   Job,
+  JobMaterialLink,
   PoLine,
   RoutingEntry,
   WorkCenter,
@@ -111,10 +112,25 @@ export class MockSource extends BaseDataSource {
       line: j.line ? WorkCenterId(j.line) : null,
       shipDate: toDate(j.shipDate),
       completedQty: j.completedQty ?? 0,
-      predecessor: j.predecessor ? JobId(j.predecessor) : null,
+      // Explicit predecessors only; the seed's material links carry the rest.
+      predecessors: j.predecessor ? [JobId(j.predecessor)] : [],
       assignedWorkers: (j.assignedWorkers ?? []).map(WorkerId),
     }));
     return delay(jobs);
+  }
+
+  /**
+   * The demo's dependency chain: cut & sew before upholstery before final
+   * assembly, and the moulded shells those chairs are built from.
+   */
+  async fetchJobLinks(): Promise<JobMaterialLink[]> {
+    const links: JobMaterialLink[] = (seed.jobLinks ?? []).map((l) => ({
+      jobNum: JobId(l.jobNum),
+      parentPart: PartId(l.parentPart),
+      childPart: PartId(l.childPart),
+      requiredQty: l.requiredQty ?? null,
+    }));
+    return delay(links);
   }
 
   async fetchRouting(): Promise<RoutingEntry[]> {
