@@ -11,7 +11,7 @@ import { JobId, PartId, WorkerId } from '@/domain/ids';
 import { LINES, PRODUCTIVE_HOURS_PER_PERSON, type Worker } from '@/domain/assembly';
 import type { Job } from '@/domain/types';
 import type { OrderRow } from '@/engine/assembly/board';
-import { addDays } from '@/engine/assembly/dates';
+import { addDays, addWorkingDays } from '@/engine/assembly/dates';
 import {
   boardDayLoads,
   lineLoad,
@@ -55,7 +55,13 @@ const job = (id: string, laborHrs: number, done = 0): Job => ({
   assignedWorkers: [],
 });
 
-/** A scheduled row: `days` long from `startDay`, worked by `workers`. */
+/**
+ * A scheduled row: `days` of work from `startDay`, worked by `workers`.
+ *
+ * The Expect Date is built the way the board builds it — stepping over the
+ * weekend unless the order is approved for overtime — so the hours a day
+ * carries still add back up to the order's remaining hours.
+ */
 const row = (
   j: Job,
   workers: Worker[],
@@ -67,8 +73,12 @@ const row = (
   line: UPL,
   workers,
   start: addDays(MON, startDay),
-  expectDate: addDays(MON, startDay + days),
+  expectDate: over.overtime
+    ? addDays(MON, startDay + days)
+    : addWorkingDays(addDays(MON, startDay), days),
   days,
+  slot: 0,
+  overtime: false,
   dailyTarget: 0,
   status: { color: 'green', shipSlackDays: null, dueSlackDays: null, reason: '' },
   material: { level: 'ok', earliestStart: null, shortages: [] },
@@ -110,9 +120,10 @@ describe('workerLoad', () => {
 
   it('counts only the part of a bar that falls inside the window', () => {
     const w = worker('W1');
-    // Ten days of work starting Monday; the popup shows seven of them.
+    // Ten days of work starting Monday; the popup covers seven calendar days,
+    // of which only the five weekdays are worked.
     const load = workerLoad(w, [row(job('A', 72.5), [w], 0, 10)], MON);
-    expect(load.totalHours).toBeCloseTo(7 * 7.25, 6);
+    expect(load.totalHours).toBeCloseTo(5 * 7.25, 6);
   });
 
   it('discounts the hours already booked as complete', () => {
@@ -156,6 +167,33 @@ describe('workerLoad', () => {
     expect(load.days[1].onLeave).toBe(true);
     expect(load.days[1].capacity).toBe(0);
     expect(load.capacityHours).toBeCloseTo(6 * PRODUCTIVE_HOURS_PER_PERSON, 6);
+  });
+
+  it('charges nothing to the closed weekend a bar spans', () => {
+    const w = worker('W1');
+    // Seven days of work from Monday runs into the following week; Saturday
+    // and Sunday carry none of it.
+    const load = workerLoad(w, [row(job('A', 7.25 * 7), [w], 0, 7)], MON);
+
+    for (const i of [0, 1, 2, 3, 4]) {
+      expect(load.days[i].hours).toBeCloseTo(7.25, 6);
+    }
+    expect(load.days[5].hours).toBe(0); // Sat 19 Sep
+    expect(load.days[6].hours).toBe(0); // Sun 20 Sep
+    expect(load.totalHours).toBeCloseTo(5 * 7.25, 6);
+  });
+
+  it('books the weekend once the order is approved for overtime', () => {
+    const w = worker('W1');
+    const load = workerLoad(
+      w,
+      [row(job('A', 7.25 * 7), [w], 0, 7, { overtime: true })],
+      MON,
+    );
+
+    expect(load.days[5].hours).toBeCloseTo(7.25, 6);
+    expect(load.days[6].hours).toBeCloseTo(7.25, 6);
+    expect(load.totalHours).toBeCloseTo(7 * 7.25, 6);
   });
 
   it('ignores orders the person is not on, and ones closed today', () => {
@@ -229,6 +267,32 @@ describe('boardDayLoads', () => {
     const loads = boardDayLoads([], [], MON, 1);
     expect(loads[0].pct).toBe(0);
     expect(loads[0].band).toBe('green');
+  });
+
+  it('leaves the closed weekend empty, and marks it closed', () => {
+    // A week of work from Monday spans the Saturday without loading it.
+    const loads = boardDayLoads(
+      [row(job('A', 7.25 * 7), [crew[0]], 0, 7)],
+      crew,
+      MON,
+      7,
+    );
+    expect(loads[5].working).toBe(false); // Sat 19 Sep
+    expect(loads[6].working).toBe(false); // Sun 20 Sep
+    expect(loads[5].hours).toBe(0);
+    expect(loads[5].pct).toBe(0);
+    expect(loads[0].hours).toBeCloseTo(7.25, 6);
+  });
+
+  it('shows the load an approved weekend actually carries', () => {
+    // A Saturday bar the supervisor signed off: still a closed day, but the
+    // column has to say what is being asked of the crew.
+    const saturday = row(job('A', 7.25), [crew[0]], 5, 1, { overtime: true });
+    const loads = boardDayLoads([saturday], crew, MON, 7);
+
+    expect(loads[5].working).toBe(false);
+    expect(loads[5].hours).toBeCloseTo(7.25, 6);
+    expect(loads[5].pct).toBeCloseTo(50, 6);
   });
 });
 

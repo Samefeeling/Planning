@@ -31,7 +31,18 @@ export function OrderBar({
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: `bar:${id}`,
-      data: { type: DRAG_TYPE_BAR, jobId: id },
+      // The drop handler moves the bar from where it is drawn, which is not
+      // necessarily where the planner last pinned it: the line's capacity, a
+      // predecessor or a weekend may have pushed it out. Sending the rendered
+      // start makes the drag land exactly where the pointer let go.
+      data: {
+        type: DRAG_TYPE_BAR,
+        jobId: id,
+        startISO: row.start ? row.start.toISOString() : null,
+        // The zoom is live, so the pixels-to-days conversion has to travel with
+        // the drag rather than assume the default column width.
+        dayWidth,
+      },
     });
 
   if (!row.start || row.days === null) {
@@ -52,16 +63,19 @@ export function OrderBar({
       ref={setNodeRef}
       className={`bar ${row.status.color} ${selected ? 'selected' : ''} ${
         isDragging ? 'dragging' : ''
-      } ${readOnly ? 'readonly' : ''}`}
+      } ${readOnly ? 'readonly' : ''} ${row.overtime ? 'overtime' : ''}`}
       style={{
         left,
         width,
         transform: CSS.Translate.toString(transform),
       }}
       onClick={() => onSelect(id)}
-      title={`${row.job.id} · ${row.days.toFixed(1)} d with ${
-        row.workers.length
-      } · ${row.status.reason}`}
+      title={
+        `${row.job.id} · ${row.days.toFixed(1)} d worked with ${row.workers.length}` +
+        (readOnly ? '' : ` · position ${row.slot + 1} of ${row.line.parallelOrders}`) +
+        (row.overtime ? ' · weekend overtime approved' : '') +
+        ` · ${row.status.reason}`
+      }
       {...(readOnly ? {} : listeners)}
       {...(readOnly ? {} : attributes)}
     >
@@ -69,6 +83,11 @@ export function OrderBar({
         <div className="bar-progress" style={{ width: `${done * 100}%` }} />
       )}
       <span className="bar-label">{String(row.job.id)}</span>
+      {row.overtime && (
+        <span className="bar-ot" title="Weekend overtime approved">
+          OT
+        </span>
+      )}
       {row.waitingOnPredecessor && (
         <span className="bar-wait" title="Waiting on the previous order">
           ⇠

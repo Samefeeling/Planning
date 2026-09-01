@@ -47,7 +47,10 @@ const isoDay = (d: Date): string =>
 
 export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
-  const select = useUiStore((s) => s.select);
+  // Closing hides the whole right-hand block, not just these details: the
+  // point is to give the width back to the schedule so it reaches further out.
+  // Picking any order brings the pane back.
+  const closePane = useUiStore((s) => s.setSidePane);
   const row = findOrderRow(board, selectedJobId);
   const recordProgress = usePlanStore((s) => s.recordProgress);
   const recordProduction = usePlanStore((s) => s.recordProduction);
@@ -80,10 +83,25 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     setNotes('');
   }, [selectedJobId]);
 
+  const close = (
+    <button
+      type="button"
+      className="inspector-close"
+      aria-label="Close the side panel"
+      title="Close the panel and widen the schedule"
+      onClick={() => closePane(false)}
+    >
+      ×
+    </button>
+  );
+
   if (!row) {
     return (
       <div className="inspector">
-        <h2>Order</h2>
+        <div className="inspector-head">
+          <h2>Order</h2>
+          {close}
+        </div>
         <div className="pool-empty">Select an order to book the shift.</div>
       </div>
     );
@@ -120,15 +138,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       <div className="inspector-head">
         <h2>{String(job.id)}</h2>
         {closed && <Badge variant="neutral">Job completed</Badge>}
-        <button
-          type="button"
-          className="inspector-close"
-          aria-label="Close order details"
-          title="Close"
-          onClick={() => select(null)}
-        >
-          ×
-        </button>
+        {row.overtime && <Badge variant="warn">Weekend overtime</Badge>}
+        {close}
       </div>
 
       <dl className="kv">

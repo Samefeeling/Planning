@@ -27,3 +27,24 @@ describe('ASSY_Production bookings', () => {
     expect(usePlanStore.getState().production[String(job)]).toEqual([entry(7)]);
   });
 });
+
+describe('weekend overtime approvals', () => {
+  const job = JobId('ASSY-202');
+
+  beforeEach(() => {
+    usePlanStore.setState({ orderOvertime: {} });
+  });
+
+  it('is off until the supervisor approves it, and clears again', () => {
+    const state = () => usePlanStore.getState();
+    expect(state().orderOvertime[String(job)]).toBeUndefined();
+
+    state().setOvertime(job, true);
+    expect(state().orderOvertime[String(job)]).toBe(true);
+
+    // Withdrawn approval leaves no trace, so nothing can read as "explicitly
+    // not allowed" and be mistaken for an approval later.
+    state().setOvertime(job, false);
+    expect(String(job) in state().orderOvertime).toBe(false);
+  });
+});

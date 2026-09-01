@@ -12,9 +12,12 @@
 
 import { PRODUCTIVE_HOURS_PER_PERSON, type Worker } from '@/domain/assembly';
 import type { JobId } from '@/domain/ids';
+import { MS_PER_DAY } from '@/lib/time';
 import { remainingHours } from './duration';
-import { addDays, startOfDay } from './dates';
+import { addDays, isWeekend, startOfDay } from './dates';
 import type { OrderRow } from './board';
+
+export { isWeekend };
 
 /** Days a person's popup covers — "one week". */
 export const LOAD_WINDOW_DAYS = 7;
@@ -79,10 +82,6 @@ export function loadBand(pct: number): LoadBand {
   return 'red';
 }
 
-/** Saturday or Sunday — the factory is closed. */
-export const isWeekend = (d: Date): boolean =>
-  d.getDay() === 0 || d.getDay() === 6;
-
 /** One day column's load across the whole board. */
 export interface DayBoardLoad {
   key: string;
@@ -90,9 +89,9 @@ export interface DayBoardLoad {
   /** The first column — the day the board is being planned on. */
   isToday: boolean;
   /**
-   * A day the factory runs. Weekends are closed, so work planned across one
-   * needs overtime; the board greys them and still shows what landed there,
-   * which is the signal the supervisor needs before agreeing to a Saturday.
+   * A day the factory runs. Weekends are closed, so bars step over them and a
+   * closed column reads 0% — unless an order has been approved for overtime,
+   * which is exactly the case the supervisor needs to see standing out.
    */
   working: boolean;
   /** Standard hours of work landing on the day, summed over every order. */
@@ -176,10 +175,14 @@ export const dayKey = (d: Date): string =>
 /**
  * Hours of `row` that fall on the day starting at `from`, per person.
  *
- * The bar is treated as an even spread of work between its start and its
- * Expect Date, so a bar half inside a day contributes half its daily rate.
- * That keeps a short order (0.4 days) inside the one day it runs, instead of
+ * The bar is treated as an even spread of work over the days it is actually
+ * worked, so a bar half inside a day contributes half its daily rate. That
+ * keeps a short order (0.4 days) inside the one day it runs, instead of
  * charging a whole shift to it.
+ *
+ * A closed day carries nothing: the bar merely spans it. `row.days` counts the
+ * days worked, which is precisely the sum of the open overlaps below, so an
+ * order's daily shares always add back up to its remaining hours.
  */
 function hoursOnDay(row: OrderRow, from: Date): number {
   if (!row.start || !row.expectDate || row.days === null || row.days <= 0) {
@@ -187,6 +190,7 @@ function hoursOnDay(row: OrderRow, from: Date): number {
   }
   const crew = row.workers.length;
   if (crew === 0) return 0;
+  if (isWeekend(from) && !row.overtime) return 0;
 
   const to = addDays(from, 1);
   const overlapMs =
@@ -195,9 +199,7 @@ function hoursOnDay(row: OrderRow, from: Date): number {
   if (overlapMs <= 0) return 0;
 
   const share = remainingHours(row.job) / crew;
-  const spanMs = row.expectDate.getTime() - row.start.getTime();
-  if (spanMs <= 0) return share;
-  return share * (overlapMs / spanMs);
+  return share * (overlapMs / MS_PER_DAY / row.days);
 }
 
 /**

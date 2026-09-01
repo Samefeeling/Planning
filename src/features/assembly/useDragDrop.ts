@@ -18,9 +18,16 @@ import {
 } from '@dnd-kit/core';
 import { JobId } from '@/domain/ids';
 import { POOL_ID, usePlanStore } from '@/store/planStore';
+import { useUiStore } from '@/store/uiStore';
 import { DAY_WIDTH } from '@/features/assembly/AssemblyGantt';
 import { DRAG_TYPE_BAR } from '@/features/assembly/OrderBar';
-import { addDays, startOfDay } from '@/engine/assembly/dates';
+import {
+  addDays,
+  isWeekend,
+  nextWorkingDay,
+  startOfDay,
+} from '@/engine/assembly/dates';
+import { dayKey } from '@/engine/assembly/workload';
 
 /** Prefer the specific card target, then a lane/pool, then the nearest. */
 const collisionDetection: CollisionDetection = (args) => {
@@ -52,14 +59,38 @@ export function useDragDrop() {
     // An assembly bar dragged along its own row just moves its start day.
     if (active.data.current?.type === DRAG_TYPE_BAR) {
       const jobId = JobId(String(active.data.current.jobId));
-      const dayShift = Math.round((delta?.x ?? 0) / DAY_WIDTH);
+      const dayWidth = Number(active.data.current.dayWidth) || DAY_WIDTH;
+      const dayShift = Math.round((delta?.x ?? 0) / dayWidth);
       if (dayShift === 0) return;
-      const { orderStarts, setOrderStart } = usePlanStore.getState();
+
+      const { orderStarts, setOrderStart, setOvertime } =
+        usePlanStore.getState();
       const key = String(jobId);
-      const current = orderStarts[key]
-        ? startOfDay(new Date(orderStarts[key]))
-        : startOfDay(new Date());
-      const moved = addDays(current, dayShift);
+      // Move from where the bar is drawn. The pinned day is only a request —
+      // the line's capacity, a predecessor or a weekend may have pushed the
+      // bar past it, and dragging from the pin would then snap it backwards.
+      const drawn = active.data.current.startISO as string | null | undefined;
+      const from = drawn
+        ? startOfDay(new Date(drawn))
+        : orderStarts[key]
+          ? startOfDay(new Date(orderStarts[key]))
+          : startOfDay(new Date());
+      const moved = startOfDay(addDays(from, dayShift));
+
+      // The factory is shut at the weekend. Ask before writing work into one;
+      // nothing changes until the supervisor answers.
+      if (isWeekend(moved)) {
+        useUiStore.getState().askOvertime({
+          jobId: key,
+          isoDay: dayKey(moved),
+          nextWorkingIsoDay: dayKey(nextWorkingDay(moved)),
+        });
+        return;
+      }
+
+      // Back onto a weekday: whatever overtime was approved is no longer
+      // needed, so it lapses rather than quietly following the order around.
+      setOvertime(jobId, false);
       setOrderStart(jobId, moved.toISOString());
       return;
     }

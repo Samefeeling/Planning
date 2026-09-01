@@ -34,8 +34,18 @@ export interface LineDef {
   schedulable: boolean;
   /** Work-order types this line runs. */
   types: OrderType[];
+  /**
+   * How many orders the line can have in progress side by side. A line is a
+   * length of floor with several build positions on it, not a single station,
+   * so three teams work three orders at once; the fourth waits for whichever
+   * position frees up first.
+   */
+  parallelOrders: number;
   sortIndex: number;
 }
+
+/** Build positions on a line — how many orders it runs at the same time. */
+export const PARALLEL_ORDERS_PER_LINE = 3;
 
 export const LINE_PMD = WorkCenterId('PMD');
 export const LINE_UPL = WorkCenterId('UPL');
@@ -49,6 +59,7 @@ export const LINES: LineDef[] = [
     name: 'PMD',
     schedulable: false,
     types: [],
+    parallelOrders: 0,
     sortIndex: 0,
   },
   {
@@ -57,6 +68,7 @@ export const LINES: LineDef[] = [
     name: 'UPL',
     schedulable: true,
     types: ['cutting-sewing', 'upholstery'],
+    parallelOrders: PARALLEL_ORDERS_PER_LINE,
     sortIndex: 1,
   },
   {
@@ -65,6 +77,7 @@ export const LINES: LineDef[] = [
     name: 'ASSY',
     schedulable: true,
     types: ['final-assembly'],
+    parallelOrders: PARALLEL_ORDERS_PER_LINE,
     sortIndex: 2,
   },
   {
@@ -73,6 +86,7 @@ export const LINES: LineDef[] = [
     name: 'TABLE',
     schedulable: true,
     types: ['final-assembly'],
+    parallelOrders: PARALLEL_ORDERS_PER_LINE,
     sortIndex: 3,
   },
 ];
@@ -127,10 +141,11 @@ export const BREAK_HOURS = 0.75;
 export const PRODUCTIVE_HOURS_PER_PERSON = SHIFT_HOURS - BREAK_HOURS;
 
 /**
- * The board counts calendar days, matching how the schedule is drawn today.
- * Flip this when the shift calendar should skip weekends.
+ * The schedule runs Monday to Friday: bars step over Saturday and Sunday, and
+ * a weekend only carries work when the supervisor has approved overtime on
+ * that order. See `engine/assembly/dates` for the arithmetic.
  */
-export const WORKING_DAYS_ONLY = false;
+export const WORKING_DAYS_ONLY = true;
 
 /** How many days the timeline shows by default. */
 export const DEFAULT_HORIZON_DAYS = 14;

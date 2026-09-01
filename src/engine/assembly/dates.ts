@@ -82,3 +82,63 @@ export function startOfDay(d: Date): Date {
 /** Whole days between two dates, ignoring time of day. */
 export const wholeDaysBetween = (a: Date, b: Date): number =>
   Math.round(dayDiff(startOfDay(a), startOfDay(b)));
+
+// ---------------------------------------------------------------------------
+// The shift calendar
+//
+// Resero runs one white shift, Monday to Friday. Saturday and Sunday are shut,
+// so an order does not progress across them: three days of work started on a
+// Thursday finishes on the Monday, not on the Saturday. A weekend is only
+// worked when the supervisor has approved overtime on that particular order,
+// which the board asks for the moment a bar is dropped on one.
+// ---------------------------------------------------------------------------
+
+/** Saturday or Sunday — the factory is closed. */
+export const isWeekend = (d: Date): boolean =>
+  d.getDay() === 0 || d.getDay() === 6;
+
+/** Midnight of the next day, robust across daylight-saving shifts. */
+const nextMidnight = (d: Date): Date => startOfDay(addDays(startOfDay(d), 1));
+
+/**
+ * `d` itself when the factory runs that day, otherwise the following Monday.
+ * A weekend start is pulled to the start of Monday: nothing was worked on the
+ * Saturday, so there is no part-day to carry over.
+ */
+export function nextWorkingDay(d: Date): Date {
+  if (!isWeekend(d)) return d;
+  let out = startOfDay(d);
+  do {
+    out = nextMidnight(out);
+  } while (isWeekend(out));
+  return out;
+}
+
+/** Stops the walk below on a duration that could never be real. */
+const MAX_SPAN_DAYS = 2000;
+
+/**
+ * `from` plus `days` of work, stepping over the days the factory is closed.
+ *
+ * Fractional days are honoured against the part of the day still ahead, so
+ * half a day's work starting at noon on Friday finishes on Monday morning
+ * rather than on the Saturday.
+ */
+export function addWorkingDays(from: Date, days: number): Date {
+  if (days <= 0) return new Date(from);
+  let cursor = new Date(from);
+  let left = days;
+
+  for (let guard = 0; guard < MAX_SPAN_DAYS; guard++) {
+    const tomorrow = nextMidnight(cursor);
+    if (isWeekend(cursor)) {
+      cursor = tomorrow;
+      continue;
+    }
+    const openToday = (tomorrow.getTime() - cursor.getTime()) / MS_PER_DAY;
+    if (left <= openToday) return addDays(cursor, left);
+    left -= openToday;
+    cursor = tomorrow;
+  }
+  return cursor;
+}

@@ -14,7 +14,9 @@ import { useDragDrop } from '@/features/assembly/useDragDrop';
 import { AssemblyGantt } from '@/features/assembly/AssemblyGantt';
 import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
+import { OvertimePrompt } from '@/features/assembly/OvertimePrompt';
 import { SupervisorLock } from '@/features/assembly/SupervisorLock';
+import { useUiStore } from '@/store/uiStore';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
 import { usePlanSync, type PlanSyncState } from '@/features/sync/usePlanSync';
@@ -68,8 +70,12 @@ export default function App() {
   const containers = usePlanStore((s) => s.containers);
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderStarts = usePlanStore((s) => s.orderStarts);
+  const orderOvertime = usePlanStore((s) => s.orderOvertime);
   const progress = usePlanStore((s) => s.progress);
   const production = usePlanStore((s) => s.production);
+
+  const sideOpen = useUiStore((s) => s.sidePaneOpen);
+  const setSidePane = useUiStore((s) => s.setSidePane);
 
   const board = useAssemblyGantt();
   const dnd = useDragDrop();
@@ -115,11 +121,11 @@ export default function App() {
         name: 'Working plan',
         savedAt: new Date().toISOString(),
         containers,
-        assembly: { orderWorkers, orderStarts, progress, production },
+        assembly: { orderWorkers, orderStarts, orderOvertime, progress, production },
       });
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
-  }, [containers, orderWorkers, orderStarts, progress, production]);
+  }, [containers, orderWorkers, orderStarts, orderOvertime, progress, production]);
 
   const activeJob =
     dnd.activeJobId && board ? board.jobsById.get(dnd.activeJobId) : null;
@@ -160,7 +166,7 @@ export default function App() {
         onDragEnd={dnd.onDragEnd}
         onDragCancel={dnd.onDragCancel}
       >
-        <div className="app-body">
+        <div className={`app-body ${sideOpen ? '' : 'side-closed'}`}>
           <div className="board-pane assembly-pane">
             {board ? (
               <AssemblyGantt board={board} />
@@ -171,14 +177,27 @@ export default function App() {
               </div>
             )}
           </div>
-          <aside className="side-pane">
-            {board && (
-              <>
-                <AssemblyPool board={board} />
-                <AssemblyInspector board={board} />
-              </>
-            )}
-          </aside>
+          {sideOpen ? (
+            <aside className="side-pane">
+              {board && (
+                <>
+                  <AssemblyPool board={board} />
+                  <AssemblyInspector board={board} />
+                </>
+              )}
+            </aside>
+          ) : (
+            // The pane is closed so the schedule can run further out; this tab
+            // is how it comes back without having to pick an order first.
+            <button
+              type="button"
+              className="side-reopen"
+              title="Show orders and the shift entry again"
+              onClick={() => setSidePane(true)}
+            >
+              ‹ Orders
+            </button>
+          )}
         </div>
 
         <DragOverlay dropAnimation={null}>
@@ -197,6 +216,9 @@ export default function App() {
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {/* Asks before any work is written into a Saturday or Sunday. */}
+      <OvertimePrompt />
     </div>
   );
 }

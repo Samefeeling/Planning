@@ -1,11 +1,27 @@
 /**
  * Derives the assembly Gantt: one row per order, grouped by line.
  *
- * Each row's bar starts at the later of the line's own queue, its
- * predecessor's finish, and any start day the planner dragged it to. Its
- * length is the remaining work divided by the crew on it, so allocating
- * another person visibly shortens the bar. The end of the bar is the Expect
- * Date, which is what the colour bands compare against Ship and Due.
+ * ## Where a bar starts
+ *
+ * A line is not a single station: it has several build positions, so up to
+ * `line.parallelOrders` orders run side by side. Each order asks to start on
+ * the day the planner dragged it to — failing that, the day Epicor scheduled it
+ * — and gets that day whenever the line still has a position free. Only when
+ * every position is busy does the order queue behind whichever frees first.
+ * That is what makes any bar draggable, not just the first on the line: there
+ * is no single queue pinning the rest of the line behind it.
+ *
+ * Two hard constraints still push a bar later: a predecessor that has not
+ * finished, and material that has not landed.
+ *
+ * ## Where a bar ends
+ *
+ * Its length is the remaining work divided by the crew on it, so allocating
+ * another person visibly shortens it. Those are *working* days: the factory is
+ * shut at the weekend, so a bar steps over Saturday and Sunday unless the
+ * supervisor has approved overtime on that order. The end of the bar is the
+ * Expect Date, which is what the colour bands compare against Ship and Due —
+ * past Due is red, and Due itself never moves from here.
  *
  * Pure — same shape as `computeBoardView` for moulding.
  */
@@ -31,6 +47,8 @@ import {
 } from './duration';
 import {
   addDays,
+  addWorkingDays,
+  nextWorkingDay,
   scheduleStatus,
   startOfDay,
   type ScheduleStatus,
@@ -46,8 +64,12 @@ export interface OrderRow {
   start: Date | null;
   /** Bar end = Expect Date; null when unschedulable. */
   expectDate: Date | null;
-  /** Bar length in days; null when unschedulable. */
+  /** Bar length in days worked; null when unschedulable. */
   days: number | null;
+  /** Which of the line's parallel build positions the order took (0-based). */
+  slot: number;
+  /** Approved by the supervisor to run through the weekend. */
+  overtime: boolean;
   /** Units the crew should finish per day at this allocation. */
   dailyTarget: number;
   status: ScheduleStatus;
@@ -102,12 +124,43 @@ export interface AssemblyInputs {
   orderWorkers: Record<string, string[]>;
   /** Job id → ISO day the planner dragged the bar to. */
   orderStarts: Record<string, string>;
+  /** Job id → supervisor approval to work this order at the weekend. */
+  orderOvertime?: Record<string, boolean>;
   /** Job id → end-of-shift completed-quantity entries. */
   progress: Record<string, { date: string; qty: number }[]>;
   /** Daily production confirmations, including explicit job completion. */
   production?: Record<string, { date: string; jobCompleted: boolean }[]>;
   workers: Worker[];
   today: Date;
+}
+
+/**
+ * Put an order on one of a line's build positions.
+ *
+ * `slots` holds, per position, the moment it next frees up. An order that asks
+ * for a day when any position is already clear keeps that exact day. When they
+ * are all busy the answer depends on who is asking:
+ *
+ *   - left to itself, the order falls in behind the position that clears first,
+ *     which is what keeps a line to three orders at a time;
+ *   - dragged there by the planner, it stays put. A drag is an instruction, not
+ *     a request — the last thing it should do is quietly snap back — and the
+ *     day then reads over capacity on the load histogram, which is the honest
+ *     way to say the line has been asked to run four orders at once.
+ */
+function claimSlot(
+  slots: Date[],
+  want: Date,
+  pinned: boolean,
+): { start: Date; slot: number } {
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i].getTime() <= want.getTime()) return { start: want, slot: i };
+  }
+  let first = 0;
+  for (let i = 1; i < slots.length; i++) {
+    if (slots[i].getTime() < slots[first].getTime()) first = i;
+  }
+  return { start: pinned ? want : slots[first], slot: first };
 }
 
 /** Orders on the PMD row are shown for context, using their own dates. */
@@ -138,6 +191,8 @@ function mouldingContextRows(
         start,
         expectDate: addDays(start, days),
         days,
+        slot: 0,
+        overtime: false,
         dailyTarget: 0,
         status: {
           color: 'grey' as const,
@@ -163,6 +218,7 @@ function mouldingContextRows(
 export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const { dataset, indexes, containers, orderWorkers, orderStarts, today } =
     input;
+  const orderOvertime = input.orderOvertime ?? {};
   const progress = input.progress ?? {};
   const production = input.production ?? {};
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -205,8 +261,25 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const placed = new Set<string>();
   const groups: LineGroup[] = [];
 
+  /**
+   * The day an order asks to begin: what the planner dragged it to, else the
+   * day Epicor scheduled it. Anything already in the past starts as soon as
+   * the board opens — there is no working yesterday.
+   */
+  const wantedStart = (id: string): Date => {
+    const pinned = orderStarts[id];
+    const wanted = pinned
+      ? startOfDay(new Date(pinned))
+      : jobsById.get(id)?.startDate
+        ? startOfDay(jobsById.get(id)!.startDate!)
+        : horizonStart;
+    return wanted > horizonStart ? wanted : horizonStart;
+  };
+
   // Two passes over the schedulable lines: build rows, then resolve the
-  // predecessor chain (a successor may sit on a different line).
+  // predecessor chain (a successor may sit on a different line). Within a line
+  // the earliest-wanted order claims a build position first, so dragging one
+  // bar earlier moves it ahead of the others rather than being ignored.
   const pending: { line: LineDef; ids: string[] }[] = [];
   for (const line of LINES) {
     if (!line.schedulable) continue;
@@ -214,10 +287,23 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       .map(String)
       .filter((id) => jobsById.has(id) && !placed.has(id));
     ids.forEach((id) => placed.add(id));
+    ids.sort((a, b) => wantedStart(a).getTime() - wantedStart(b).getTime());
     pending.push({ line, ids });
   }
 
-  const lineCursor = new Map<string, Date>();
+  // Line id → when each of its build positions next frees up.
+  const slotsByLine = new Map<string, Date[]>();
+  const slotsFor = (line: LineDef): Date[] => {
+    const key = String(line.id);
+    let slots = slotsByLine.get(key);
+    if (!slots) {
+      slots = Array.from({ length: Math.max(1, line.parallelOrders) }, () =>
+        startOfDay(horizonStart),
+      );
+      slotsByLine.set(key, slots);
+    }
+    return slots;
+  };
 
   /** Resolve a row, recursing into its predecessor first. Cycle-safe. */
   const resolve = (id: string, seen: Set<string>): OrderRow | null => {
@@ -238,18 +324,19 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
 
     const days = durationDays(job, workers.length);
     const completedToday = completionDate(job) === todayKey;
+    // Weekend work is a cost decision, so it is approved per order rather than
+    // assumed. Without it the bar steps over Saturday and Sunday.
+    const overtime = Boolean(orderOvertime[id]);
 
-    // Earliest start: the line's queue, the planner's drag, the predecessor.
-    const cursor = lineCursor.get(String(line.id)) ?? horizonStart;
-    const dragged = orderStarts[id] ? startOfDay(new Date(orderStarts[id])) : null;
-    let start = dragged && dragged > cursor ? dragged : cursor;
+    // Where the order asks to be, before the line's capacity has its say.
+    let want = wantedStart(id);
 
     let waitingOnPredecessor = false;
     const predId = job.predecessor ? String(job.predecessor) : null;
     if (predId) {
       const pred = resolve(predId, seen);
-      if (pred?.expectDate && pred.expectDate > start) {
-        start = pred.expectDate;
+      if (pred?.expectDate && pred.expectDate > want) {
+        want = pred.expectDate;
         waitingOnPredecessor = true;
       }
     }
@@ -260,15 +347,25 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       indexes.poByPart,
     );
     // Material that only lands on a future PO cannot be worked before then.
-    if (material.earliestStart && material.earliestStart > start) {
-      start = startOfDay(material.earliestStart);
+    if (material.earliestStart && material.earliestStart > want) {
+      want = startOfDay(material.earliestStart);
     }
+    if (!overtime) want = nextWorkingDay(want);
+
+    // Take one of the line's build positions. The order keeps the day it asked
+    // for whenever one is free; otherwise it queues behind the first to clear,
+    // unless the planner dragged it there by hand.
+    const slots = slotsFor(line);
+    const claim = claimSlot(slots, want, Boolean(orderStarts[id]));
+    const start = overtime ? claim.start : nextWorkingDay(claim.start);
 
     const expectDate = completedToday
       ? horizonStart
       : days === null
         ? null
-        : addDays(start, days);
+        : overtime
+          ? addDays(start, days)
+          : addWorkingDays(start, days);
     const status = completedToday
       ? {
           color: 'grey' as const,
@@ -285,6 +382,8 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       start: completedToday ? horizonStart : days === null ? null : start,
       expectDate,
       days: completedToday ? 0 : days,
+      slot: claim.slot,
+      overtime,
       dailyTarget: dailyTargetQty(job, workers.length),
       status,
       material,
@@ -304,7 +403,12 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     };
 
     rowsByJob.set(id, row);
-    if (expectDate && !completedToday) lineCursor.set(String(line.id), expectDate);
+    // The position stays taken until this order finishes on it. A closed order
+    // gives it straight back. An order pinned over the top of a busy position
+    // must not free it early, so the later of the two wins.
+    if (expectDate && !completedToday && expectDate > slots[claim.slot]) {
+      slots[claim.slot] = expectDate;
+    }
     return row;
   };
 

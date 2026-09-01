@@ -49,6 +49,12 @@ interface PlanState {
   orderWorkers: Record<string, string[]>;
   /** Job id → ISO day the planner dragged the bar to. */
   orderStarts: Record<string, string>;
+  /**
+   * Job id → supervisor approval to work this order at the weekend. Absent
+   * means no: the schedule steps over Saturday and Sunday by default, and the
+   * board asks before writing weekend work.
+   */
+  orderOvertime: Record<string, boolean>;
   /** Job id → end-of-shift completed-quantity entries. */
   progress: Record<string, { date: string; qty: number }[]>;
   production: Record<string, ProductionEntry[]>;
@@ -69,6 +75,8 @@ interface PlanState {
   unassignWorker: (jobId: JobId, workerId: string) => void;
   /** Pin an order's bar to a start day (null clears the pin). */
   setOrderStart: (jobId: JobId, isoDay: string | null) => void;
+  /** Approve, or withdraw, weekend working on one order. */
+  setOvertime: (jobId: JobId, approved: boolean) => void;
   /** Record the quantity finished on a given day (replaces that day's entry). */
   recordProgress: (jobId: JobId, isoDay: string, qty: number) => void;
   recordProduction: (jobId: JobId, entry: ProductionEntry) => void;
@@ -76,6 +84,7 @@ interface PlanState {
   setAssemblyPlan: (plan: {
     orderWorkers?: Record<string, string[]>;
     orderStarts?: Record<string, string>;
+    orderOvertime?: Record<string, boolean>;
     progress?: Record<string, { date: string; qty: number }[]>;
     production?: Record<string, ProductionEntry[]>;
   }) => void;
@@ -124,6 +133,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
   orderWorkers: {},
   orderStarts: {},
+  orderOvertime: {},
   progress: {},
   production: {},
   initialized: false,
@@ -180,6 +190,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         containers: next,
         orderWorkers,
         orderStarts: keep(state.orderStarts),
+        orderOvertime: keep(state.orderOvertime),
         progress: keep(state.progress),
         production: keep(state.production),
         initialized: true,
@@ -227,6 +238,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     });
   },
 
+  setOvertime(jobId, approved) {
+    set((state) => {
+      const orderOvertime = { ...state.orderOvertime };
+      if (approved) orderOvertime[String(jobId)] = true;
+      else delete orderOvertime[String(jobId)];
+      return { orderOvertime };
+    });
+  },
+
   recordProgress(jobId, isoDay, qty) {
     set((state) => {
       const key = String(jobId);
@@ -259,6 +279,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set((state) => ({
       orderWorkers: plan.orderWorkers ?? state.orderWorkers,
       orderStarts: plan.orderStarts ?? state.orderStarts,
+      orderOvertime: plan.orderOvertime ?? state.orderOvertime,
       progress: plan.progress ?? state.progress,
       production: plan.production ?? state.production,
     }));
@@ -283,6 +304,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       containers: seed(workCenters, jobs),
       orderWorkers: {},
       orderStarts: {},
+      orderOvertime: {},
       progress: {},
       production: {},
       initialized: true,

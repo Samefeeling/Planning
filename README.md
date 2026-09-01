@@ -27,10 +27,16 @@ plan goes back the other way, into the `ASSY_Production` list.
   the hours the shift can deliver, so the week reads as a shape before anyone
   reads a number. Green below 80%, orange to 90%, red beyond. Drag a bar to a
   greener day to level the week.
-- **Today is picked out and the weekend is greyed** — the factory does not run
-  Saturday or Sunday. Work planned across a closed day still shows, muted: that
-  is exactly the case where somebody has to agree to overtime. When weekends
-  should be skipped outright, flip `WORKING_DAYS_ONLY` in `domain/assembly.ts`.
+- **Three orders at a time per line** — a line is a length of floor with
+  several build positions, not one station, so three orders run side by side
+  and a fourth waits for the first to clear (`parallelOrders` on each line in
+  `domain/assembly.ts`).
+- **Today is picked out and the weekend is closed** — the factory does not run
+  Saturday or Sunday, so a bar *steps over* them: three days of work started on
+  a Thursday finishes on the Monday, and a closed column reads 0%. Drop a bar
+  on a Saturday and the board asks before writing the work — approve overtime,
+  move it to the Monday, or cancel. An approved order runs straight through,
+  marked `OT`, and the weekend column then shows what it is carrying.
 - **Work load, in standard hours** — the remaining hours of an order
   (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
   its bar covers. Shown three ways: per line on the group header, for the whole
@@ -48,7 +54,10 @@ plan goes back the other way, into the `ASSY_Production` list.
   list. Its columns intentionally mirror `PMD_Production`, allowing KPI.ts to
   aggregate the two departments without a second mapping layer.
 - **Drag** a bar sideways to move its start day, or drag an order between the
-  pool and a line.
+  pool and a line. Every bar moves, in both directions — a drag is an
+  instruction, so an order dropped where the line is already full stays put and
+  the day reads over capacity rather than snapping back. Dragging never touches
+  the Due Date; if the new start pushes Expect Date past Due, the row turns red.
 - **Colour by date** (Ship is the booked departure, Due the later customer date):
 
   | | Condition | Meaning |
@@ -211,10 +220,10 @@ one on its start day with the production figures at zero; from then on each
 booked shift is its own row. The opening row is created once and never again,
 so it cannot drift to a new day when the bar moves.
 
-`StartDate` is the *effective* start — the later of the drag, the line's queue,
-the predecessor's finish and any material date. That is when work actually
-begins, which is what a reader of the list wants; dragging an order earlier
-than its line can take it will not move the date.
+`StartDate` is the *effective* start — the day the bar actually begins, after
+a predecessor, short material or a closed weekend has had its say. That is when
+work really starts, which is what a reader of the list wants. A hand-dragged
+start is honoured as given; an automatic one waits for a free build position.
 
 Rows are diffed before writing, so a five-minute refresh with nothing changed
 costs one read and no writes. Orders that leave the export keep their rows —
@@ -226,9 +235,10 @@ banner; they never block the board.
 
 Only a supervisor decides who works an order, so allocating and removing crew
 is behind `VITE_SUPERVISOR_PASSWORD`, entered once per session from the header.
-Booking the shift's output is deliberately **not** gated — that is the shift's
-own number to report. Leave the variable blank and the gate disappears
-entirely, which is how the demo runs.
+Approving weekend overtime sits behind the same gate — it costs money. Booking
+the shift's output is deliberately **not** gated: that is the shift's own
+number to report. Leave the variable blank and the gate disappears entirely,
+which is how the demo runs.
 
 > **This is an operational gate, not a security boundary.** Every `VITE_*`
 > variable is compiled into the JavaScript bundle, so anyone who opens dev tools
@@ -294,9 +304,14 @@ domain  →  lib  →  engine  →  store  →  features (UI)
 
 1. folds in the booked output, shrinking the remaining work;
 2. divides that by the crew to get the bar length in days;
-3. starts it at the later of the line's queue, the planner's drag, the
-   predecessor's finish, and any incoming-PO date for short material;
-4. sets Expect Date at the bar's end and colours it against Ship and Due.
+3. starts it where it asks to start — the planner's drag, else Epicor's
+   scheduled start — pushed later by a predecessor that has not finished, by
+   material still on a PO, or by the weekend;
+4. gives it one of the line's three build positions, queueing it behind the
+   first to free only when all three are busy *and* the planner did not put it
+   there by hand;
+5. runs the bar across working days only, unless overtime is approved on it;
+6. sets Expect Date at the bar's end and colours it against Ship and Due.
 
 Because the whole schedule is derived, allocating a person or booking output
 re-lays-out the board with no separate update path.
@@ -336,8 +351,10 @@ both pages can read one source without a second fetch.
 - **The moulding (PMD) board was removed.** Its jobs still load so the PMD row
   can mirror the plan, but there is no moulding scheduling, changeover or
   Epicor-export code any more. It is recoverable from git history if wanted.
-- **Calendar days.** Assembly counts calendar days on one 8 h shift (0.75 h
-  break); flip `WORKING_DAYS_ONLY` in `domain/assembly.ts` to skip weekends.
+- **Working days.** Assembly runs Monday to Friday on one 8 h shift (0.75 h
+  break, so 7.25 productive hours a person). Bars step over Saturday and
+  Sunday; the only work that lands there is an order the supervisor explicitly
+  approved for overtime. The arithmetic is in `engine/assembly/dates`.
 - **Mock dates** are anchored to a fixed epoch and shifted forward on load, so
   the demo always reads as the current week.
 - **`xlsx`** is the npm SheetJS build; it carries known advisories and is only

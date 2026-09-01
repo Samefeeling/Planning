@@ -110,6 +110,27 @@ button {
   flex-direction: column;
 }
 
+/* Closed: the schedule takes the whole width and a thin tab brings it back. */
+.app-body.side-closed {
+  grid-template-columns: 1fr 22px;
+}
+.side-reopen {
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  writing-mode: vertical-rl;
+  padding: 10px 2px;
+  cursor: pointer;
+}
+.side-reopen:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
 /* ---- ui primitives ----------------------------------------------------- */
 .badge {
   display: inline-flex;
@@ -590,9 +611,72 @@ button {
   letter-spacing: 0.4px;
   vertical-align: 1px;
 }
-/* A closed day still shows its load, muted — that is the overtime case. */
+/* A closed day reads 0% unless overtime was approved, which shows muted. */
 .day-bar.closed i { background: var(--faint); }
 .day-load.closed { color: var(--faint); }
+
+/* An order approved to run through the weekend. */
+.bar.overtime {
+  outline: 1px dashed rgba(217, 119, 6, 0.85);
+  outline-offset: -2px;
+}
+.bar-ot {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--warn);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+}
+
+/* ---- weekend overtime confirmation ------------------------------------- */
+.ot-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.42);
+}
+.ot-dialog {
+  width: min(430px, calc(100vw - 32px));
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
+}
+.ot-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.ot-dialog p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ot-note {
+  color: var(--muted);
+}
+.ot-gate {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(217, 119, 6, 0.12);
+  color: var(--warn);
+  font-weight: 600;
+}
+.ot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
 
 /* line group */
 .agroup-label {

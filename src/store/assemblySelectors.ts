@@ -18,6 +18,7 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
   const containers = usePlanStore((s) => s.containers);
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderStarts = usePlanStore((s) => s.orderStarts);
+  const orderOvertime = usePlanStore((s) => s.orderOvertime);
   const progress = usePlanStore((s) => s.progress);
   const production = usePlanStore((s) => s.production);
 
@@ -30,13 +31,23 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
             containers,
             orderWorkers,
             orderStarts,
+            orderOvertime,
             progress,
             production,
             workers: dataset.workers,
             today: new Date(),
           })
         : null,
-    [dataset, indexes, containers, orderWorkers, orderStarts, progress, production],
+    [
+      dataset,
+      indexes,
+      containers,
+      orderWorkers,
+      orderStarts,
+      orderOvertime,
+      progress,
+      production,
+    ],
   );
 }
 
