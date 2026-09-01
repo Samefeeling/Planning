@@ -18,7 +18,6 @@ import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
 import { OvertimePrompt } from '@/features/assembly/OvertimePrompt';
 import { SupervisorLock } from '@/features/assembly/SupervisorLock';
 import { SuggestCrew } from '@/features/assembly/SuggestCrew';
-import { useUiStore } from '@/store/uiStore';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
 import { usePlanSync } from '@/features/sync/usePlanSync';
@@ -43,8 +42,6 @@ export default function App() {
   const progress = usePlanStore((s) => s.progress);
   const production = usePlanStore((s) => s.production);
 
-  const sideOpen = useUiStore((s) => s.sidePaneOpen);
-  const setSidePane = useUiStore((s) => s.setSidePane);
 
   const board = useAssemblyGantt();
   const dnd = useDragDrop();
@@ -143,7 +140,12 @@ export default function App() {
         onDragEnd={dnd.onDragEnd}
         onDragCancel={dnd.onDragCancel}
       >
-        <div className={`app-body ${sideOpen ? '' : 'side-closed'}`}>
+        {/*
+          The schedule has the whole width. An order's detail opens beside the
+          pointer instead of in a column, and the unassigned pane appears only
+          when there is something in it — see AssemblyPool.
+        */}
+        <div className="app-body">
           <div className="board-pane assembly-pane">
             {board ? (
               <AssemblyGantt board={board} />
@@ -154,27 +156,10 @@ export default function App() {
               </div>
             )}
           </div>
-          {sideOpen ? (
-            <aside className="side-pane">
-              {board && (
-                <>
-                  <AssemblyPool board={board} />
-                  <AssemblyInspector board={board} />
-                </>
-              )}
-            </aside>
-          ) : (
-            // The pane is closed so the schedule can run further out; this tab
-            // is how it comes back without having to pick an order first.
-            <button
-              type="button"
-              className="side-reopen"
-              title="Show orders and the shift entry again"
-              onClick={() => setSidePane(true)}
-            >
-              ‹ Orders
-            </button>
-          )}
+          <aside className="side-pane">
+            {board && <AssemblyPool board={board} />}
+          </aside>
+          {board && <AssemblyInspector board={board} />}
         </div>
 
         <DragOverlay dropAnimation={null}>

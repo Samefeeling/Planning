@@ -7,7 +7,7 @@
  * ship date, and the material picture behind the release gate.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { findOrderRow } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
@@ -40,6 +40,12 @@ const PAUSE_REASONS: { value: PauseReason; label: string }[] = [
   { value: 'labour-reallocated', label: 'Labour Reallocated' },
 ];
 
+/** Space between the pointer and the panel, and from the window's edges. */
+const PANEL_GAP = 12;
+
+const clamp = (n: number, lo: number, hi: number): number =>
+  Math.max(lo, Math.min(n, Math.max(lo, hi)));
+
 const isoDay = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
     d.getDate(),
@@ -47,12 +53,36 @@ const isoDay = (d: Date): string =>
 
 export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
-  // Closing hides the whole right-hand block, not just these details: the
-  // point is to give the width back to the schedule so it reaches further out.
-  // Picking any order brings the pane back.
-  const closePane = useUiStore((s) => s.setSidePane);
+  const selectedAt = useUiStore((s) => s.selectedAt);
   const select = useUiStore((s) => s.select);
   const row = findOrderRow(board, selectedJobId);
+  const panel = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+
+  // Put the panel beside the click and keep it on screen. Measured rather than
+  // assumed: the detail is much taller for an order with a dependency list
+  // than for one without, and a fixed guess would hang either off the bottom
+  // or a long way above the row it belongs to.
+  useLayoutEffect(() => {
+    const el = panel.current;
+    if (!el || !selectedAt) return setPlace(null);
+    const { width, height } = el.getBoundingClientRect();
+    const room = { w: window.innerWidth, h: window.innerHeight };
+    setPlace({
+      left: clamp(selectedAt.x + PANEL_GAP, PANEL_GAP, room.w - width - PANEL_GAP),
+      top: clamp(selectedAt.y - PANEL_GAP * 3, PANEL_GAP, room.h - height - PANEL_GAP),
+    });
+  }, [selectedAt, selectedJobId, row]);
+
+  // Escape closes, like every other transient thing on the board.
+  useEffect(() => {
+    if (!selectedJobId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') select(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selectedJobId, select]);
   // Every row on the board, moulding included — an order can be waiting on a
   // press job, which is not among the scheduled assembly rows.
   const rowsById = useMemo(
@@ -97,25 +127,17 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     <button
       type="button"
       className="inspector-close"
-      aria-label="Close the side panel"
-      title="Close the panel and widen the schedule"
-      onClick={() => closePane(false)}
+      aria-label="Close"
+      title="Close"
+      onClick={() => select(null)}
     >
       ×
     </button>
   );
 
-  if (!row) {
-    return (
-      <div className="inspector">
-        <div className="inspector-head">
-          <h2>Order</h2>
-          {close}
-        </div>
-        <div className="pool-empty">Select an order to book the shift.</div>
-      </div>
-    );
-  }
+  // Nothing picked: the panel is simply not there. It opens on a click and
+  // closes again, rather than sitting in a column asking to be filled.
+  if (!row) return null;
 
   const { job, status } = row;
   const today = isoDay(new Date());
@@ -144,7 +166,19 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   };
 
   return (
-    <div className="inspector">
+    <div
+      ref={panel}
+      className="inspector floating"
+      role="dialog"
+      aria-label={`Order ${String(job.id)}`}
+      // Hidden for the first paint, while it is measured against the window —
+      // otherwise it flashes at the top-left corner on the way to the click.
+      style={
+        place
+          ? { left: place.left, top: place.top }
+          : { left: 0, top: 0, visibility: 'hidden' }
+      }
+    >
       <div className="inspector-head">
         <h2>{String(job.id)}</h2>
         {closed && <Badge variant="neutral">Job completed</Badge>}

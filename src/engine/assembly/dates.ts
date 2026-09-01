@@ -151,6 +151,71 @@ export function shiftFraction(
 /** Stops the walk below on a duration that could never be real. */
 const MAX_SPAN_DAYS = 2000;
 
+/** A stretch of open days, and how much of the order's work falls in it. */
+export interface WorkingSpan {
+  from: Date;
+  to: Date;
+  /** Days of work already done when this stretch begins. */
+  workedBefore: number;
+  /** Days of work this stretch carries. */
+  worked: number;
+}
+
+/**
+ * Break `from`–`to` into the stretches the factory is actually open.
+ *
+ * A bar is dated in calendar time but measured in worked days, and the two
+ * disagree across a weekend: three days of work from a Thursday ends on the
+ * Tuesday. Drawing one block of three columns would stop short of the order's
+ * own Expect Date; drawing five would claim the crew worked the weekend. So
+ * the bar is drawn as one block per stretch, with the closed days showing
+ * through between them — which is what actually happens.
+ *
+ * An order approved for overtime runs straight through, so its whole span is
+ * one stretch.
+ */
+export function workingSpans(
+  from: Date,
+  to: Date,
+  overtime = false,
+): WorkingSpan[] {
+  if (to <= from) return [];
+  if (overtime) {
+    const worked = (to.getTime() - from.getTime()) / MS_PER_DAY;
+    return [{ from: new Date(from), to: new Date(to), workedBefore: 0, worked }];
+  }
+
+  const out: WorkingSpan[] = [];
+  let cursor = new Date(from);
+  let done = 0;
+  let open: Date | null = null;
+
+  for (let guard = 0; guard < MAX_SPAN_DAYS && cursor < to; guard++) {
+    const tomorrow = nextMidnight(cursor);
+    const end = tomorrow < to ? tomorrow : to;
+    if (isWeekend(cursor)) {
+      if (open) {
+        const worked = (cursor.getTime() - open.getTime()) / MS_PER_DAY;
+        out.push({ from: open, to: new Date(cursor), workedBefore: done, worked });
+        done += worked;
+        open = null;
+      }
+    } else if (!open) {
+      open = new Date(cursor);
+    }
+    cursor = end;
+  }
+  if (open && cursor > open) {
+    out.push({
+      from: open,
+      to: new Date(cursor),
+      workedBefore: done,
+      worked: (cursor.getTime() - open.getTime()) / MS_PER_DAY,
+    });
+  }
+  return out;
+}
+
 /**
  * `from` plus `days` of work, stepping over the days the factory is closed.
  *

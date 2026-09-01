@@ -322,7 +322,11 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
         ? hoursPerUnit * totalQty
         : (remainingLaborHrs ?? 0);
 
-    if (laborHrs <= 0) {
+    // Only orders this board actually schedules. A press job appears in the
+    // PMD lane on moulding's own dates — it is mirrored for context, never
+    // planned here — so hours its row does not carry cost this board nothing,
+    // and saying so on every such row buries the assembly orders that matter.
+    if (laborHrs <= 0 && placement?.department !== 'moulding') {
       // Names where to look: the cell is blank on this row, not the column.
       errors.push(
         `Planning1.csv row ${i + 2} (${jobNum}): no labour hours ` +

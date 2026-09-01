@@ -68,7 +68,18 @@ export function WorkerLoadChip({
         : `${when} — planned leave`;
     }
     if (day.hours <= 0) return `${when} — free`;
-    return `${when} — ${hrs(day.hours)} of ${hrs(day.capacity)} (${Math.round(day.pct)}%)`;
+    // Spell out what the colour means: full is not the same as over, and the
+    // board books a whole shift to anyone it puts on an order.
+    const state =
+      day.dot === 'red'
+        ? 'more than a full shift'
+        : day.dot === 'orange'
+          ? 'full'
+          : 'room for more';
+    return (
+      `${when} — ${hrs(day.hours)} of ${hrs(day.capacity)} ` +
+      `(${Math.round(day.pct)}%, ${state})`
+    );
   };
 
   return (
@@ -154,8 +165,14 @@ export function WorkerLoadChip({
                   </span>
                   <span className="wl-orders">
                     {day.entries.length > 0
-                      ? day.entries
-                          .map((e) => `${e.line} · ${e.description}`)
+                      ? // The order number first: it is what the supervisor
+                        // says out loud and what they look up. Two orders for
+                        // the same part are told apart by nothing else.
+                        day.entries
+                          .map(
+                            (e) =>
+                              `${String(e.jobId)} · ${e.line} · ${e.description}`,
+                          )
                           .join('  |  ')
                       : day.onLeave
                         ? 'planned leave'

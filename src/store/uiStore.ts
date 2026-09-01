@@ -37,14 +37,29 @@ export const DATE_COLS = ['start', 'due', 'expect', 'ship'] as const;
 export type DateCol = (typeof DATE_COLS)[number];
 export type DateCols = Record<DateCol, boolean>;
 
+/** Column headings, shared by the board and the chip that brings one back. */
+export const DATE_COL_LABEL: Record<DateCol, string> = {
+  start: 'Start Date',
+  due: 'Due Date',
+  expect: 'Expect Date',
+  ship: 'Ship Date',
+};
+
+/** Where on screen an order was clicked, so its detail opens beside it. */
+export interface ClickPoint {
+  x: number;
+  y: number;
+}
+
 interface UiState {
   /** Order shown in the inspector. */
   selectedJobId: string | null;
   /**
-   * The right-hand pane. Closed gives the whole width to the schedule, which
-   * is how the supervisor looks further out; selecting an order brings it back.
+   * Where the pointer was when it was picked. The detail opens there rather
+   * than in a fixed column: the supervisor is already looking at that row, and
+   * the schedule keeps the whole width.
    */
-  sidePaneOpen: boolean;
+  selectedAt: ClickPoint | null;
   overtimeRequest: OvertimeRequest | null;
   lastRefresh: Date | null;
   /**
@@ -57,8 +72,8 @@ interface UiState {
   /** Which date columns are showing; hidden ones come back from the header. */
   dateCols: DateCols;
 
-  select: (jobId: string | null) => void;
-  setSidePane: (open: boolean) => void;
+  /** Show an order's detail; `at` moves the panel, omitting it leaves it. */
+  select: (jobId: string | null, at?: ClickPoint) => void;
   setDayWidth: (px: number) => void;
   setOrderWidth: (px: number) => void;
   toggleDateCol: (key: DateCol) => void;
@@ -69,17 +84,17 @@ interface UiState {
 
 export const useUiStore = create<UiState>((set) => ({
   selectedJobId: null,
-  sidePaneOpen: true,
+  selectedAt: null,
   overtimeRequest: null,
   lastRefresh: null,
   dayWidth: DEFAULT_DAY_WIDTH,
   orderWidth: DEFAULT_ORDER_WIDTH,
   dateCols: { start: true, due: true, expect: true, ship: true },
 
-  // Picking an order is a request to see it, so it re-opens a closed pane.
-  select: (selectedJobId) =>
-    set(selectedJobId ? { selectedJobId, sidePaneOpen: true } : { selectedJobId }),
-  setSidePane: (sidePaneOpen) => set({ sidePaneOpen }),
+  // A follow-on pick — a predecessor in the detail itself — comes with no
+  // point, and leaves the panel where the reader is already looking.
+  select: (selectedJobId, at) =>
+    set((state) => ({ selectedJobId, selectedAt: at ?? state.selectedAt })),
   setDayWidth: (px) =>
     set({ dayWidth: clamp(px, MIN_DAY_WIDTH, MAX_DAY_WIDTH) }),
   setOrderWidth: (px) =>

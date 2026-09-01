@@ -28,6 +28,7 @@ import {
   MAX_ORDER_WIDTH,
   MIN_ORDER_WIDTH,
   useUiStore,
+  type ClickPoint,
   type DateCol,
   type DateCols,
 } from '@/store/uiStore';
@@ -89,7 +90,7 @@ function OrderRowView({
   board: AssemblyGanttView;
   gridWidth: number;
   selected: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, at?: ClickPoint) => void;
   dayWidth: number;
   orderWidth: number;
   visibleDates: DateCols;
@@ -111,7 +112,9 @@ function OrderRowView({
   return (
     <div
       className={`arow ${selected ? 'selected' : ''} ${isContext ? 'context' : ''} ${row.completedToday ? 'completed-today' : ''}`}
-      onClick={() => onSelect(String(row.job.id))}
+      // The detail opens beside the pointer, so the click has to say where
+      // it was — see AssemblyInspector.
+      onClick={(e) => onSelect(String(row.job.id), { x: e.clientX, y: e.clientY })}
     >
       <div className="acell order">
         <span className="order-id">{String(row.job.id)}</span>
@@ -191,7 +194,7 @@ function LineGroupView({
   board: AssemblyGanttView;
   gridWidth: number;
   selectedJobId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, at?: ClickPoint) => void;
   dayWidth: number;
   orderWidth: number;
   visibleDates: DateCols;

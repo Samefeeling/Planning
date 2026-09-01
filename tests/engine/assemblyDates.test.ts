@@ -7,6 +7,7 @@ import {
   scheduleStatus,
   shiftFraction,
   wholeDaysBetween,
+  workingSpans,
 } from '@/engine/assembly/dates';
 
 const d = (s: string) => new Date(`${s}T00:00:00`);
@@ -153,5 +154,56 @@ describe('the day before, and the hour of the day', () => {
     // Before the crew clock on, and long after they have gone home.
     expect(shiftFraction(at(3), 7, 15.5)).toBe(0);
     expect(shiftFraction(at(22), 7, 15.5)).toBe(1);
+  });
+});
+
+describe('drawing a bar across the closed days', () => {
+  const THU = d('2026-09-10');
+  const FRI = d('2026-09-11');
+  const SAT = d('2026-09-12');
+  const MON = d('2026-09-14');
+  const TUE = d('2026-09-15');
+
+  it('is one stretch when the work never reaches a weekend', () => {
+    const spans = workingSpans(THU, SAT);
+    expect(spans).toHaveLength(1);
+    expect(spans[0]).toMatchObject({ from: THU, to: SAT, workedBefore: 0, worked: 2 });
+  });
+
+  it('breaks over the weekend and keeps the worked days on either side', () => {
+    // Three days of work from a Thursday: Thu, Fri, then Monday.
+    const spans = workingSpans(THU, TUE);
+    expect(spans).toHaveLength(2);
+    expect(spans[0]).toMatchObject({ from: THU, to: SAT, worked: 2, workedBefore: 0 });
+    expect(spans[1]).toMatchObject({ from: MON, to: TUE, worked: 1, workedBefore: 2 });
+    // The stretches account for the whole order, no more and no less.
+    expect(spans.reduce((s, p) => s + p.worked, 0)).toBeCloseTo(3, 6);
+  });
+
+  it('keeps a part-day on the right side of the break', () => {
+    // Friday noon to Monday 06:00: half of Friday, then a quarter of Monday.
+    const spans = workingSpans(new Date('2026-09-11T12:00:00'), new Date('2026-09-14T06:00:00'));
+    expect(spans).toHaveLength(2);
+    expect(spans[0].worked).toBeCloseTo(0.5, 6);
+    expect(spans[1].worked).toBeCloseTo(0.25, 6);
+    expect(spans[1].workedBefore).toBeCloseTo(0.5, 6);
+  });
+
+  it('runs an approved weekend straight through as one block', () => {
+    const spans = workingSpans(FRI, TUE, true);
+    expect(spans).toHaveLength(1);
+    expect(spans[0].worked).toBeCloseTo(4, 6);
+  });
+
+  it('draws nothing for an order with no span left', () => {
+    expect(workingSpans(MON, MON)).toEqual([]);
+    expect(workingSpans(TUE, MON)).toEqual([]);
+  });
+
+  it('skips a weekend it merely starts on', () => {
+    // Nothing is worked on the Saturday, so the first stretch is the Monday.
+    const spans = workingSpans(SAT, TUE);
+    expect(spans).toHaveLength(1);
+    expect(spans[0]).toMatchObject({ from: MON, to: TUE, worked: 1 });
   });
 });

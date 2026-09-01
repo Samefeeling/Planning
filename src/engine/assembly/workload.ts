@@ -325,15 +325,29 @@ export function rosterLoad(
 /** How a single day reads, as a square or as a meter. */
 export type LoadDot = 'leave' | 'idle' | LoadBand;
 
+/** Share of a shift at which a person counts as having no room left. */
+const PERSON_FULL_PCT = 80;
+
 /**
- * The colour for one day, used by both views of a person's week so they can
- * never tell different stories. Work booked against no capacity — planned
- * leave, or a weekend — is fully over: there is no shift to absorb it.
+ * The colour for one day of one person's week, used by both views of it so
+ * they can never tell different stories.
+ *
+ * A person is banded differently from the department, and deliberately. The
+ * board sizes every bar to exactly fill the crew on it, so anyone allocated to
+ * an order is booked a full shift by definition — under the department's
+ * bands, where 90% is already red, that paints every working person red and
+ * says nothing. What a supervisor is actually asking of these squares is "who
+ * has room?", so: green has room, orange is full, and red is *over* — two
+ * orders at once, or work landing on a day the person cannot work at all.
  */
 export function dayBand(day: DayLoad): LoadDot {
   if (day.hours <= 0) return day.onLeave ? 'leave' : 'idle';
-  if (day.capacity <= 0) return 'red';
-  return loadBand((day.hours / day.capacity) * 100);
+  // `over` carries the tolerance, so a bar sized to exactly fill its crew
+  // reads full rather than over on floating-point dust.
+  if (day.over) return 'red';
+  return day.hours >= (day.capacity * PERSON_FULL_PCT) / 100
+    ? 'orange'
+    : 'green';
 }
 
 /** One square: a working day boiled down to a colour. */

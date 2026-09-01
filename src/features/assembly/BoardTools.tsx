@@ -8,7 +8,7 @@
  */
 
 import type { AssemblyGanttView } from '@/engine/assembly/board';
-import { DATE_COLS, useUiStore } from '@/store/uiStore';
+import { DATE_COLS, DATE_COL_LABEL, useUiStore } from '@/store/uiStore';
 
 /** How much one press of − or + moves the day column, in pixels. */
 const ZOOM_STEP = 16;
@@ -51,9 +51,9 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
           className="date-restore"
           key={key}
           onClick={() => toggleDateCol(key)}
-          title={`Show the ${key} date column again`}
+          title={`Show the ${DATE_COL_LABEL[key]} column again`}
         >
-          + {key}
+          + {DATE_COL_LABEL[key]}
         </button>
       ))}
       {board.dependencyWarnings.length > 0 && (

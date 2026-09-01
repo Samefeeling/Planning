@@ -270,13 +270,25 @@ describe('the labour-hours column', () => {
     expect(complaint[0]).toContain('SomethingElse');
   });
 
-  it('still names the row when one row’s cells are blank', () => {
+  it('names the row when an assembly order’s cells are blank', () => {
+    const blank = sample.replace(
+      /^(018140-1-1,.*?,ASSY,30,30,[^,]*,[^,]*),[^,]*,[^,]*,/m,
+      '$1,,,',
+    );
+    const { errors } = parsePlanningCsv(blank);
+    expect(errors.some((e) => e.includes('018140-1-1'))).toBe(true);
+  });
+
+  it('says nothing about a press job, which this board never schedules', () => {
+    // The PMD lane mirrors moulding's own plan on moulding's own dates, so
+    // hours it does not carry are not this board's problem — and a real
+    // export has enough of these rows to bury the orders that matter.
     const blank = sample.replace(
       'SFM507615,7911FR,Encore,PMD,34,34,2026-09-29T00:00:00,2026-09-30T00:00:00,0.77,0.022727,23.3',
       'SFM507615,7911FR,Encore,PMD,34,34,2026-09-29T00:00:00,2026-09-30T00:00:00,,,23.3',
     );
-    const { errors } = parsePlanningCsv(blank);
-    expect(errors.some((e) => e.includes('SFM507615'))).toBe(true);
-    expect(errors.some((e) => /row 2\b/.test(e))).toBe(true);
+    const { values, errors } = parsePlanningCsv(blank);
+    expect(values.map((j) => String(j.id))).toContain('SFM507615');
+    expect(errors.some((e) => e.includes('SFM507615'))).toBe(false);
   });
 });

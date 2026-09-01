@@ -102,10 +102,16 @@ button {
   font-size: 12px;
 }
 
+/*
+ * The schedule takes the width it can get. The right-hand column exists only
+ * for unassigned orders, so it collapses to nothing when the pool renders
+ * nothing — and the order detail floats over the board beside the pointer.
+ */
 .app-body {
+  position: relative;
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-height: 0;
 }
 
@@ -115,32 +121,16 @@ button {
   background: var(--bg);
 }
 .side-pane {
+  width: 300px;
   border-left: 1px solid var(--border);
   background: var(--surface);
   overflow: auto;
   display: flex;
   flex-direction: column;
 }
-
-/* Closed: the schedule takes the whole width and a thin tab brings it back. */
-.app-body.side-closed {
-  grid-template-columns: 1fr 22px;
-}
-.side-reopen {
-  border: none;
-  border-left: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  writing-mode: vertical-rl;
-  padding: 10px 2px;
-  cursor: pointer;
-}
-.side-reopen:hover {
-  background: var(--surface);
-  color: var(--text);
+/* Nothing unassigned: no column, no border, no gap in the schedule. */
+.side-pane:empty {
+  display: none;
 }
 
 /* ---- ui primitives ----------------------------------------------------- */
@@ -294,6 +284,22 @@ button {
 .inspector {
   padding: 12px;
   border-top: 1px solid var(--border);
+}
+/*
+ * The order detail, opened beside the pointer. Fixed to the window rather than
+ * to the board so scrolling the schedule underneath cannot drag it off screen,
+ * and capped at the viewport so a long dependency list scrolls inside it.
+ */
+.inspector.floating {
+  position: fixed;
+  z-index: 50;
+  width: 340px;
+  max-height: 78vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.26);
 }
 .kv {
   display: grid;
@@ -674,10 +680,15 @@ body.col-resizing {
 .stripe.closed {
   background: rgba(100, 116, 139, 0.13);
 }
+/*
+ * Today's column. Both edges are drawn the same, deliberately: a heavier left
+ * edge reads as a line *in* the column, which is what the shift clock is, and
+ * the two must not be confused.
+ */
 .stripe.today {
   background: rgba(37, 99, 235, 0.07);
   box-shadow:
-    inset 2px 0 0 var(--accent),
+    inset 1px 0 0 rgba(37, 99, 235, 0.35),
     inset -1px 0 0 rgba(37, 99, 235, 0.35);
 }
 
@@ -733,7 +744,9 @@ body.col-resizing {
 }
 .daycol.today {
   background: rgba(37, 99, 235, 0.09);
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow:
+    inset 1px 0 0 rgba(37, 99, 235, 0.35),
+    inset -1px 0 0 rgba(37, 99, 235, 0.35);
 }
 .today-tag {
   margin-left: 4px;
@@ -752,10 +765,6 @@ body.col-resizing {
 .day-load.closed { color: var(--faint); }
 
 /* An order approved to run through the weekend. */
-.bar.overtime {
-  outline: 1px dashed rgba(217, 119, 6, 0.85);
-  outline-offset: -2px;
-}
 .bar-ot {
   position: absolute;
   right: 4px;
@@ -875,37 +884,57 @@ body.col-resizing {
 }
 
 /* bars */
+/*
+ * The bar spans start → Expect Date; the blocks inside it are the stretches
+ * the factory is open. The bar itself is only a frame — colour, background and
+ * border belong to the blocks, so a weekend between two of them shows the grey
+ * closed-day stripe through the gap.
+ */
 .bar {
   position: absolute;
   top: 6px;
   bottom: 6px;
-  border-radius: 5px;
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 0 7px;
   cursor: grab;
   user-select: none;
-  overflow: hidden;
-  border: 1px solid transparent;
   font-size: 11px;
   font-weight: 650;
   z-index: 2;
 }
-.bar.green { background: #bbf7d0; border-color: #16a34a; color: #14532d; }
-.bar.orange { background: #fde68a; border-color: #d97706; color: #78350f; }
-.bar.red { background: #fecaca; border-color: #dc2626; color: #7f1d1d; }
-.bar.grey { background: var(--surface-3); border-color: var(--border); color: var(--muted); }
+.bar-piece {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  overflow: hidden;
+}
+.bar.green .bar-piece { background: #bbf7d0; border-color: #16a34a; }
+.bar.orange .bar-piece { background: #fde68a; border-color: #d97706; }
+.bar.red .bar-piece { background: #fecaca; border-color: #dc2626; }
+.bar.grey .bar-piece { background: var(--surface-3); border-color: var(--border); }
+.bar.green { color: #14532d; }
+.bar.orange { color: #78350f; }
+.bar.red { color: #7f1d1d; }
+.bar.grey { color: var(--muted); }
 .bar.readonly {
   cursor: default;
   opacity: 0.75;
 }
-.bar.selected {
+.bar.selected .bar-piece {
   box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.55);
 }
 .bar.dragging {
   opacity: 0.6;
   z-index: 5;
+}
+/* An order approved to run through the weekend is one unbroken block. */
+.bar.overtime .bar-piece {
+  outline: 1px dashed rgba(217, 119, 6, 0.85);
+  outline-offset: -2px;
 }
 .bar-progress {
   position: absolute;
@@ -915,10 +944,18 @@ body.col-resizing {
   background: rgba(255, 255, 255, 0.16);
   pointer-events: none;
 }
+/* Over the blocks, not inside one, so the label survives a narrow first
+   stretch — a bar starting on a Friday is one column wide before the break. */
 .bar-label,
 .bar-wait {
   position: relative;
+  z-index: 1;
   white-space: nowrap;
+  pointer-events: none;
+}
+.bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .bar-missing {
   position: absolute;
@@ -1023,6 +1060,21 @@ body.col-resizing {
   height: 22px;
   font-size: 14px;
   line-height: 1;
+}
+/* Brings a hidden date column back. Named in full — "+ ship" beside the
+   hours pill reads as debris rather than as a control. */
+.board-tools .date-restore {
+  width: auto;
+  height: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.board-tools .date-restore:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 .attendance-row {
   position: sticky;

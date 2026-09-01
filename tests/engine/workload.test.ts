@@ -221,9 +221,12 @@ describe('the squares beside a name', () => {
     expect(preview.map((d) => d.date.getDay())).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it('bands a day the same way the day columns do', () => {
+  it('reads a full day as full, and keeps red for over-booked', () => {
+    // The board sizes every bar to exactly fill the crew on it, so anyone on
+    // an order is booked a whole shift. Under the department's bands — where
+    // 90% is already red — that would paint every working person red and say
+    // nothing about who has room, which is the question being asked.
     const w = worker('W1');
-    // Monday full (100%), Tuesday a little over half (58%), the rest free.
     const load = workerLoad(
       w,
       [row(job('A', 7.25), [w], 0, 1), row(job('B', 4.25), [w], 1, 1)],
@@ -231,9 +234,22 @@ describe('the squares beside a name', () => {
     );
     const preview = loadPreview(load);
 
-    expect(preview[0].dot).toBe('red');
-    expect(preview[1].dot).toBe('green');
+    expect(preview[0].dot).toBe('orange'); // Monday: a full shift, no room
+    expect(preview[1].dot).toBe('green'); // Tuesday: 59%, room for more
     expect(Math.round(preview[1].pct)).toBe(59);
+    expect(loadBand(100)).toBe('red'); // …the day columns still say red
+  });
+
+  it('turns red when a second order lands on the same day', () => {
+    // Two full-shift orders at once is the case worth shouting about.
+    const w = worker('W1');
+    const load = workerLoad(
+      w,
+      [row(job('A', 7.25), [w], 0, 1), row(job('B', 7.25), [w], 0, 1)],
+      MON,
+    );
+    expect(loadPreview(load)[0].dot).toBe('red');
+    expect(load.overloadedDays).toBe(1);
   });
 
   it('draws an empty day hollow rather than green', () => {

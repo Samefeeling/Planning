@@ -1,15 +1,25 @@
 /**
  * One order's bar on the day grid. Draggable left/right to move its start day;
  * coloured by how the Expect Date compares with the Ship and Due dates.
+ *
+ * The bar spans calendar time — start to Expect Date — but is drawn as one
+ * block per stretch of open days, so a weekend shows as a break in the work
+ * rather than as work nobody does. Drawn as a single block it would have to be
+ * either too short (worked days, stopping before its own Expect Date) or a lie
+ * (calendar days, claiming the crew worked Saturday).
  */
 
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { OrderRow } from '@/engine/assembly/board';
-import { wholeDaysBetween } from '@/engine/assembly/dates';
+import { wholeDaysBetween, workingSpans } from '@/engine/assembly/dates';
 import { completedFraction } from '@/engine/assembly/duration';
+import { MS_PER_DAY } from '@/lib/time';
 
 export const DRAG_TYPE_BAR = 'order-bar';
+
+/** Narrowest a block may be drawn and still be seen. */
+const MIN_PIECE_PX = 10;
 
 export function OrderBar({
   row,
@@ -25,7 +35,7 @@ export function OrderBar({
   /** PMD rows mirror the moulding plan — shown, never scheduled here. */
   readOnly?: boolean;
   selected: boolean;
-  onSelect: (jobId: string) => void;
+  onSelect: (jobId: string, at?: { x: number; y: number }) => void;
 }) {
   const id = String(row.job.id);
   const { attributes, listeners, setNodeRef, transform, isDragging } =
@@ -55,33 +65,83 @@ export function OrderBar({
 
   const offsetDays = wholeDaysBetween(row.start, horizonStart);
   const left = offsetDays * dayWidth;
-  const width = Math.max(row.days * dayWidth, 34);
-  const done = completedFraction(row.job);
+  const end = row.expectDate ?? row.start;
+  // The whole calendar span, weekend included: the right-hand edge is the
+  // Expect Date, which is the date the row itself shows.
+  const span = Math.max(0, (end.getTime() - row.start.getTime()) / MS_PER_DAY);
+  const width = Math.max(span * dayWidth, MIN_PIECE_PX * 2);
+
+  // Two kinds of order run straight through: one the supervisor has approved
+  // for the weekend, and a moulding row — the presses keep their own calendar,
+  // and this lane mirrors their plan rather than restating it in our hours.
+  const continuous = row.overtime || readOnly;
+  const spans = workingSpans(row.start, end, continuous);
+  const worked = spans.reduce((s, p) => s + p.worked, 0);
+  // Days of work already booked, in the same units as `WorkingSpan.worked`.
+  const doneDays = completedFraction(row.job) * worked;
+
+  const pieces =
+    spans.length > 0
+      ? spans.map((piece) => ({
+          key: piece.from.getTime(),
+          left:
+            ((piece.from.getTime() - row.start!.getTime()) / MS_PER_DAY) *
+            dayWidth,
+          width: Math.max(
+            ((piece.to.getTime() - piece.from.getTime()) / MS_PER_DAY) *
+              dayWidth,
+            MIN_PIECE_PX,
+          ),
+          // How much of this stretch is already finished.
+          done:
+            piece.worked > 0
+              ? Math.min(
+                  1,
+                  Math.max(0, (doneDays - piece.workedBefore) / piece.worked),
+                )
+              : 0,
+        }))
+      : // A closed order has no span left to draw, but still needs a handle.
+        [{ key: 0, left: 0, width, done: 1 }];
 
   return (
     <div
       ref={setNodeRef}
       className={`bar ${row.status.color} ${selected ? 'selected' : ''} ${
         isDragging ? 'dragging' : ''
-      } ${readOnly ? 'readonly' : ''} ${row.overtime ? 'overtime' : ''}`}
+      } ${readOnly ? 'readonly' : ''} ${row.overtime ? 'overtime' : ''} ${
+        pieces.length > 1 ? 'split' : ''
+      }`}
       style={{
         left,
         width,
         transform: CSS.Translate.toString(transform),
       }}
-      onClick={() => onSelect(id)}
+      onClick={(e) => onSelect(id, { x: e.clientX, y: e.clientY })}
       title={
         `${row.job.id} · ${row.days.toFixed(1)} d worked with ${row.workers.length}` +
         (readOnly ? '' : ` · position ${row.slot + 1} of ${row.line.parallelOrders}`) +
+        (pieces.length > 1 ? ' · pauses over the weekend' : '') +
         (row.overtime ? ' · weekend overtime approved' : '') +
         ` · ${row.status.reason}`
       }
       {...(readOnly ? {} : listeners)}
       {...(readOnly ? {} : attributes)}
     >
-      {done > 0 && (
-        <div className="bar-progress" style={{ width: `${done * 100}%` }} />
-      )}
+      {pieces.map((piece) => (
+        <div
+          key={piece.key}
+          className="bar-piece"
+          style={{ left: piece.left, width: piece.width }}
+        >
+          {piece.done > 0 && (
+            <div
+              className="bar-progress"
+              style={{ width: `${piece.done * 100}%` }}
+            />
+          )}
+        </div>
+      ))}
       <span className="bar-label">{String(row.job.id)}</span>
       {row.overtime && (
         <span className="bar-ot" title="Weekend overtime approved">

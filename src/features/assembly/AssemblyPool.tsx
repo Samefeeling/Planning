@@ -23,7 +23,7 @@ function PoolCard({
 }: {
   job: Job;
   selected: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, at?: { x: number; y: number }) => void;
 }) {
   const id = String(job.id);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -34,7 +34,7 @@ function PoolCard({
     <div
       ref={setNodeRef}
       className={`ord ${selected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
-      onClick={() => onSelect(id)}
+      onClick={(e) => onSelect(id, { x: e.clientX, y: e.clientY })}
       {...listeners}
       {...attributes}
     >

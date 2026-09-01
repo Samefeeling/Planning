@@ -46,24 +46,36 @@ plan goes back the other way, into the `ASSY_Production` list.
   `domain/assembly.ts`).
 - **Today is picked out and the weekend is closed** — the factory does not run
   Saturday or Sunday, so a bar *steps over* them: three days of work started on
-  a Thursday finishes on the Monday, and a closed column reads 0%. Drop a bar
-  on a Saturday and the board asks before writing the work — approve overtime,
-  move it to the Monday, or cancel. An approved order runs straight through,
-  marked `OT`, and the weekend column then shows what it is carrying.
+  a Thursday finishes on the Monday, and a closed column reads 0%. Such a bar is
+  **drawn as two blocks with the closed days showing through**, ending on its own
+  Expect Date; one block of three columns would stop short of that date, and one
+  of five would claim the crew worked the weekend. Drop a bar on a Saturday and
+  the board asks before writing the work — approve overtime, move it to the
+  Monday, or cancel. An approved order runs straight through as one block,
+  marked `OT`, and the weekend column then shows what it is carrying. PMD rows
+  are continuous too: the presses keep their own calendar and that lane only
+  mirrors it.
 - **Work load, in standard hours** — the remaining hours of an order
   (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
   its bar covers. Shown three ways: per line on the group header, for the whole
   board in the title bar, and per person — every name in the "Today on site" row
-  carries **five 10px squares**, one per working day, in the same green/orange/
-  red bands; an idle day is drawn hollow so empty never reads as comfortable,
-  and planned leave is hatched. Click a name for the same week in full, day by
-  day, against a shift's capacity. Someone on two orders at once shows a day
-  over 7.25 h and is flagged. A week holds five working days, so the squares
-  and the popup cover exactly the same window.
+  carries **five 10px squares**, one per working day. Click a name for the same
+  week in full, order by order, against a shift's capacity — a week holds five
+  working days, so the squares and the popup cover exactly the same window.
+
+  A **person** is banded differently from the department, deliberately: the
+  board sizes every bar to exactly fill the crew on it, so anyone allocated is
+  booked a whole shift, and the department's bands — where 90% is already red —
+  would paint every working person red. So green has room, orange is full, and
+  red is *over*: two orders at once, or work landing on leave or a closed day.
+  An idle day is hollow rather than green, and planned leave is hatched.
 - **Crew drives duration** — up to **4 people** per order; bar length is
   remaining standard hours ÷ (crew × productive hours), so adding someone
   visibly shortens it and pulls the Expect Date in. The picker offers only
   people who are on shift *and* qualified for that line.
+- **The order detail opens where you clicked** — beside the pointer, over the
+  board, rather than in a fixed column: the supervisor is already looking at
+  that row, and the schedule keeps the whole width. `×` or `Escape` closes it.
 - **Book the shift** — enter the quantity finished today; the Expect Date moves
   on its own: short of the daily target it slips out, ahead of it pulls in.
 - **Production actuals** — Shift Output, Complete, Reject, Rework, Job Completed and Pause
