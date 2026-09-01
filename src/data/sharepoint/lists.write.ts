@@ -1,0 +1,141 @@
+/**
+ * Writes SharePoint list rows through Microsoft Graph.
+ *
+ * Separate from `lists.client.ts` (read-only) because writing needs the list
+ * *item* id, which the read path throws away — Graph addresses an update as
+ * `PATCH /lists/{list}/items/{itemId}/fields`.
+ *
+ * Every call returns a `Result` rather than throwing: a write that fails must
+ * surface as a warning on the board, never take the planner's session down.
+ */
+
+import { ok, err, type Result } from '@/lib/result';
+import type { SharePointConfig } from '@/data/excel/sharepoint.client';
+import type { ListItemFields } from './lists.client';
+
+/** A list row with the id needed to update it. */
+export interface ListItem {
+  id: string;
+  fields: ListItemFields;
+}
+
+/** `https://graph.microsoft.com/v1.0/sites/{host}:{/sites/PMD}:` */
+function sitePrefix(cfg: SharePointConfig): string {
+  const u = new URL(cfg.siteUrl);
+  return `https://graph.microsoft.com/v1.0/sites/${u.hostname}:${u.pathname.replace(/\/$/, '')}:`;
+}
+
+const listUrl = (cfg: SharePointConfig, list: string): string =>
+  `${sitePrefix(cfg)}/lists/${encodeURIComponent(list)}`;
+
+function configured(cfg: SharePointConfig): string | null {
+  if (!cfg.siteUrl) return 'SharePoint site URL not configured.';
+  if (!cfg.token) return 'Missing Graph access token (VITE_GRAPH_TOKEN).';
+  return null;
+}
+
+const message = (e: unknown): string =>
+  e instanceof Error ? e.message : String(e);
+
+/**
+ * Every row of a list, each with its item id.
+ *
+ * `$select=id` on the item and `expand=fields` on its values is the one shape
+ * that returns both in a single round trip.
+ */
+export async function fetchListItemsWithIds(
+  cfg: SharePointConfig,
+  list: string,
+): Promise<Result<ListItem[], string>> {
+  const missing = configured(cfg);
+  if (missing) return err(missing);
+
+  const items: ListItem[] = [];
+  let url = `${listUrl(cfg, list)}/items?expand=fields&$top=200`;
+
+  try {
+    // Bounded so a malformed nextLink can never spin forever.
+    for (let page = 0; page < 50 && url; page++) {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${cfg.token}` },
+      });
+      if (!res.ok) {
+        return err(`Graph list "${list}" read failed: ${res.status} ${res.statusText}`);
+      }
+      const body = (await res.json()) as {
+        value?: { id?: string; fields?: ListItemFields }[];
+        '@odata.nextLink'?: string;
+      };
+      for (const item of body.value ?? []) {
+        if (item.id) items.push({ id: item.id, fields: item.fields ?? {} });
+      }
+      url = body['@odata.nextLink'] ?? '';
+    }
+    return ok(items);
+  } catch (e) {
+    return err(`Graph list "${list}" read error: ${message(e)}`);
+  }
+}
+
+/** Add a row. Resolves to the new item's id. */
+export async function createListItem(
+  cfg: SharePointConfig,
+  list: string,
+  fields: ListItemFields,
+): Promise<Result<string, string>> {
+  const missing = configured(cfg);
+  if (missing) return err(missing);
+
+  try {
+    const res = await fetch(`${listUrl(cfg, list)}/items`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cfg.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fields }),
+    });
+    if (!res.ok) {
+      return err(
+        `Graph list "${list}" create failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    const body = (await res.json()) as { id?: string };
+    return ok(body.id ?? '');
+  } catch (e) {
+    return err(`Graph list "${list}" create error: ${message(e)}`);
+  }
+}
+
+/** Update the named columns of one row; columns not named are left alone. */
+export async function updateListItem(
+  cfg: SharePointConfig,
+  list: string,
+  itemId: string,
+  fields: ListItemFields,
+): Promise<Result<void, string>> {
+  const missing = configured(cfg);
+  if (missing) return err(missing);
+
+  try {
+    const res = await fetch(
+      `${listUrl(cfg, list)}/items/${encodeURIComponent(itemId)}/fields`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${cfg.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(fields),
+      },
+    );
+    if (!res.ok) {
+      return err(
+        `Graph list "${list}" update failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    return ok(undefined);
+  } catch (e) {
+    return err(`Graph list "${list}" update error: ${message(e)}`);
+  }
+}

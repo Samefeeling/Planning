@@ -15,16 +15,18 @@ import type {
 } from '@/engine/assembly/board';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { addDays } from '@/engine/assembly/dates';
-import { dayKey } from '@/engine/assembly/workload';
+import { boardDayLoads } from '@/engine/assembly/workload';
 import { useUiStore } from '@/store/uiStore';
 import { OrderBar } from './OrderBar';
 import { TeamChips } from './TeamChips';
 import { WorkerLoadChip } from './WorkerLoadChip';
 
 const DEFAULT_DAY_WIDTH = 92;
-// Must match the widths in index.css (--order-w, --date-w x4, --team-w),
-// otherwise the header's day columns drift out of line with the row tracks.
+// Must match the widths in index.css (--order-w, --qty-w, --date-w x4,
+// --team-w), otherwise the header's day columns drift out of line with the
+// row tracks.
 const ORDER_W = 200;
+const QTY_W = 58;
 const DATE_W = 62;
 const TEAM_W = 172;
 
@@ -73,7 +75,7 @@ function OrderRowView({
   visibleDates: DateCols;
 }) {
   const isContext = !row.line.schedulable;
-  let dateOffset = ORDER_W;
+  let dateOffset = ORDER_W + QTY_W;
   const frozenDate = (visible: boolean): React.CSSProperties | undefined => {
     if (!visible) return undefined;
     const style = { left: dateOffset };
@@ -85,6 +87,7 @@ function OrderRowView({
   const expectStyle = frozenDate(visibleDates.expect);
   const shipStyle = frozenDate(visibleDates.ship);
   const startAt = row.job.startDate;
+  const orderQty = row.job.remainingQty + row.job.completedQty;
   return (
     <div
       className={`arow ${selected ? 'selected' : ''} ${isContext ? 'context' : ''} ${row.completedToday ? 'completed-today' : ''}`}
@@ -98,6 +101,17 @@ function OrderRowView({
           </span>
         )}
         <span className="order-desc">{row.job.description}</span>
+      </div>
+      {/* Ordered quantity, with what is still to make under it. */}
+      <div
+        className="acell qty frozen"
+        style={{ left: ORDER_W }}
+        title={`${orderQty} ordered · ${row.job.remainingQty} still to make`}
+      >
+        <span>{orderQty}</span>
+        {row.job.completedQty > 0 && (
+          <span className="qty-left">{row.job.remainingQty} left</span>
+        )}
       </div>
       {visibleDates.start && (
         <div
@@ -245,7 +259,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   );
   const gridWidth = board.horizonDays * dayWidth;
   const dateCount = Object.values(visibleDates).filter(Boolean).length;
-  const labelWidth = ORDER_W + DATE_W * dateCount + TEAM_W;
+  const labelWidth = ORDER_W + QTY_W + DATE_W * dateCount + TEAM_W;
   const attendance = board.workers.filter((worker) => worker.onShift);
   const allRows = board.groups.flatMap((group) => group.rows);
   const allocated = new Set(
@@ -258,47 +272,21 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     : 0;
   const toggleDate = (key: keyof DateCols) =>
     setVisibleDates((current) => ({ ...current, [key]: !current[key] }));
-  let headerOffset = ORDER_W;
+  let headerOffset = ORDER_W + QTY_W;
   const headerLeft = () => {
     const left = headerOffset;
     headerOffset += DATE_W;
     return left;
   };
 
-  const loadRate = (day: Date): { rate: number; available: number } => {
-    const key = dayKey(day);
-    const isToday = key === dayKey(board.horizonStart);
-    const availableWorkers = board.workers.filter(
-      (worker) =>
-        (!isToday || worker.onShift) && !worker.plannedLeave?.includes(key),
-    );
-    const availableIds = new Set(
-      availableWorkers.map((worker) => String(worker.id)),
-    );
-    const assigned = allRows
-      .filter(
-        (row) =>
-          row.line.schedulable &&
-          !row.completedToday &&
-          row.start &&
-          row.expectDate &&
-          row.start < addDays(day, 1) &&
-          row.expectDate > day,
-      )
-      .reduce(
-        (count, row) =>
-          count +
-          row.workers.filter((worker) => availableIds.has(String(worker.id)))
-            .length,
-        0,
-      );
-    return {
-      rate: availableWorkers.length
-        ? Math.round((assigned / availableWorkers.length) * 100)
-        : 0,
-      available: availableWorkers.length,
-    };
-  };
+  // Hours booked per day against the hours the shift can deliver — the same
+  // arithmetic as the per-person and per-line loads, so the three agree.
+  const dayLoads = boardDayLoads(
+    allRows,
+    board.workers,
+    board.horizonStart,
+    board.horizonDays,
+  );
 
   return (
     <div className="assy" style={{ minWidth: labelWidth + gridWidth }}>
@@ -339,29 +327,35 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
 
       <div className="assy-head">
         <div className="acell order">Order</div>
+        <div className="acell qty frozen" style={{ left: ORDER_W }}>Order Qty</div>
         {visibleDates.start && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Start Date</span><button onClick={() => toggleDate('start')} title="Hide Start Date">−</button></div>}
         {visibleDates.due && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Due Date</span><button onClick={() => toggleDate('due')} title="Hide Due Date">−</button></div>}
         {visibleDates.expect && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Expect Date</span><button onClick={() => toggleDate('expect')} title="Hide Expect Date">−</button></div>}
         {visibleDates.ship && <div className="acell date date-head frozen" style={{ left: headerLeft() }}><span>Ship Date</span><button onClick={() => toggleDate('ship')} title="Hide Ship Date">−</button></div>}
         <div className="acell team frozen" style={{ left: headerOffset }}>Team</div>
+        {/* Load histogram: one column per day, coloured by band. */}
         <div className="acell track" style={{ width: gridWidth }}>
-          {days.map((d, i) => (
-            (() => {
-              const load = loadRate(d);
-              return (
-            <div
-              key={i}
-              className={`daycol ${d.getDay() === 0 || d.getDay() === 6 ? 'weekend' : ''}`}
-              style={{ left: i * dayWidth, width: dayWidth }}
-            >
-              <span>{DAY_FMT.format(d)}</span>
-              <span className={`day-load ${load.rate > 100 ? 'over' : ''}`} title={`${load.available} people available after planned leave`}>
-                Load {load.rate}%
-              </span>
-            </div>
-              );
-            })()
-          ))}
+          {days.map((d, i) => {
+            const load = dayLoads[i];
+            const pct = Math.round(load.pct);
+            return (
+              <div
+                key={i}
+                className={`daycol ${d.getDay() === 0 || d.getDay() === 6 ? 'weekend' : ''}`}
+                style={{ left: i * dayWidth, width: dayWidth }}
+                title={
+                  `${load.hours.toFixed(1)} h booked of ${load.capacity.toFixed(1)} h ` +
+                  `(${load.available} people) — ${pct}%`
+                }
+              >
+                <span className="daycol-date">{DAY_FMT.format(d)}</span>
+                <span className={`day-bar ${load.band}`}>
+                  <i style={{ height: `${Math.min(100, pct)}%` }} />
+                </span>
+                <span className={`day-load ${load.band}`}>{pct}%</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 

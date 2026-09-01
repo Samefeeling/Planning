@@ -16,6 +16,7 @@ import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
+import { usePlanSync, type PlanSyncState } from '@/features/sync/usePlanSync';
 import { CsvLoader } from '@/features/source/CsvLoader';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { Badge, Spinner } from '@/ui';
@@ -32,6 +33,26 @@ function ScheduleSummary({ board }: { board: AssemblyGanttView | null }) {
       <Badge variant="error">{board.totals.red} past due</Badge>
       <Badge variant="neutral">{board.pool.length} unassigned</Badge>
     </div>
+  );
+}
+
+/**
+ * Whether the plan is reaching SharePoint. Silent when write-back is not
+ * configured — an unconfigured board is the normal demo case, not a fault.
+ */
+function PlanSyncBadge({ sync }: { sync: PlanSyncState }) {
+  if (!sync.enabled) return null;
+  if (sync.busy) return <Badge variant="info">saving to {sync.list}…</Badge>;
+  if (sync.errors.length > 0) return <Badge variant="error">{sync.list} failed</Badge>;
+  if (!sync.lastSyncedAt) return null;
+
+  const { created, updated } = sync.last ?? { created: 0, updated: 0 };
+  return (
+    <Badge variant="ok">
+      {created + updated === 0
+        ? `${sync.list} up to date`
+        : `${sync.list} +${created} ~${updated}`}
+    </Badge>
   );
 }
 
@@ -52,6 +73,9 @@ export default function App() {
   const board = useAssemblyGantt();
   const dnd = useDragDrop();
   const refresh = useScheduledRefresh();
+  // Crew and dragged starts go back to SharePoint; a refreshed CSV carries
+  // DueDate and RemainingQty in the other direction.
+  const sync = usePlanSync(board);
 
   const bootstrapped = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -107,11 +131,18 @@ export default function App() {
         <Badge variant="info">{sourceName}</Badge>
         <div className="spacer" />
         <ScheduleSummary board={board} />
+        <PlanSyncBadge sync={sync} />
         <CsvLoader />
         <RefreshControl onRefresh={() => void refresh()} />
       </header>
 
       {error && <div className="banner">Data error: {error}</div>}
+      {sync.errors.length > 0 && (
+        <div className="banner warn">
+          {sync.list} not updated: {sync.errors[0]}
+          {sync.errors.length > 1 && ` · +${sync.errors.length - 1} more`}
+        </div>
+      )}
       {warnings.length > 0 && (
         <div className="banner warn">
           {/* Only the first few; the rest are usually the same problem. */}

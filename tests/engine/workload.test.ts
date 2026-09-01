@@ -12,7 +12,12 @@ import { LINES, PRODUCTIVE_HOURS_PER_PERSON, type Worker } from '@/domain/assemb
 import type { Job } from '@/domain/types';
 import type { OrderRow } from '@/engine/assembly/board';
 import { addDays } from '@/engine/assembly/dates';
-import { lineLoad, workerLoad } from '@/engine/assembly/workload';
+import {
+  boardDayLoads,
+  lineLoad,
+  loadBand,
+  workerLoad,
+} from '@/engine/assembly/workload';
 
 const UPL = LINES.find((l) => l.key === 'UPL')!;
 const PMD = LINES.find((l) => l.key === 'PMD')!;
@@ -159,6 +164,71 @@ describe('workerLoad', () => {
     const load = workerLoad(a, [row(job('A', 7.25), [b], 0, 1), closed], MON);
     expect(load.totalHours).toBe(0);
     expect(load.orderCount).toBe(0);
+  });
+});
+
+describe('loadBand', () => {
+  it('splits at 80 and 90, with no gap and no overlap', () => {
+    expect(loadBand(0)).toBe('green');
+    expect(loadBand(79.9)).toBe('green');
+    expect(loadBand(80)).toBe('orange');
+    expect(loadBand(90)).toBe('orange');
+    expect(loadBand(90.1)).toBe('red');
+    expect(loadBand(140)).toBe('red');
+  });
+});
+
+describe('boardDayLoads', () => {
+  const crew = [worker('W1'), worker('W2')];
+
+  it('measures hours booked against the hours the shift can deliver', () => {
+    // 14.5 h of work on Monday; two people can deliver 14.5 h. That is 100%.
+    const loads = boardDayLoads([row(job('A', 14.5), crew, 0, 1)], crew, MON, 3);
+    expect(loads).toHaveLength(3);
+    expect(loads[0].hours).toBeCloseTo(14.5, 6);
+    expect(loads[0].capacity).toBeCloseTo(14.5, 6);
+    expect(loads[0].pct).toBeCloseTo(100, 6);
+    expect(loads[0].band).toBe('red');
+    expect(loads[1].hours).toBe(0);
+    expect(loads[1].band).toBe('green');
+  });
+
+  it('counts everyone available, not only the people on an order', () => {
+    // One of the two is working; the other is idle but still capacity.
+    const loads = boardDayLoads(
+      [row(job('A', 7.25), [crew[0]], 0, 1)],
+      crew,
+      MON,
+      1,
+    );
+    expect(loads[0].available).toBe(2);
+    expect(loads[0].pct).toBeCloseTo(50, 6);
+    expect(loads[0].band).toBe('green');
+  });
+
+  it('drops a day’s capacity for planned leave', () => {
+    const off = [worker('W1'), worker('W2', ['2026-09-14'])];
+    const loads = boardDayLoads([row(job('A', 7.25), [off[0]], 0, 1)], off, MON, 1);
+    expect(loads[0].available).toBe(1);
+    expect(loads[0].pct).toBeCloseTo(100, 6);
+  });
+
+  it('counts only who is actually in today, but everyone later', () => {
+    const absent = [worker('W1'), { ...worker('W2'), onShift: false }];
+    const loads = boardDayLoads([], absent, MON, 2);
+    expect(loads[0].available).toBe(1); // today: attendance is known
+    expect(loads[1].available).toBe(2); // tomorrow: assume everyone in
+  });
+
+  it('ignores the PMD context lane, which is not scheduled here', () => {
+    const pmd = row(job('A', 29), [], 0, 2, { line: PMD });
+    expect(boardDayLoads([pmd], crew, MON, 1)[0].hours).toBe(0);
+  });
+
+  it('reads zero, not NaN, on a day with nobody in', () => {
+    const loads = boardDayLoads([], [], MON, 1);
+    expect(loads[0].pct).toBe(0);
+    expect(loads[0].band).toBe('green');
   });
 });
 

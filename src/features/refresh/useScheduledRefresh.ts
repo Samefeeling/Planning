@@ -1,8 +1,14 @@
 /**
- * Hourly + on-demand refresh of the source data. The task schedule that feeds
- * the workbook updates hourly, so the board re-pulls on the same cadence; the
- * returned function lets the planner refresh immediately.
+ * Timed + on-demand refresh of the source data.
+ *
+ * Every five minutes by default, so a re-exported `Planning1.csv` reaches the
+ * board without anyone pressing anything. A refresh does not disturb the plan:
+ * `planStore.reconcile` keeps every placement and crew allocation and only
+ * files genuinely new orders. The returned function refreshes immediately.
  */
+
+/** Minutes between automatic refreshes when the env does not say. */
+const DEFAULT_INTERVAL_MINUTES = 5;
 
 import { useCallback, useEffect } from 'react';
 import { useDataStore } from '@/store/dataStore';
@@ -12,9 +18,12 @@ export function useScheduledRefresh(intervalMinutes?: number): () => Promise<voi
   const load = useDataStore((s) => s.load);
   const setLastRefresh = useUiStore((s) => s.setLastRefresh);
 
+  const configured = Number(import.meta.env.VITE_REFRESH_INTERVAL_MINUTES);
   const minutes =
     intervalMinutes ??
-    Number(import.meta.env.VITE_REFRESH_INTERVAL_MINUTES ?? 60);
+    (Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_INTERVAL_MINUTES);
 
   const refresh = useCallback(async () => {
     await load();

@@ -8,9 +8,10 @@ dispatches on the floor. Nobody reports by the hour: the shift's output is
 booked once at the end of the day, so there is no event stream and no live
 polling.
 
-Source data comes from Epicor via SharePoint, refreshed **hourly and on
-demand**: orders from the `Planning1.csv` export, people from the
-`ASSY_Operator` list, and the material picture from the master workbook.
+Source data comes from Epicor via SharePoint, refreshed **every five minutes
+and on demand**: orders from the `Planning1.csv` export, people from the
+`ASSY_Operator` list, and the material picture from the master workbook. The
+plan goes back the other way, into the `ASSY_Plan` list.
 
 ## What it does
 
@@ -18,9 +19,14 @@ demand**: orders from the `Planning1.csv` export, people from the
   out, not draggable, never scheduled here), then `UPL`, `ASSY` and `TABLE`.
 - **Three kinds of work order** — Cutting/Sewing and Upholstery run on UPL;
   Final Assembly runs on ASSY and TABLE.
-- **One row per order**: Order · Start Date · Due Date · Expect Date · Ship
-  Date · Team, beside the day grid with a draggable bar. Start is Epicor's own
-  scheduled start, to the hour; any column can be hidden to make room.
+- **One row per order**: Order · Order Qty · Start Date · Due Date · Expect
+  Date · Ship Date · Team, beside the day grid with a draggable bar. Start is
+  Epicor's own scheduled start, to the hour; any date column can be hidden to
+  make room.
+- **A load histogram along the top** — one bar per day, hours booked against
+  the hours the shift can deliver, so the week reads as a shape before anyone
+  reads a number. Green below 80%, orange to 90%, red beyond. Drag a bar to a
+  greener day to level the week.
 - **Work load, in standard hours** — the remaining hours of an order
   (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
   its bar covers. Shown three ways: per line on the group header, for the whole
@@ -64,7 +70,7 @@ Needs **Node 18, 20 or 22** (Vite 6's requirement). `.nvmrc` and
 nvm use            # or: nvm install 22
 npm install
 npm run dev        # http://localhost:5173 — runs on bundled mock data
-npm test           # engine, adapter and integration tests (99)
+npm test           # engine, adapter and integration tests (115)
 npm run build      # type-check + production build
 ```
 
@@ -167,6 +173,40 @@ morning — so everyone counts as on shift unless an `OnShift` column is added.
 Workers are keyed by SharePoint **list item id**, not name, so renaming someone
 does not orphan the allocations already saved against them.
 
+### The plan → `ASSY_Plan`
+
+The board mirrors itself back into a SharePoint list, one row per order. Set
+`VITE_PLAN_LIST` to the list name to turn it on; **blank disables it entirely**,
+so the mock demo never writes.
+
+Two directions of information meet in that list, and the split is the whole
+design:
+
+| Column | Owner | Written when |
+| --- | --- | --- |
+| `Title` (job number) | key | on first sight of the order |
+| `Operators`, `OperatorIds` | the planner | someone is allocated or taken off |
+| `StartDate` | the planner | a bar is dragged |
+| `Line` | the planner | an order moves between lines |
+| `DueDate` | `Planning1.csv` | a refreshed export changes it |
+| `OrderQty`, `RemainingQty` | `Planning1.csv` | a refreshed export changes them |
+| `ExpectDate` | derived | the crew or the queue moves it |
+
+So **dragging a bar to level the load writes `StartDate` only** — Epicor owns
+the Due Date and this board never changes it. Conversely a refreshed export
+updates `DueDate` and `RemainingQty` without disturbing the crew.
+
+`StartDate` is the *effective* start — the later of the planner's drag, the
+line's queue, the predecessor's finish and any material date. That is when work
+actually begins, which is what a reader of the list wants; dragging an order
+earlier than its line can take it will not move the date.
+
+Rows are diffed before writing, so a five-minute refresh with nothing changed
+costs one read and no writes. Orders that leave the export keep their row — the
+list is the record of what was planned, not a copy of today's CSV. A write
+failure shows in the header badge and the warning banner; it never blocks the
+board.
+
 ### Sheet → domain mapping (`excel` source)
 
 | Workbook sheet | Parser | Used for |
@@ -213,7 +253,7 @@ domain  →  lib  →  engine  →  store  →  features (UI)
 - **`persistence/`** — `PlanRepository` with a REST (`ApiPlanRepository`) and a
   localStorage fallback; the working plan autosaves.
 - **`features/`** — `assembly` (board, rows, bars, crew chips, inspector, dnd),
-  `refresh` and `source` (the manual CSV loader).
+  `refresh`, `source` (the manual CSV loader) and `sync` (write-back).
 
 ### How the schedule is derived
 
@@ -235,15 +275,19 @@ re-lays-out the board with no separate update path.
 | --- | --- | --- |
 | 1 ✅ | Assembly Gantt on mock data: crew, dates, booking, colours, predecessors | no |
 | 1b ✅ | Read the real sources: `Planning1.csv` orders, `ASSY_Operator` roster | no |
-| 2 | Persist the plan to the real backend | **yes** |
+| 2 ✅ | Write the plan back to the `ASSY_Plan` SharePoint list | no |
 | 3 | Merge with the PMD dashboard into one page | yes |
 | 4 | KPI view; actual hours feed back to correct standard hours | yes |
 
-Because output is booked once per shift rather than reported hourly, stage 2
-needs only a modest service — write the day's plan and booked quantities back.
-`persistence/PlanRepository` is already the adapter seam: point
-`VITE_PERSIST_API_URL` at the service (`PersistedPlan.assembly` carries crew,
-pinned starts and booked output).
+Stage 2 landed as a **direct Graph write** to `ASSY_Plan` (see above) rather
+than a service: crew, start day and line go straight to the list, and a
+refreshed export pushes Due Date and remaining quantity back into it. No
+backend to run.
+
+The booked shift output is the part still without a home. It is kept in
+`PlanRepository` — localStorage by default, or a REST service when
+`VITE_PERSIST_API_URL` is set — because `ASSY_Production` wants one row per job
+*per day*, which is a different shape from the one-row-per-order mirror.
 
 The persistence service receives `X-Production-List: ASSY_Production` and
 upserts `assembly.production` by Job + Date. Each entry has `Complete`,

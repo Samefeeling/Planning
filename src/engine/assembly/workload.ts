@@ -66,6 +66,72 @@ export interface WorkerLoad {
   overloadedDays: number;
 }
 
+/** How hard a day is booked, against Resero's thresholds. */
+export type LoadBand = 'green' | 'orange' | 'red';
+
+/**
+ * Colour band for a day's load: comfortable below 80%, tight to 90%,
+ * over-committed beyond. Exhaustive and non-overlapping.
+ */
+export function loadBand(pct: number): LoadBand {
+  if (pct < 80) return 'green';
+  if (pct <= 90) return 'orange';
+  return 'red';
+}
+
+/** One day column's load across the whole board. */
+export interface DayBoardLoad {
+  key: string;
+  date: Date;
+  /** Standard hours of work landing on the day, summed over every order. */
+  hours: number;
+  /** Hours the people available that day can deliver. */
+  capacity: number;
+  /** hours ÷ capacity, as a percentage. Zero when nobody is in. */
+  pct: number;
+  band: LoadBand;
+  /** People available, after attendance today and planned leave later. */
+  available: number;
+}
+
+/**
+ * The load histogram along the top of the board.
+ *
+ * Same hours as the per-person and per-line views, so the three agree: the
+ * remaining standard hours of each order, spread over the days its bar covers.
+ * Attendance is only known for today — the supervisor confirms it each morning
+ * — so later days assume everyone is in bar those on planned leave.
+ */
+export function boardDayLoads(
+  rows: OrderRow[],
+  workers: Worker[],
+  from: Date,
+  dayCount: number,
+): DayBoardLoad[] {
+  const start = startOfDay(from);
+  const todayKey = dayKey(start);
+  const scheduled = rows.filter((r) => r.line.schedulable);
+  const out: DayBoardLoad[] = [];
+
+  for (let i = 0; i < dayCount; i++) {
+    const date = addDays(start, i);
+    const key = dayKey(date);
+    const available = workers.filter(
+      (w) => (key !== todayKey || w.onShift) && !w.plannedLeave?.includes(key),
+    ).length;
+    const capacity = available * PRODUCTIVE_HOURS_PER_PERSON;
+    // `hoursOnDay` is per person, so multiply back up by the crew on the order.
+    const hours = scheduled.reduce(
+      (s, r) => s + hoursOnDay(r, date) * r.workers.length,
+      0,
+    );
+    const pct = capacity > 0 ? (hours / capacity) * 100 : 0;
+
+    out.push({ key, date, hours, capacity, pct, band: loadBand(pct), available });
+  }
+  return out;
+}
+
 /** Work still to run on a line, and what the crew on it can absorb. */
 export interface LineLoad {
   /** Standard hours still to run across the line's orders. */
