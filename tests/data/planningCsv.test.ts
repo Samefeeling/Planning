@@ -220,3 +220,63 @@ describe('parsePlanningCsv', () => {
     expect(parsed.values[0].description).toBe('Encore');
   });
 });
+
+describe('the labour-hours column', () => {
+  /** The header row of the real export, with the hours column renamed. */
+  const withHoursHeader = (name: string) =>
+    sample.replace('Calculated_LaborHrs', name);
+
+  it('reads the BAQ’s own spelling, "RemaingLaborHrs"', () => {
+    // Not a typo on our side: this is what the live export calls the column.
+    const j = byId(withHoursHeader('Calculated_RemaingLaborHrs')).get(
+      '018140-1-1',
+    )!;
+    // 30 pieces, 2.1 remaining hours — the same total as the correctly
+    // spelled column gives.
+    expect(remainingHours(j)).toBeCloseTo(2.1, 6);
+  });
+
+  it('reads it however it is spelled, as long as it reads as labour hours', () => {
+    for (const name of [
+      'Calculated_RemainingLaborHrs',
+      'Calculated_RemaingLabourHrs',
+      'RemainingLabourHours',
+    ]) {
+      const j = byId(withHoursHeader(name)).get('018140-1-1');
+      expect(remainingHours(j!)).toBeCloseTo(2.1, 6);
+    }
+  });
+
+  it('prefers the remaining-hours column when both are there', () => {
+    // Two hours columns that disagree: remaining wins, because that is the
+    // number Resero plans with.
+    const both =
+      'JobHead_JobNum,JobHead_PartNum,JobHead_Department,JobHead_ProdQty,' +
+      'Calculated_RemainingQty,Calculated_RemaingLaborHrs,Calculated_LaborHrs\n' +
+      'J1,P1,ASSY,10,10,2.5,99\n';
+    expect(remainingHours(byId(both).get('J1')!)).toBeCloseTo(2.5, 6);
+  });
+
+  it('says so once, with the headers, when there is no hours column at all', () => {
+    const noHours = sample
+      .replace('Calculated_LaborHrs', 'SomethingElse')
+      .replace('JobOper_ProdStandard', 'AlsoNotHours');
+    const { values, errors } = parsePlanningCsv(noHours);
+
+    expect(values).toHaveLength(4); // the orders still load
+    const complaint = errors.filter((e) => /labour-hours column/.test(e));
+    expect(complaint).toHaveLength(1); // once for the file, not once a row
+    expect(complaint[0]).toContain('RemaingLaborHrs');
+    expect(complaint[0]).toContain('SomethingElse');
+  });
+
+  it('still names the row when one row’s cells are blank', () => {
+    const blank = sample.replace(
+      'SFM507615,7911FR,Encore,PMD,34,34,2026-09-29T00:00:00,2026-09-30T00:00:00,0.77,0.022727,23.3',
+      'SFM507615,7911FR,Encore,PMD,34,34,2026-09-29T00:00:00,2026-09-30T00:00:00,,,23.3',
+    );
+    const { errors } = parsePlanningCsv(blank);
+    expect(errors.some((e) => e.includes('SFM507615'))).toBe(true);
+    expect(errors.some((e) => /row 2\b/.test(e))).toBe(true);
+  });
+});

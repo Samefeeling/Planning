@@ -28,7 +28,7 @@ import {
   type OrderType,
 } from '@/domain/assembly';
 import { isVisibleMachine } from '@/domain/constants';
-import { mapHeaders, parseCsv, type CsvRow } from '@/lib/csv';
+import { mapHeaders, normalizeHeader, parseCsv, type CsvRow } from '@/lib/csv';
 import type { ParseOutcome } from '@/data/excel/parsers/types';
 
 type Field =
@@ -81,7 +81,16 @@ const ALIASES: Record<Field, readonly string[]> = {
   startHour: ['StartHour', 'SchedStartHour'],
   dueDate: ['ReqDueDate', 'DueDate'],
   // Both are *remaining* work; `RemainingLaborHrs` is the one Resero plans on.
-  remainingLaborHrs: ['RemainingLaborHrs', 'RemainingLabourHrs', 'RemLaborHrs'],
+  // The BAQ spells it `Calculated_RemaingLaborHrs` — "Remaing" — and that
+  // typo is in the live export, so it is a real spelling, not a guess.
+  // `findLaborColumn` catches anything else shaped like it.
+  remainingLaborHrs: [
+    'RemainingLaborHrs',
+    'RemaingLaborHrs',
+    'RemainingLabourHrs',
+    'RemaingLabourHrs',
+    'RemLaborHrs',
+  ],
   laborHrs: ['LaborHrs', 'ProdHours', 'TotalHours'],
   prodStandard: ['ProdStandard', 'EstProdHours', 'HoursPerPiece'],
   // Not in today's export — read if they get added (see README).
@@ -197,6 +206,25 @@ function findLineColumn(rows: CsvRow[], width: number): number | undefined {
 }
 
 /**
+ * The labour-hours column, when the header is spelled a way the aliases missed.
+ *
+ * Every hour the board plans with comes from this one column, and a typo in it
+ * is invisible: the parser quietly falls back to `ProdStandard` and the whole
+ * schedule is built on the wrong number. So anything that reads as labour
+ * hours is taken — remaining first, since that is what Resero plans on.
+ */
+const REMAINING_LABOR = /^rem[a-z]*lab[a-z]*(hrs|hours)$/;
+const ANY_LABOR = /^lab[a-z]*(hrs|hours)$/;
+
+function findLaborColumn(
+  header: CsvRow,
+  pattern: RegExp,
+): number | undefined {
+  const at = header.findIndex((h) => pattern.test(normalizeHeader(h)));
+  return at === -1 ? undefined : at;
+}
+
+/**
  * The work-order type. The export does not carry one yet, so it is inferred
  * from the line where that is unambiguous: ASSY and TABLE only ever run final
  * assembly. UPL runs both cutting/sewing and upholstery, so it stays blank
@@ -223,6 +251,8 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
   const body = rows.slice(1);
   const col = mapHeaders<Field>(header, ALIASES);
   col.line ??= findLineColumn(body, header.length);
+  col.remainingLaborHrs ??= findLaborColumn(header, REMAINING_LABOR);
+  col.laborHrs ??= findLaborColumn(header, ANY_LABOR);
 
   const errors: string[] = [];
   const missing = (['jobNum', 'partNum'] as const).filter(
@@ -241,6 +271,18 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
     errors.push(
       'Planning1.csv: no PMD/ASSY column recognised — every order lands in ' +
         'the pool. Add a Department column or tell the parser its name.',
+    );
+  }
+  // Said once, with the headers, rather than once per row: a missing hours
+  // column is one problem with the export, not eighty problems with the data.
+  if (
+    col.remainingLaborHrs === undefined &&
+    col.laborHrs === undefined &&
+    col.prodStandard === undefined
+  ) {
+    errors.push(
+      'Planning1.csv: no labour-hours column (Calculated_RemaingLaborHrs) — ' +
+        `no order can be scheduled. Headers found: ${header.join(', ')}`,
     );
   }
 
@@ -281,7 +323,11 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
         : (remainingLaborHrs ?? 0);
 
     if (laborHrs <= 0) {
-      errors.push(`Planning1.csv row ${i + 2} (${jobNum}): no labour hours`);
+      // Names where to look: the cell is blank on this row, not the column.
+      errors.push(
+        `Planning1.csv row ${i + 2} (${jobNum}): no labour hours ` +
+          '(RemaingLaborHrs and ProdStandard are both blank), so it gets no bar',
+      );
     }
 
     const line = placement?.line ?? null;

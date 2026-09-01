@@ -73,6 +73,12 @@ interface PlanState {
   assignWorker: (jobId: JobId, workerId: string) => void;
   /** Take a worker off an order. */
   unassignWorker: (jobId: JobId, workerId: string) => void;
+  /**
+   * Crew several orders at once, for a freshly imported export. Only fills
+   * orders that have nobody on them — an allocation already made is the
+   * supervisor's and is never overwritten.
+   */
+  assignCrews: (allocations: Record<string, string[]>) => void;
   /** Pin an order's bar to a start day (null clears the pin). */
   setOrderStart: (jobId: JobId, isoDay: string | null) => void;
   /** Approve, or withdraw, weekend working on one order. */
@@ -226,6 +232,19 @@ export const usePlanStore = create<PlanState>((set, get) => ({
           [key]: current.filter((w) => w !== workerId),
         },
       };
+    });
+  },
+
+  assignCrews(allocations) {
+    set((state) => {
+      const orderWorkers = { ...state.orderWorkers };
+      let changed = false;
+      for (const [jobId, crew] of Object.entries(allocations)) {
+        if ((orderWorkers[jobId] ?? []).length > 0 || crew.length === 0) continue;
+        orderWorkers[jobId] = crew.slice(0, MAX_WORKERS_PER_ORDER);
+        changed = true;
+      }
+      return changed ? { orderWorkers } : state;
     });
   },
 

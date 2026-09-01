@@ -126,7 +126,7 @@ describe('PlanningCsvSource', () => {
     expect(stool.remainingQty).toBe(18);
   });
 
-  it('keeps the board alive when the roster is unreachable', async () => {
+  it('stands in the demo roster when the real one is unreachable', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) =>
@@ -141,8 +141,12 @@ describe('PlanningCsvSource', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.value.jobs).toHaveLength(2); // orders still schedule
-    expect(res.value.workers).toEqual([]);
+    // An empty roster is a blank board: nobody to allocate means no order has
+    // a bar. The demo people keep it readable, and the warning says so.
+    expect(res.value.workers.length).toBeGreaterThan(10);
+    expect(res.value.workers.every((w) => w.skills.length > 0)).toBe(true);
     expect(s.warnings.join(' ')).toContain('403');
+    expect(s.warnings.join(' ')).toMatch(/demo roster/);
   });
 
   it('leaves jobLinks empty when no material export is configured', async () => {

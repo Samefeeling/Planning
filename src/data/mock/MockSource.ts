@@ -27,7 +27,6 @@ import type {
   WorkCenter,
 } from '@/domain/types';
 import type {
-  LineKey,
   MaterialPrepStatus,
   OrderType,
   Worker,
@@ -39,6 +38,7 @@ import {
 import { isVisibleMachine } from '@/domain/constants';
 import { MS_PER_DAY } from '@/lib/time';
 import { BaseDataSource } from '@/data/DataSource';
+import { demoWorkers } from './roster';
 import seed from './seed.json';
 
 /** The day every seed date is expressed relative to. */
@@ -80,13 +80,7 @@ export class MockSource extends BaseDataSource {
   }
 
   async fetchWorkers(): Promise<Worker[]> {
-    const workers: Worker[] = (seed.workers ?? []).map((w) => ({
-      id: WorkerId(w.id),
-      name: w.name,
-      skills: (w.skills ?? []) as LineKey[],
-      onShift: Boolean(w.onShift),
-    }));
-    return delay(workers);
+    return delay(demoWorkers());
   }
 
   async fetchJobs(): Promise<Job[]> {

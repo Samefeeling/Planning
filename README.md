@@ -167,8 +167,15 @@ Columns are matched **by header name, not position** (`mapHeaders` strips the
 | `JobHead_ProdQty` − `Calculated_RemainingQty` | completed qty | drives the progress fill |
 | `JobHead_StartDate` + `JobHead_StartHour` | **Start Date** and material `Req. By` | the hour is decimal — `23.67` is 23:40 |
 | `JobHead_ReqDueDate` | **Due Date** | |
-| `Calculated_RemainingLaborHrs` | work load and bar length | falls back to `Calculated_LaborHrs`, then to `RemainingQty × JobOper_ProdStandard` |
+| `Calculated_RemaingLaborHrs` | work load and bar length | the BAQ spells it *Remaing*; falls back to `Calculated_LaborHrs`, then to `RemainingQty × JobOper_ProdStandard` |
 | `JobOper_ProdStandard` | run rate | inverted to qty/hr |
+
+Every hour on the board comes from that one column, so it is matched
+generously: the export's own spelling, the correct one, the British ones, and
+failing all of those any header that reads as labour hours (`/^rem.*lab.*hrs?$/`
+after the prefix is stripped). If none matches at all the board says so **once**,
+with the headers it did see — a mis-spelled column is one problem with the
+export, not eighty problems with the rows.
 
 Both hours columns hold the work **remaining**, not the order total — in the
 sample `LaborHrs` equals `RemainingQty × ProdStandard` exactly. The board needs
@@ -244,6 +251,24 @@ morning — so everyone counts as on shift unless an `OnShift` column is added.
 
 Workers are keyed by SharePoint **list item id**, not name, so renaming someone
 does not orphan the allocations already saved against them.
+
+**When the list cannot be read** — no site URL configured yet, a 403, an empty
+list — the board falls back to the fifteen demo people from `seed.json` and says
+so in the warning banner. An empty roster is not a degraded board but a blank
+one: with nobody to allocate, no order has a crew, so no order has a bar, an
+Expect Date, or a share of the load. Borrowed names are worth less than real
+ones and far more than none.
+
+### Crewing a fresh import
+
+`Planning1.csv` says what to build, never who builds it, so every order arrives
+with nobody on it. **Crew N orders** in the header staffs them all at once from
+the qualified people on shift — a line's people divided between its build
+positions, cycled down the queue — behind the same supervisor lock as
+allocating by hand. It only ever *adds*: an order that already has a crew is
+left exactly as it is, and the button disappears once nothing is unstaffed.
+It is a starting point to argue with, not an answer: it knows nothing about who
+is good at what.
 
 ### The plan → `ASSY_Production`
 

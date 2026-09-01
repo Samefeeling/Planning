@@ -17,6 +17,7 @@ import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
 import { OvertimePrompt } from '@/features/assembly/OvertimePrompt';
 import { SupervisorLock } from '@/features/assembly/SupervisorLock';
+import { SuggestCrew } from '@/features/assembly/SuggestCrew';
 import { useUiStore } from '@/store/uiStore';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
@@ -113,6 +114,7 @@ export default function App() {
         </div>
         <BoardTools board={board} />
         <div className="head-side end">
+          <SuggestCrew board={board} />
           <SupervisorLock />
           <CsvLoader />
           <RefreshControl onRefresh={() => void refresh()} />
