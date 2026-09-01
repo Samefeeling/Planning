@@ -3,7 +3,9 @@ import {
   addWorkingDays,
   isWeekend,
   nextWorkingDay,
+  prevWorkingDay,
   scheduleStatus,
+  shiftFraction,
   wholeDaysBetween,
 } from '@/engine/assembly/dates';
 
@@ -113,5 +115,43 @@ describe('the working week', () => {
   it('treats a zero or negative duration as no time at all', () => {
     expect(addWorkingDays(SAT, 0)).toEqual(SAT);
     expect(addWorkingDays(MON, -3)).toEqual(MON);
+  });
+});
+
+describe('the day before, and the hour of the day', () => {
+  const MON = d('2026-09-14');
+  const TUE = d('2026-09-15');
+  const FRI = d('2026-09-11');
+  const SAT = d('2026-09-12');
+  const SUN = d('2026-09-13');
+
+  it('steps back one day in the middle of the week', () => {
+    expect(prevWorkingDay(TUE)).toEqual(MON);
+  });
+
+  it('reaches back over the weekend from a Monday', () => {
+    // The shift a Monday morning is asked about is Friday's, not Sunday's.
+    expect(prevWorkingDay(MON)).toEqual(FRI);
+    expect(prevWorkingDay(SAT)).toEqual(FRI);
+    expect(prevWorkingDay(SUN)).toEqual(FRI);
+  });
+
+  it('drops the time of day rather than carrying it back', () => {
+    expect(prevWorkingDay(new Date('2026-09-15T14:30:00'))).toEqual(MON);
+  });
+
+  it('places the hour inside the shift', () => {
+    const at = (h: number, m = 0) => new Date(2026, 8, 15, h, m);
+    // 07:00–15:30, so 11:15 is halfway.
+    expect(shiftFraction(at(11, 15), 7, 15.5)).toBeCloseTo(0.5, 6);
+    expect(shiftFraction(at(7), 7, 15.5)).toBe(0);
+    expect(shiftFraction(at(15, 30), 7, 15.5)).toBe(1);
+  });
+
+  it('pins to the edge outside the shift instead of running off the column', () => {
+    const at = (h: number) => new Date(2026, 8, 15, h);
+    // Before the crew clock on, and long after they have gone home.
+    expect(shiftFraction(at(3), 7, 15.5)).toBe(0);
+    expect(shiftFraction(at(22), 7, 15.5)).toBe(1);
   });
 });

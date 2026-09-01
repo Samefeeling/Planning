@@ -1,9 +1,14 @@
 /**
  * Assembly orders not on a line yet — the day's new work. Drop an order here
  * to take it off the schedule.
+ *
+ * It shows nothing at all when every order is on a line, which is the normal
+ * state of a working board: a heading over an empty box was only taking room
+ * from the order detail underneath. The drop zone reappears the moment
+ * something is being dragged, so an order can still be taken off a line.
  */
 
-import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import type { Job } from '@/domain/types';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
@@ -56,26 +61,30 @@ export function AssemblyPool({ board }: { board: AssemblyGanttView }) {
   });
   const select = useUiStore((s) => s.select);
   const selectedJobId = useUiStore((s) => s.selectedJobId);
+  const { active } = useDndContext();
+
+  const empty = board.pool.length === 0;
+  if (empty && !active) return null;
 
   return (
-    <div ref={setNodeRef} className={`pool ${isOver ? 'drop-active' : ''}`}>
-      <h2>New / unassigned · {board.pool.length}</h2>
-      <div className="pool-list">
-        {board.pool.length === 0 ? (
-          <div className="pool-empty">
-            Every order is on a line. Drag one here to take it off.
-          </div>
-        ) : (
-          board.pool.map((job) => (
+    <div
+      ref={setNodeRef}
+      className={`pool ${empty ? 'target-only' : ''} ${isOver ? 'drop-active' : ''}`}
+    >
+      {empty ? (
+        <div className="pool-target">Drop here to take the order off its line</div>
+      ) : (
+        <div className="pool-list">
+          {board.pool.map((job) => (
             <PoolCard
               key={String(job.id)}
               job={job}
               selected={selectedJobId === String(job.id)}
               onSelect={select}
             />
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -11,7 +11,7 @@ import { computeAssemblyGantt } from '@/engine/assembly/board';
 import { workerLoad } from '@/engine/assembly/workload';
 import { remainingHours } from '@/engine/assembly/duration';
 import { usePlanStore } from '@/store/planStore';
-import { LINES } from '@/domain/assembly';
+import { DEFAULT_HORIZON_DAYS, LINES } from '@/domain/assembly';
 import type { PlanningDataset } from '@/domain/types';
 import type { ProductionEntry } from '@/store/planStore';
 
@@ -232,5 +232,86 @@ describe('assembly Gantt (mock data)', () => {
       b.totals.orders,
     );
     expect(b.totals.orders).toBe(rows.length);
+  });
+});
+
+describe('the board the planner laid out', () => {
+  it('keeps the rows where they were put when a bar is dragged out', () => {
+    const before = build();
+    const line = before.groups.find(
+      (g) => g.line.schedulable && g.rows.length >= 2,
+    )!;
+    const ids = line.rows.map((r) => String(r.job.id));
+
+    // Push the first order a fortnight out — far enough that sorting by date
+    // would drop it to the bottom of its line.
+    const after = build({
+      orderStarts: { [ids[0]]: new Date('2026-09-25T00:00:00').toISOString() },
+    });
+    const moved = after.groups.find((g) => g.line.key === line.line.key)!;
+
+    expect(moved.rows.map((r) => String(r.job.id))).toEqual(ids);
+    // …and the bar really did move; it is the row that stayed put.
+    expect(moved.rows[0].start!.getTime()).toBeGreaterThan(
+      line.rows[0].start!.getTime(),
+    );
+  });
+
+  it('still lets a bar dragged earlier take a build position first', () => {
+    // Row order is the planner's; the queue is by date. An order pulled to the
+    // front of the week gets the free position even from the bottom row.
+    const before = build();
+    const line = before.groups.find(
+      (g) => g.line.schedulable && g.rows.length >= 3,
+    )!;
+    const last = String(line.rows.at(-1)!.job.id);
+
+    const after = build({
+      orderStarts: { [last]: new Date('2026-09-11T00:00:00').toISOString() },
+    });
+    const row = after.rowsByJob.get(last)!;
+    expect(row.start!.getTime()).toBe(after.today.getTime());
+  });
+});
+
+describe('yesterday, still on the board', () => {
+  it('opens on the previous working day', () => {
+    const b = build();
+    // TODAY is Friday 11 Sep 2026, so the board opens on the Thursday.
+    expect(b.today).toEqual(new Date('2026-09-11T00:00:00'));
+    expect(b.horizonStart).toEqual(new Date('2026-09-10T00:00:00'));
+  });
+
+  it('plans nothing into a day that has already gone', () => {
+    const b = build();
+    for (const r of b.rowsByJob.values()) {
+      if (!r.start) continue;
+      expect(r.start.getTime()).toBeGreaterThanOrEqual(b.today.getTime());
+    }
+  });
+
+  it('still shows the usual run of days ahead', () => {
+    // The history column is extra, not taken out of the planning window.
+    const b = build();
+    expect(b.horizonDays).toBeGreaterThanOrEqual(DEFAULT_HORIZON_DAYS + 1);
+  });
+
+  it('carries the shift log on the row, valued in hours', () => {
+    const base = build();
+    const row = [...base.rowsByJob.values()].find(
+      (r) => r.line.schedulable && r.job.remainingQty > 4,
+    )!;
+    const id = String(row.job.id);
+    const qty = 2;
+
+    const booked = build({ progress: { [id]: [{ date: '2026-09-10', qty }] } });
+    const after = booked.rowsByJob.get(id)!;
+
+    expect(after.booked).toHaveLength(1);
+    expect(after.booked[0].day).toBe('2026-09-10');
+    expect(after.booked[0].qty).toBe(qty);
+    // Two units of an order worth `laborHrs` over its whole quantity.
+    const total = row.job.remainingQty + row.job.completedQty;
+    expect(after.booked[0].hours).toBeCloseTo((row.job.laborHrs / total) * qty, 6);
   });
 });

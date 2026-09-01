@@ -19,7 +19,7 @@ import {
 import { JobId } from '@/domain/ids';
 import { POOL_ID, usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
-import { DAY_WIDTH } from '@/features/assembly/AssemblyGantt';
+import { DEFAULT_DAY_WIDTH } from '@/store/uiStore';
 import { DRAG_TYPE_BAR } from '@/features/assembly/OrderBar';
 import {
   addDays,
@@ -56,16 +56,27 @@ export function useDragDrop() {
     setActiveJobId(null);
     const { over, active, delta } = e;
 
-    // An assembly bar dragged along its own row just moves its start day.
+    // An assembly bar dragged along its own row moves its start day. Dragged
+    // onto another line, it changes line as well — and that is the only thing
+    // that moves a row off the one it is on. Rows never re-order themselves
+    // because a bar was pushed out; the board is the planner's own layout.
     if (active.data.current?.type === DRAG_TYPE_BAR) {
       const jobId = JobId(String(active.data.current.jobId));
-      const dayWidth = Number(active.data.current.dayWidth) || DAY_WIDTH;
+      const dayWidth = Number(active.data.current.dayWidth) || DEFAULT_DAY_WIDTH;
       const dayShift = Math.round((delta?.x ?? 0) / dayWidth);
-      if (dayShift === 0) return;
 
-      const { orderStarts, setOrderStart, setOvertime } =
+      const { orderStarts, setOrderStart, setOvertime, containerOf, moveJob } =
         usePlanStore.getState();
       const key = String(jobId);
+
+      const droppedOn =
+        over?.data.current?.type === 'line'
+          ? String(over.data.current.lineId)
+          : null;
+      if (droppedOn && droppedOn !== containerOf(jobId)) {
+        moveJob(jobId, droppedOn);
+      }
+      if (dayShift === 0) return;
       // Move from where the bar is drawn. The pinned day is only a request —
       // the line's capacity, a predecessor or a weekend may have pushed the
       // bar past it, and dragging from the pin would then snap it backwards.

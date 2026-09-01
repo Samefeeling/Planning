@@ -1,4 +1,4 @@
-# Resero Planning — Assembly Schedule Board
+# Assembly Board — Resero
 
 A day-scale **Gantt** for the sofa / chair / table assembly lines: crew
 allocation, **Due / Expect / Ship** dates, and end-of-shift booking.
@@ -27,6 +27,19 @@ plan goes back the other way, into the `ASSY_Production` list.
   the hours the shift can deliver, so the week reads as a shape before anyone
   reads a number. Green below 80%, orange to 90%, red beyond. Drag a bar to a
   greener day to level the week.
+- **Yesterday is still on the board** — the first column is the previous
+  working day (Friday, on a Monday), because the first question of the morning
+  is what the last shift actually finished. Those columns carry *booked
+  output*, not plan: the shift's entered quantities valued at the order's
+  standard hours, drawn hollow so the two are never confused. Nothing is ever
+  scheduled into them.
+- **A line down today's column** — assembly works **07:00–15:30**, and the
+  marker sits where the shift has got to, nudged on every five minutes. Before
+  07:00 and after 15:30 it rests against the edge of the column.
+- **The head stays put** — the roster's load squares and the day columns are
+  frozen at the top, so "who has room?" is answerable from anywhere down the
+  board. The **Order column can be dragged wider** by its right-hand edge when
+  descriptions need the room.
 - **Three orders at a time per line** — a line is a length of floor with
   several build positions, not one station, so three orders run side by side
   and a fourth waits for the first to clear (`parallelOrders` on each line in
@@ -40,7 +53,7 @@ plan goes back the other way, into the `ASSY_Production` list.
 - **Work load, in standard hours** — the remaining hours of an order
   (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
   its bar covers. Shown three ways: per line on the group header, for the whole
-  board beside the zoom, and per person — every name in the "Today on site" row
+  board in the title bar, and per person — every name in the "Today on site" row
   carries **five 10px squares**, one per working day, in the same green/orange/
   red bands; an idle day is drawn hollow so empty never reads as comfortable,
   and planned leave is hatched. Click a name for the same week in full, day by
@@ -57,11 +70,14 @@ plan goes back the other way, into the `ASSY_Production` list.
   reasons are captured as daily records for the `ASSY_Production` SharePoint
   list. Its columns intentionally mirror `PMD_Production`, allowing KPI.ts to
   aggregate the two departments without a second mapping layer.
-- **Drag** a bar sideways to move its start day, or drag an order between the
-  pool and a line. Every bar moves, in both directions — a drag is an
-  instruction, so an order dropped where the line is already full stays put and
-  the day reads over capacity rather than snapping back. Dragging never touches
-  the Due Date; if the new start pushes Expect Date past Due, the row turns red.
+- **Drag** a bar sideways to move its start day, or down onto another line to
+  change lines. Every bar moves, in both directions — a drag is an instruction,
+  so an order dropped where the line is already full stays put and the day
+  reads over capacity rather than snapping back. Dragging never touches the Due
+  Date; if the new start pushes Expect Date past Due, the row turns red.
+  **Rows themselves never move on their own**: the order they sit in is the
+  planner's, and only dropping a bar on another line changes it. Which order
+  claims a build position first is a separate question, settled by date.
 - **Colour by date** (Ship is the booked departure, Due the later customer date):
 
   | | Condition | Meaning |

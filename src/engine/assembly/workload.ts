@@ -101,8 +101,10 @@ export function loadBand(pct: number): LoadBand {
 export interface DayBoardLoad {
   key: string;
   date: Date;
-  /** The first column — the day the board is being planned on. */
+  /** The day the board is being planned on. */
   isToday: boolean;
+  /** Already behind us — yesterday's shift, kept on screen for comparison. */
+  past: boolean;
   /**
    * A day the factory runs. Weekends are closed, so bars step over them and a
    * closed column reads 0% — unless an order has been approved for overtime,
@@ -115,6 +117,8 @@ export interface DayBoardLoad {
   capacity: number;
   /** hours ÷ capacity, as a percentage. Zero when nobody is in. */
   pct: number;
+  /** `hours` is output that was booked, not work that is planned. */
+  actual: boolean;
   band: LoadBand;
   /** People available, after attendance today and planned leave later. */
   available: number;
@@ -133,9 +137,11 @@ export function boardDayLoads(
   workers: Worker[],
   from: Date,
   dayCount: number,
+  /** Which column is today; the board opens a working day earlier. */
+  today: Date = from,
 ): DayBoardLoad[] {
   const start = startOfDay(from);
-  const todayKey = dayKey(start);
+  const todayKey = dayKey(startOfDay(today));
   const scheduled = rows.filter((r) => r.line.schedulable);
   const out: DayBoardLoad[] = [];
 
@@ -146,17 +152,28 @@ export function boardDayLoads(
       (w) => (key !== todayKey || w.onShift) && !w.plannedLeave?.includes(key),
     ).length;
     const capacity = available * PRODUCTIVE_HOURS_PER_PERSON;
+    const past = key < todayKey;
+    // A day already gone shows what the shift booked, not what was planned for
+    // it — there is nothing left to plan, and the two are rarely the same.
     // `hoursOnDay` is per person, so multiply back up by the crew on the order.
-    const hours = scheduled.reduce(
-      (s, r) => s + hoursOnDay(r, date) * r.workers.length,
-      0,
-    );
+    const hours = past
+      ? scheduled.reduce(
+          (s, r) =>
+            s + r.booked.reduce((n, b) => (b.day === key ? n + b.hours : n), 0),
+          0,
+        )
+      : scheduled.reduce(
+          (s, r) => s + hoursOnDay(r, date) * r.workers.length,
+          0,
+        );
     const pct = capacity > 0 ? (hours / capacity) * 100 : 0;
 
     out.push({
       key,
       date,
       isToday: key === todayKey,
+      past,
+      actual: past,
       working: !isWeekend(date),
       hours,
       capacity,

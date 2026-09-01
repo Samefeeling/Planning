@@ -12,6 +12,7 @@ import { useAssemblyGantt } from '@/store/assemblySelectors';
 import { createPlanRepository, CURRENT_PLAN_ID } from '@/persistence';
 import { useDragDrop } from '@/features/assembly/useDragDrop';
 import { AssemblyGantt } from '@/features/assembly/AssemblyGantt';
+import { BoardTools } from '@/features/assembly/BoardTools';
 import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
 import { OvertimePrompt } from '@/features/assembly/OvertimePrompt';
@@ -19,45 +20,12 @@ import { SupervisorLock } from '@/features/assembly/SupervisorLock';
 import { useUiStore } from '@/store/uiStore';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
-import { usePlanSync, type PlanSyncState } from '@/features/sync/usePlanSync';
+import { usePlanSync } from '@/features/sync/usePlanSync';
 import { CsvLoader } from '@/features/source/CsvLoader';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { Badge, Spinner } from '@/ui';
-import type { AssemblyGanttView } from '@/engine/assembly/board';
 
 const repo = createPlanRepository();
-
-function ScheduleSummary({ board }: { board: AssemblyGanttView | null }) {
-  if (!board) return null;
-  return (
-    <div className="legend" aria-label="Schedule summary">
-      <Badge variant="ok">{board.totals.green} on ship date</Badge>
-      <Badge variant="warn">{board.totals.orange} past ship</Badge>
-      <Badge variant="error">{board.totals.red} past due</Badge>
-      <Badge variant="neutral">{board.pool.length} unassigned</Badge>
-    </div>
-  );
-}
-
-/**
- * Whether the plan is reaching SharePoint. Silent when write-back is not
- * configured — an unconfigured board is the normal demo case, not a fault.
- */
-function PlanSyncBadge({ sync }: { sync: PlanSyncState }) {
-  if (!sync.enabled) return null;
-  if (sync.busy) return <Badge variant="info">saving to {sync.list}…</Badge>;
-  if (sync.errors.length > 0) return <Badge variant="error">{sync.list} failed</Badge>;
-  if (!sync.lastSyncedAt) return null;
-
-  const { created, updated } = sync.last ?? { created: 0, updated: 0 };
-  return (
-    <Badge variant="ok">
-      {created + updated === 0
-        ? `${sync.list} up to date`
-        : `${sync.list} +${created} ~${updated}`}
-    </Badge>
-  );
-}
 
 export default function App() {
   const status = useDataStore((s) => s.status);
@@ -132,16 +100,23 @@ export default function App() {
 
   return (
     <div className="app">
+      {/*
+        Title on the left, timeline controls dead centre, the controls that
+        write something on the right. The schedule's own counts used to sit up
+        here; they say nothing the coloured bars do not say better, and a
+        header carrying only what is asked of it reads quicker across a floor.
+      */}
       <header className="app-header">
-        <h1>Resero Planning</h1>
-        <span className="sub">Assembly schedule</span>
-        <Badge variant="info">{sourceName}</Badge>
-        <div className="spacer" />
-        <ScheduleSummary board={board} />
-        <PlanSyncBadge sync={sync} />
-        <SupervisorLock />
-        <CsvLoader />
-        <RefreshControl onRefresh={() => void refresh()} />
+        <div className="head-side">
+          <h1>Assembly Board</h1>
+          <Badge variant="info">{sourceName}</Badge>
+        </div>
+        <BoardTools board={board} />
+        <div className="head-side end">
+          <SupervisorLock />
+          <CsvLoader />
+          <RefreshControl onRefresh={() => void refresh()} />
+        </div>
       </header>
 
       {error && <div className="banner">Data error: {error}</div>}

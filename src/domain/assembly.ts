@@ -141,6 +141,16 @@ export const BREAK_HOURS = 0.75;
 export const PRODUCTIVE_HOURS_PER_PERSON = SHIFT_HOURS - BREAK_HOURS;
 
 /**
+ * Clock time assembly is on the floor, in hours past midnight: 07:00 to 15:30.
+ *
+ * The 8.5-hour span carries an unpaid half-hour lunch, which is what leaves
+ * `SHIFT_HOURS` paid and `PRODUCTIVE_HOURS_PER_PERSON` productive. Only the
+ * board's "now" marker reads these — the schedule itself works in whole days.
+ */
+export const SHIFT_START_HOUR = 7;
+export const SHIFT_END_HOUR = 15.5;
+
+/**
  * The schedule runs Monday to Friday: bars step over Saturday and Sunday, and
  * a weekend only carries work when the supervisor has approved overtime on
  * that order. See `engine/assembly/dates` for the arithmetic.

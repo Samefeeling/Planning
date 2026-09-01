@@ -1,0 +1,67 @@
+/**
+ * Timeline controls, in the middle of the title bar.
+ *
+ * They sit in the header rather than on the board because they change how the
+ * board is *looked at*, not what it says: the zoom, the hidden date columns.
+ * The one figure that travels with them is the work the board is carrying,
+ * which is the number a supervisor quotes when asked how the week looks.
+ */
+
+import type { AssemblyGanttView } from '@/engine/assembly/board';
+import { DATE_COLS, useUiStore } from '@/store/uiStore';
+
+/** How much one press of − or + moves the day column, in pixels. */
+const ZOOM_STEP = 16;
+
+export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
+  const dayWidth = useUiStore((s) => s.dayWidth);
+  const setDayWidth = useUiStore((s) => s.setDayWidth);
+  const dateCols = useUiStore((s) => s.dateCols);
+  const toggleDateCol = useUiStore((s) => s.toggleDateCol);
+
+  if (!board) return null;
+  const hidden = DATE_COLS.filter((key) => !dateCols[key]);
+
+  return (
+    <div className="board-tools">
+      <strong>Timeline</strong>
+      <button
+        onClick={() => setDayWidth(dayWidth - ZOOM_STEP)}
+        aria-label="Zoom out"
+        title="Narrower days — see further ahead"
+      >
+        −
+      </button>
+      <button
+        onClick={() => setDayWidth(dayWidth + ZOOM_STEP)}
+        aria-label="Zoom in"
+        title="Wider days"
+      >
+        +
+      </button>
+      <span
+        className="board-load"
+        title="Standard hours still to run across every scheduled order"
+      >
+        {board.totals.remainingHours.toFixed(0)} h on the board
+      </span>
+      {/* Only the columns someone has hidden, so the row stays quiet. */}
+      {hidden.map((key) => (
+        <button
+          className="date-restore"
+          key={key}
+          onClick={() => toggleDateCol(key)}
+          title={`Show the ${key} date column again`}
+        >
+          + {key}
+        </button>
+      ))}
+      {board.dependencyWarnings.length > 0 && (
+        <span className="board-warn" title={board.dependencyWarnings.join('\n')}>
+          {board.dependencyWarnings.length} material link
+          {board.dependencyWarnings.length === 1 ? '' : 's'} not used
+        </span>
+      )}
+    </div>
+  );
+}

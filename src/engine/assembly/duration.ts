@@ -24,6 +24,18 @@ export function remainingHours(job: Job): number {
   return Math.max(0, job.laborHrs) * (1 - completedFraction(job));
 }
 
+/**
+ * Standard hours one finished unit is worth.
+ *
+ * The order's whole quantity carries its whole labour content, so this turns a
+ * shift's output count back into hours — which is how the board can put what
+ * was actually made yesterday on the same scale as what is planned for today.
+ */
+export function hoursPerUnit(job: Job): number {
+  const total = job.remainingQty + job.completedQty;
+  return total > 0 ? Math.max(0, job.laborHrs) / total : 0;
+}
+
 /** Units still to make. */
 export function remainingQty(job: Job): number {
   return Math.max(0, job.remainingQty);

@@ -51,17 +51,29 @@ import {
   crewNeededFor,
   dailyTargetQty,
   durationDays,
+  hoursPerUnit,
   remainingHours,
 } from './duration';
 import {
   addDays,
   addWorkingDays,
   nextWorkingDay,
+  prevWorkingDay,
   scheduleStatus,
   startOfDay,
+  wholeDaysBetween,
   type ScheduleStatus,
 } from './dates';
 import { lineLoad, type LineLoad } from './workload';
+
+/** One shift's booked output on an order. */
+export interface BookedDay {
+  /** Local `YYYY-MM-DD` of the shift it was booked against. */
+  day: string;
+  qty: number;
+  /** `qty` valued at the order's standard hours per unit. */
+  hours: number;
+}
 
 export interface OrderRow {
   job: Job;
@@ -87,6 +99,12 @@ export interface OrderRow {
   predecessors: Dependency[];
   /** The one actually holding the bar back, when any is; else null. */
   waitingOn: Dependency | null;
+  /**
+   * What the shift actually booked against this order, day by day, in standard
+   * hours. This is the past half of the board: the columns behind today show
+   * output that was recorded, not work that was planned.
+   */
+  booked: BookedDay[];
   /** Smallest crew that would hit the ship date, when one exists. */
   crewToHitShip: number | null;
   /** Explicitly closed during today's shift; retained until tomorrow for confirmation. */
@@ -101,8 +119,16 @@ export interface LineGroup {
 }
 
 export interface AssemblyGanttView {
-  /** First day column. */
+  /**
+   * First day column — the previous working day, so the board opens with
+   * yesterday's shift still on screen.
+   */
   horizonStart: Date;
+  /**
+   * Midnight today. Nothing is scheduled before it however far back the first
+   * column reaches: the columns to its left are history.
+   */
+  today: Date;
   /** Number of day columns. */
   horizonDays: number;
   groups: LineGroup[];
@@ -218,6 +244,7 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
     },
     predecessors: [],
     waitingOn: null,
+    booked: [],
     crewToHitShip: null,
     completedToday: false,
   };
@@ -279,6 +306,20 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     };
   };
 
+  /**
+   * The shift log for one order, valued in standard hours. `withProgress` has
+   * already folded these into the quantities, so the total quantity — and with
+   * it the hours per unit — is the same before and after.
+   */
+  const bookedDays = (job: Job): BookedDay[] => {
+    const perUnit = hoursPerUnit(job);
+    return (progress[String(job.id)] ?? []).map((entry) => ({
+      day: entry.date,
+      qty: entry.qty,
+      hours: entry.qty * perUnit,
+    }));
+  };
+
   const assemblyJobs = dataset.jobs
     .filter((j) => j.department === 'assembly')
     // A completed order remains grey for the confirmation day, then leaves
@@ -287,7 +328,11 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     .map(withProgress);
   const jobsById = new Map(assemblyJobs.map((j) => [String(j.id), j]));
   const workersById = new Map(input.workers.map((w) => [String(w.id), w]));
-  const horizonStart = startOfDay(today);
+  // Two different "starts". Work is planned from today — there is no working
+  // yesterday — but the board opens one working day earlier, so the shift that
+  // has just finished is still on screen to be compared against the plan.
+  const planStart = startOfDay(today);
+  const horizonStart = prevWorkingDay(planStart);
 
   // The moulding plan, as rows. Built for every press job rather than the few
   // that fit on screen, because any of them may be the one an assembly order
@@ -320,23 +365,30 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       ? startOfDay(new Date(pinned))
       : jobsById.get(id)?.startDate
         ? startOfDay(jobsById.get(id)!.startDate!)
-        : horizonStart;
-    return wanted > horizonStart ? wanted : horizonStart;
+        : planStart;
+    return wanted > planStart ? wanted : planStart;
   };
 
   // Two passes over the schedulable lines: build rows, then resolve the
-  // predecessor chain (a successor may sit on a different line). Within a line
-  // the earliest-wanted order claims a build position first, so dragging one
-  // bar earlier moves it ahead of the others rather than being ignored.
-  const pending: { line: LineDef; ids: string[] }[] = [];
+  // predecessor chain (a successor may sit on a different line).
+  //
+  // Each line keeps two orderings, and conflating them was making rows jump
+  // about under the planner's hand. `ids` is the planner's own order — where
+  // the rows sit on screen — and never changes because a bar moved. `claiming`
+  // is by wanted start, and only decides which order gets first refusal on a
+  // build position, so dragging a bar earlier still moves it ahead in the
+  // queue rather than being ignored.
+  const pending: { line: LineDef; ids: string[]; claiming: string[] }[] = [];
   for (const line of LINES) {
     if (!line.schedulable) continue;
     const ids = (containers[String(line.id)] ?? [])
       .map(String)
       .filter((id) => jobsById.has(id) && !placed.has(id));
     ids.forEach((id) => placed.add(id));
-    ids.sort((a, b) => wantedStart(a).getTime() - wantedStart(b).getTime());
-    pending.push({ line, ids });
+    const claiming = [...ids].sort(
+      (a, b) => wantedStart(a).getTime() - wantedStart(b).getTime(),
+    );
+    pending.push({ line, ids, claiming });
   }
 
   // Line id → when each of its build positions next frees up.
@@ -346,7 +398,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     let slots = slotsByLine.get(key);
     if (!slots) {
       slots = Array.from({ length: Math.max(1, line.parallelOrders) }, () =>
-        startOfDay(horizonStart),
+        startOfDay(planStart),
       );
       slotsByLine.set(key, slots);
     }
@@ -412,7 +464,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     const start = overtime ? claim.start : nextWorkingDay(claim.start);
 
     const expectDate = completedToday
-      ? horizonStart
+      ? planStart
       : days === null
         ? null
         : overtime
@@ -431,7 +483,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       job,
       line,
       workers,
-      start: completedToday ? horizonStart : days === null ? null : start,
+      start: completedToday ? planStart : days === null ? null : start,
       expectDate,
       days: completedToday ? 0 : days,
       slot: claim.slot,
@@ -442,6 +494,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       release: releaseCheck(material, job.materialPrep),
       predecessors,
       waitingOn,
+      booked: bookedDays(job),
       crewToHitShip: job.shipDate
         ? crewNeededFor(
             job,
@@ -470,10 +523,15 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     load: lineLoad(rows),
   });
 
+  // Schedule in claim order, draw in the planner's order. `resolve` memoises
+  // into `rowsByJob`, so the second loop only reads back what the first built.
+  for (const { claiming } of pending) {
+    for (const id of claiming) resolve(id, new Set());
+  }
   for (const { line, ids } of pending) {
     const rows = ids
-      .map((id) => resolve(id, new Set()))
-      .filter((r): r is OrderRow => r !== null);
+      .map((id) => rowsByJob.get(id))
+      .filter((r): r is OrderRow => Boolean(r));
     groups.push(withLoad(line, rows));
   }
 
@@ -492,8 +550,11 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const pool = assemblyJobs.filter((j) => !placed.has(String(j.id)));
 
   const scheduled = [...rowsByJob.values()];
+  // Days reached back for history are extra: the board still shows the usual
+  // run of planning days ahead of today.
+  const leadDays = wholeDaysBetween(planStart, horizonStart);
   const horizonDays = Math.max(
-    DEFAULT_HORIZON_DAYS,
+    DEFAULT_HORIZON_DAYS + leadDays,
     ...scheduled.map((r) =>
       r.expectDate
         ? Math.ceil(
@@ -505,6 +566,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
 
   return {
     horizonStart,
+    today: planStart,
     horizonDays,
     groups,
     pool,

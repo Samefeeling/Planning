@@ -89,6 +89,7 @@ const row = (
   release: { level: 'ready', releasable: true, needsOverride: false, reason: '' },
   predecessors: [],
   waitingOn: null,
+  booked: [],
   crewToHitShip: null,
   completedToday: false,
   ...over,
@@ -363,6 +364,47 @@ describe('boardDayLoads', () => {
     expect(loads[5].working).toBe(false);
     expect(loads[5].hours).toBeCloseTo(7.25, 6);
     expect(loads[5].pct).toBeCloseTo(50, 6);
+  });
+});
+
+describe('the columns behind today', () => {
+  const crew = [worker('W1'), worker('W2')];
+  // Board opens on the Friday, plans from the Monday: one column of history.
+  const FRI = new Date(2026, 8, 11);
+
+  it('marks which columns are past and which one is today', () => {
+    const loads = boardDayLoads([], crew, FRI, 4, MON);
+    expect(loads.map((l) => l.past)).toEqual([true, true, true, false]);
+    expect(loads.map((l) => l.isToday)).toEqual([false, false, false, true]);
+  });
+
+  it('shows what the shift booked, not what was planned for it', () => {
+    // 20 units of a 10-unit-a-day order were booked on the Friday. The plan
+    // for that day is irrelevant now: it happened, or it did not.
+    const j = job('A', 29); // 29 h over 10 remaining + 0 done = 2.9 h a unit
+    const bar = row(j, crew, 0, 2, {
+      booked: [{ day: '2026-09-11', qty: 5, hours: 5 * 2.9 }],
+    });
+    const loads = boardDayLoads([bar], crew, FRI, 4, MON);
+
+    expect(loads[0].actual).toBe(true);
+    expect(loads[0].hours).toBeCloseTo(14.5, 6);
+    expect(loads[0].pct).toBeCloseTo(100, 6);
+    // …while the days ahead still read as plan.
+    expect(loads[3].actual).toBe(false);
+  });
+
+  it('reads an unbooked day as nothing done, not as the plan', () => {
+    // The bar covers the Friday, but nobody entered any output against it.
+    const loads = boardDayLoads([row(job('A', 29), crew, 0, 2)], crew, FRI, 4, MON);
+    expect(loads[0].hours).toBe(0);
+    expect(loads[0].pct).toBe(0);
+  });
+
+  it('treats the first column as today when the board is not looking back', () => {
+    const loads = boardDayLoads([], crew, MON, 2);
+    expect(loads[0].isToday).toBe(true);
+    expect(loads[0].past).toBe(false);
   });
 });
 

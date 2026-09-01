@@ -68,13 +68,28 @@ button {
   overflow: hidden;
 }
 
+/*
+ * Three columns, not a flex row with spacers: two equal `1fr` sides put the
+ * timeline controls in the true centre of the bar whatever the two ends happen
+ * to weigh. `minmax(0, …)` keeps a long source name from stealing the middle.
+ */
 .app-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 16px;
   padding: 10px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+}
+.head-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.head-side.end {
+  justify-content: flex-end;
 }
 .app-header h1 {
   font-size: 15px;
@@ -85,9 +100,6 @@ button {
 .app-header .sub {
   color: var(--muted);
   font-size: 12px;
-}
-.app-header .spacer {
-  flex: 1;
 }
 
 .app-body {
@@ -262,10 +274,19 @@ button {
   outline-offset: -4px;
   border-radius: 8px;
 }
-.pool-empty {
+/*
+ * With nothing unassigned the pool renders nothing at all; while a drag is in
+ * flight it becomes this strip, so an order can still be taken off its line.
+ */
+.pool.target-only {
+  padding: 6px 10px;
+}
+.pool-target {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
   color: var(--faint);
-  font-size: 12px;
-  padding: 16px 0;
+  font-size: 11px;
+  padding: 10px 0;
   text-align: center;
 }
 
@@ -341,14 +362,6 @@ button {
   font-family: var(--mono);
 }
 
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  font-size: 11px;
-  color: var(--muted);
-}
 .zoom {
   display: flex;
   align-items: center;
@@ -409,10 +422,19 @@ button {
   border-bottom: 1px solid var(--border);
   min-height: 40px;
 }
-.assy-head {
+/*
+ * The head block: the roster's load squares and the day columns. It stays put
+ * while the lines scroll under it — "who has room?" is a question asked all
+ * the way down the board. One sticky wrapper rather than two sticky rows, so
+ * the day header never has to know how tall the names row has wrapped to.
+ */
+.assy-sticky {
   position: sticky;
   top: 0;
-  z-index: 7;
+  z-index: 9;
+  background: var(--surface);
+}
+.assy-head {
   background: var(--surface);
   /* Tall enough for the date, the load bar and its percentage. */
   height: 74px;
@@ -440,6 +462,30 @@ button {
   position: sticky;
   z-index: 3;
   background: var(--surface);
+}
+/*
+ * Order column resize grip. Order numbers and descriptions vary wildly in
+ * length between customers, so the one column that carries free text is the
+ * one worth being able to widen.
+ */
+.col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  border-right: 2px solid transparent;
+}
+.col-resize:hover,
+.col-resize:focus-visible {
+  border-right-color: var(--accent);
+  outline: none;
+}
+/* Keeps the pointer from selecting half the board mid-drag. */
+body.col-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 .assy-head .acell.frozen {
   z-index: 9;
@@ -620,6 +666,10 @@ button {
   top: 0;
   bottom: 0;
 }
+/* Behind us: yesterday's shift, kept on screen to compare against the plan. */
+.stripe.past {
+  background: rgba(100, 116, 139, 0.07);
+}
 /* Saturday and Sunday: the factory is closed. */
 .stripe.closed {
   background: rgba(100, 116, 139, 0.13);
@@ -631,7 +681,52 @@ button {
     inset -1px 0 0 rgba(37, 99, 235, 0.35);
 }
 
+/*
+ * Where the shift has got to, drawn across today's column between 07:00 and
+ * 15:30 and nudged on every five minutes. Above the bars — the whole point is
+ * to see which of them the shift should have reached by now.
+ */
+.now-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  z-index: 6;
+  background: var(--accent);
+  cursor: help;
+}
+.now-line::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -3px;
+  border: 4px solid transparent;
+  border-top-color: var(--accent);
+}
+
 /* Header columns get the same treatment, above the stripe layer. */
+.daycol.past {
+  background: rgba(100, 116, 139, 0.07);
+  color: var(--muted);
+}
+.past-tag {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 800;
+}
+/* Output that was booked, not work that is planned — hollow, not solid. */
+.day-bar.actual {
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+.day-bar.actual i {
+  opacity: 0.55;
+}
 .daycol.weekend {
   background: rgba(100, 116, 139, 0.13);
   color: var(--faint);
@@ -902,18 +997,17 @@ button {
 }
 
 .arow:has(.picker) { position: relative; z-index: 30; }
-.board-tools,
-.attendance-row {
-  position: sticky;
-  left: 0;
-  z-index: 8;
+/* Timeline controls — in the title bar, centred between two equal spacers. */
+.board-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 6px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.board-tools strong {
+  color: var(--text);
+  font-weight: 650;
 }
 .board-tools button,
 .date-head button,
@@ -924,8 +1018,28 @@ button {
   color: var(--text);
   cursor: pointer;
 }
-.board-tools input { width: 150px; }
-.attendance-row { background: #eff6ff; color: #1e3a8a; overflow: visible; }
+.board-tools button {
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  line-height: 1;
+}
+.attendance-row {
+  position: sticky;
+  left: 0;
+  /* Above the frozen head cells below it, or a person's week opens behind
+     the Start Date column. */
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: #eff6ff;
+  color: #1e3a8a;
+  overflow: visible;
+}
 .attendance-count { padding: 2px 8px; border-radius: 999px; background: #dbeafe; font-weight: 700; }
 /* No `margin-left: auto` — the board is far wider than the viewport, so that
    would push this off the right-hand edge of a scrolled-left page. */

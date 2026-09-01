@@ -114,6 +114,40 @@ export function nextWorkingDay(d: Date): Date {
   return out;
 }
 
+/**
+ * The last day the factory ran before `d` — Friday, when `d` is a Monday.
+ *
+ * The board opens on this day rather than on today, because the supervisor's
+ * first question in the morning is what yesterday's shift actually finished,
+ * and on a Monday that shift was Friday's.
+ */
+export function prevWorkingDay(d: Date): Date {
+  let out = startOfDay(d);
+  do {
+    out = startOfDay(addDays(out, -1));
+  } while (isWeekend(out));
+  return out;
+}
+
+/**
+ * Where `now` falls in the working day, as a fraction of the shift.
+ *
+ * Zero before the crew clocks on, one after they leave; the board draws its
+ * "now" line at that fraction across today's column. Outside the shift the
+ * line pins to the edge of the column rather than wandering into the night,
+ * which would read as progress nobody is making.
+ */
+export function shiftFraction(
+  now: Date,
+  startHour: number,
+  endHour: number,
+): number {
+  const hours = now.getHours() + now.getMinutes() / 60;
+  if (hours <= startHour) return 0;
+  if (hours >= endHour) return 1;
+  return (hours - startHour) / (endHour - startHour);
+}
+
 /** Stops the walk below on a duration that could never be real. */
 const MAX_SPAN_DAYS = 2000;
 
