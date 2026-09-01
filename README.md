@@ -69,6 +69,15 @@ plan goes back the other way, into the `ASSY_Production` list.
   would paint every working person red. So green has room, orange is full, and
   red is *over*: two orders at once, or work landing on leave or a closed day.
   An idle day is hollow rather than green, and planned leave is hatched.
+- **Nobody is on two orders at once** — a person cannot do two jobs at the same
+  time, so putting someone on an order whose bar runs across one they are
+  already on **asks the supervisor first**, and nothing is written until they
+  answer. They may say yes — splitting a day, or covering a hand-over — and
+  that pair is then recorded as approved. The crew picker offers busy people
+  last and says what they are already on; a chip marks the overlap either way,
+  `!` for one nobody approved and `≡` for one somebody did. Only allocation can
+  be gated this way: an overlap that appears because a bar was dragged, or a
+  refreshed export moved a date, is *marked* rather than prevented.
 - **Crew drives duration** — up to **4 people** per order; bar length is
   remaining standard hours ÷ (crew × productive hours), so adding someone
   visibly shortens it and pulls the Expect Date in. The picker offers only
@@ -275,12 +284,19 @@ ones and far more than none.
 
 `Planning1.csv` says what to build, never who builds it, so every order arrives
 with nobody on it. **Crew N orders** in the header staffs them all at once from
-the qualified people on shift — a line's people divided between its build
-positions, cycled down the queue — behind the same supervisor lock as
-allocating by hand. It only ever *adds*: an order that already has a crew is
-left exactly as it is, and the button disappears once nothing is unstaffed.
-It is a starting point to argue with, not an answer: it knows nothing about who
-is good at what.
+the qualified people on shift, behind the same supervisor lock as allocating by
+hand. It only ever *adds*: an order that already has a crew is left exactly as
+it is, and the button disappears once nothing is unstaffed. It is a starting
+point to argue with, not an answer: it knows nothing about who is good at what.
+
+It respects the same one-order-at-a-time rule as the picker, and that is why it
+works the way it does: it crews the earliest waiting order on each line, **asks
+the scheduler for the board back**, and crews the next against the dates that
+came out. Crewing an order moves it — it takes a build position, and anything
+waiting on its parts follows it out — so a suggestion that guessed where the
+next one would land put people on two orders at once about a fifth of the time.
+Asking costs a few milliseconds a round, which is why it runs on the click and
+not behind the label. An order nobody is free for is left for the supervisor.
 
 ### The plan → `ASSY_Production`
 

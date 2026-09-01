@@ -1,7 +1,8 @@
 /**
- * Ephemeral view state that isn't part of the plan or the data: which job is
- * selected in the inspector, whether the side pane is showing, the Gantt zoom
- * level, and the weekend-overtime question waiting on an answer.
+ * Ephemeral view state that isn't part of the plan or the data: which order is
+ * open and where, the Gantt zoom and columns, and the two questions that may
+ * be waiting on the supervisor — weekend working, and one person on two orders
+ * at once.
  */
 
 import { create } from 'zustand';
@@ -51,6 +52,22 @@ export interface ClickPoint {
   y: number;
 }
 
+/**
+ * Someone about to be put on an order they cannot be on: they are already
+ * booked on another at the same time. Nothing is written until the supervisor
+ * answers, because a person doing two jobs at once is a claim about the floor,
+ * not about the plan.
+ */
+export interface ClashRequest {
+  jobId: string;
+  workerId: string;
+  workerName: string;
+  /** The orders they are already on across those days. */
+  withJobIds: string[];
+  /** How each of those reads on the board: "ASM8002 · UPL · 4 Sep – 8 Sep". */
+  withLabels: string[];
+}
+
 interface UiState {
   /** Order shown in the inspector. */
   selectedJobId: string | null;
@@ -61,6 +78,7 @@ interface UiState {
    */
   selectedAt: ClickPoint | null;
   overtimeRequest: OvertimeRequest | null;
+  clashRequest: ClashRequest | null;
   lastRefresh: Date | null;
   /**
    * Timeline zoom. It lives here rather than in the board because the zoom
@@ -79,6 +97,8 @@ interface UiState {
   toggleDateCol: (key: DateCol) => void;
   askOvertime: (request: OvertimeRequest) => void;
   clearOvertime: () => void;
+  askClash: (request: ClashRequest) => void;
+  clearClash: () => void;
   setLastRefresh: (when: Date) => void;
 }
 
@@ -86,6 +106,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectedJobId: null,
   selectedAt: null,
   overtimeRequest: null,
+  clashRequest: null,
   lastRefresh: null,
   dayWidth: DEFAULT_DAY_WIDTH,
   orderWidth: DEFAULT_ORDER_WIDTH,
@@ -105,5 +126,7 @@ export const useUiStore = create<UiState>((set) => ({
     })),
   askOvertime: (overtimeRequest) => set({ overtimeRequest }),
   clearOvertime: () => set({ overtimeRequest: null }),
+  askClash: (clashRequest) => set({ clashRequest }),
+  clearClash: () => set({ clashRequest: null }),
   setLastRefresh: (lastRefresh) => set({ lastRefresh }),
 }));

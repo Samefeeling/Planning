@@ -82,6 +82,13 @@ export interface OrderRow {
   workers: Worker[];
   /** Bar start; null when the order cannot be scheduled (no crew). */
   start: Date | null;
+  /**
+   * The day the order takes on its line, whether or not anyone is on it. Same
+   * as `start` once it has a crew; without one it is where the bar *would*
+   * begin, which is what lets the board answer "if I put Mary on this, would
+   * she be on two orders at once?" before she is on it.
+   */
+  plannedStart: Date;
   /** Bar end = Expect Date; null when unschedulable. */
   expectDate: Date | null;
   /** Bar length in days worked; null when unschedulable. */
@@ -224,6 +231,7 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
     line,
     workers: [],
     start,
+    plannedStart: start,
     expectDate: addDays(start, days),
     days,
     slot: 0,
@@ -484,6 +492,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       line,
       workers,
       start: completedToday ? planStart : days === null ? null : start,
+      plannedStart: completedToday ? planStart : start,
       expectDate,
       days: completedToday ? 0 : days,
       slot: claim.slot,

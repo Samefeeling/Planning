@@ -79,6 +79,7 @@ const startTime = (d: Date | null): string | null =>
 function OrderRowView({
   row,
   board,
+  allRows,
   gridWidth,
   selected,
   onSelect,
@@ -88,6 +89,8 @@ function OrderRowView({
 }: {
   row: OrderRow;
   board: AssemblyGanttView;
+  /** Every row on the board, for the crew picker's double-booking check. */
+  allRows: OrderRow[];
   gridWidth: number;
   selected: boolean;
   onSelect: (id: string, at?: ClickPoint) => void;
@@ -157,7 +160,7 @@ function OrderRowView({
         {isContext ? (
           <span className="chip empty">moulding</span>
         ) : (
-          <TeamChips row={row} roster={board.workers} />
+          <TeamChips row={row} roster={board.workers} rows={allRows} />
         )}
       </div>
       <div className="acell track" style={{ width: gridWidth }}>
@@ -181,6 +184,7 @@ function OrderRowView({
 function LineGroupView({
   group,
   board,
+  allRows,
   gridWidth,
   selectedJobId,
   onSelect,
@@ -192,6 +196,7 @@ function LineGroupView({
 }: {
   group: LineGroup;
   board: AssemblyGanttView;
+  allRows: OrderRow[];
   gridWidth: number;
   selectedJobId: string | null;
   onSelect: (id: string, at?: ClickPoint) => void;
@@ -255,6 +260,7 @@ function LineGroupView({
             key={String(row.job.id)}
             row={row}
             board={board}
+            allRows={allRows}
             gridWidth={gridWidth}
             selected={selectedJobId === String(row.job.id)}
             onSelect={onSelect}
@@ -498,6 +504,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           key={group.line.key}
           group={group}
           board={board}
+          allRows={allRows}
           gridWidth={gridWidth}
           selectedJobId={selectedJobId}
           onSelect={select}

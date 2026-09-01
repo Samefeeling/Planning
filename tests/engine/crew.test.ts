@@ -9,8 +9,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { MockSource } from '@/data/mock/MockSource';
 import { buildIndexes } from '@/engine/indexes';
-import { computeAssemblyGantt } from '@/engine/assembly/board';
-import { suggestCrew } from '@/engine/assembly/crew';
+import { computeAssemblyGantt, type OrderRow } from '@/engine/assembly/board';
+import { clashesFor, suggestCrew } from '@/engine/assembly/crew';
 import { usePlanStore } from '@/store/planStore';
 import { MAX_WORKERS_PER_ORDER } from '@/domain/assembly';
 import type { PlanningDataset } from '@/domain/types';
@@ -26,7 +26,10 @@ beforeAll(async () => {
 const TODAY = new Date('2026-09-11T00:00:00');
 
 /** The board as it comes off an import: orders on lines, nobody on them. */
-function board(orderWorkers: Record<string, string[]> = {}) {
+function board(
+  orderWorkers: Record<string, string[]> = {},
+  orderStarts: Record<string, string> = {},
+) {
   const indexes = buildIndexes(dataset);
   usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
   return computeAssemblyGantt({
@@ -34,7 +37,7 @@ function board(orderWorkers: Record<string, string[]> = {}) {
     indexes,
     containers: usePlanStore.getState().containers,
     orderWorkers,
-    orderStarts: {},
+    orderStarts,
     progress: {},
     production: {},
     workers: dataset.workers,
@@ -42,10 +45,21 @@ function board(orderWorkers: Record<string, string[]> = {}) {
   });
 }
 
+/**
+ * How the button uses it: each wave is applied *on top of* the plan as it
+ * stands and the board re-derived, so every span after the first is one the
+ * scheduler worked out rather than one the suggestion guessed.
+ */
+const settleOn =
+  (base: Record<string, string[]> = {}) =>
+  (alloc: Record<string, string[]>) =>
+    board({ ...base, ...alloc });
+const settle = settleOn();
+
 describe('suggestCrew', () => {
   it('gives every unstaffed order somebody who can do the work', () => {
     const b = board();
-    const { allocations, staffed } = suggestCrew(b);
+    const { allocations, staffed } = suggestCrew(b, settle);
 
     expect(staffed).toBeGreaterThan(10);
     const byId = new Map(b.workers.map((w) => [String(w.id), w]));
@@ -71,11 +85,34 @@ describe('suggestCrew', () => {
     const bare = [...before.rowsByJob.values()].filter((r) => r.days === null);
     expect(bare.length).toBeGreaterThan(0); // nothing has a bar yet
 
-    const after = board(suggestCrew(before).allocations);
-    for (const row of after.rowsByJob.values()) {
-      expect(row.days).not.toBeNull();
-      expect(row.expectDate).not.toBeNull();
+    const after = board(suggestCrew(before, settle).allocations);
+    const scheduled = [...after.rowsByJob.values()].filter((r) => r.days !== null);
+    // Most of the board gets a bar. What it cannot place without putting
+    // somebody on two orders at once it leaves alone, on purpose.
+    expect(scheduled.length).toBeGreaterThan(bare.length / 2);
+    for (const row of scheduled) expect(row.expectDate).not.toBeNull();
+  });
+
+  it('does not double-book anyone, measured on the board it produces', () => {
+    // The suggestion is made against spans it works out itself; this checks
+    // them against the schedule that actually comes back.
+    const before = board();
+    const after = board(suggestCrew(before, settle).allocations);
+    const rows = [...after.rowsByJob.values()].filter(
+      (r) => r.start && r.expectDate && !r.completedToday,
+    );
+
+    const clashes: string[] = [];
+    for (const row of rows) {
+      for (const w of row.workers) {
+        for (const other of clashesFor(rows, row, String(w.id))) {
+          clashes.push(
+            `${w.name}: ${String(row.job.id)} vs ${String(other.job.id)}`,
+          );
+        }
+      }
     }
+    expect(clashes).toEqual([]);
   });
 
   it('leaves an allocation the supervisor already made', () => {
@@ -85,19 +122,29 @@ describe('suggestCrew', () => {
     );
     const mine = { [first]: ['W01'] };
 
-    const { allocations } = suggestCrew(board(mine));
+    const { allocations } = suggestCrew(board(mine), settleOn(mine));
     expect(allocations[first]).toBeUndefined();
   });
 
-  it('shares the line’s people out rather than piling onto one order', () => {
+  it('moves a team on to the next order once they are free', () => {
+    // Reusing people is right — that is what a team is. The rule is about the
+    // same *day*, not the same names, and the clash test above holds them to
+    // it. What must not happen is one person carrying the whole line.
     const b = board();
-    const { allocations } = suggestCrew(b);
-    const upl = b.groups.find((g) => g.line.key === 'UPL')!;
-    const rows = upl.rows.map((r) => allocations[String(r.job.id)]).filter(Boolean);
-    expect(rows.length).toBeGreaterThan(1);
-    // Consecutive orders draw different people, so the first two teams are
-    // not the same two names.
-    expect(rows[0].join()).not.toBe(rows[1].join());
+    const { allocations } = suggestCrew(b, settle);
+    const jobsPerPerson = new Map<string, number>();
+    for (const crew of Object.values(allocations)) {
+      for (const id of crew) {
+        jobsPerPerson.set(id, (jobsPerPerson.get(id) ?? 0) + 1);
+      }
+    }
+
+    expect(jobsPerPerson.size).toBeGreaterThan(4); // the work is spread about
+    const counts = [...jobsPerPerson.values()].sort((x, y) => y - x);
+    // Nobody is carrying more than twice the average.
+    const average =
+      counts.reduce((s, n) => s + n, 0) / Math.max(1, counts.length);
+    expect(counts[0]).toBeLessThanOrEqual(Math.ceil(average * 2));
   });
 
   it('counts the orders it cannot crew instead of inventing one', () => {
@@ -116,9 +163,108 @@ describe('suggestCrew', () => {
       today: TODAY,
     });
 
-    const { allocations, staffed, unstaffed } = suggestCrew(b);
+    const { allocations, staffed, unstaffed } = suggestCrew(b, settle);
     expect(allocations).toEqual({});
     expect(staffed).toBe(0);
     expect(unstaffed).toBeGreaterThan(0);
+  });
+});
+
+describe('nobody does two jobs at once', () => {
+  /** The row for one order, once the board has scheduled it. */
+  const rowOf = (b: ReturnType<typeof board>, id: string) => b.rowsByJob.get(id)!;
+  const allRows = (b: ReturnType<typeof board>) =>
+    b.groups.flatMap((g) => g.rows);
+
+  /**
+   * Two orders on the same line that do not wait for each other — one of them
+   * needing a component the other builds would hold it back for a reason that
+   * has nothing to do with the crew.
+   */
+  const twoOrders = (line: 'UPL' | 'ASSY' | 'TABLE') => {
+    const b = board();
+    const rows = b.groups.find((g) => g.line.key === line)!.rows;
+    const first = rows[0];
+    const linked = (a: OrderRow, other: OrderRow) =>
+      a.predecessors.some((d) => String(d.onJobId) === String(other.job.id));
+    const second = rows.find(
+      (r) =>
+        String(r.job.id) !== String(first.job.id) &&
+        r.predecessors.length === 0 &&
+        !linked(first, r),
+    );
+    expect(second).toBeDefined();
+    return [String(first.job.id), String(second!.job.id)] as const;
+  };
+
+  it('sees the clash when someone is put on an order running at the same time', () => {
+    const [first, second] = twoOrders('UPL');
+    // Both pinned to the same Monday, so whatever else happens their bars
+    // cover the same days.
+    const day = new Date('2026-09-14T00:00:00').toISOString();
+    const b = board({ [first]: ['W01'] }, { [first]: day, [second]: day });
+
+    // Nothing else moved them, so they really are on the same days.
+    expect(rowOf(b, second).plannedStart).toEqual(new Date(day));
+    const clashes = clashesFor(allRows(b), rowOf(b, second), 'W01');
+    expect(clashes.map((r) => String(r.job.id))).toEqual([first]);
+  });
+
+  it('says nothing about someone who is free across those days', () => {
+    const [first] = twoOrders('UPL');
+    const b = board({ [first]: ['W01'] });
+    // W03 is on nothing at all.
+    expect(clashesFor(allRows(b), rowOf(b, first), 'W03')).toEqual([]);
+  });
+
+  it('does not count an order against itself', () => {
+    const [first] = twoOrders('UPL');
+    const b = board({ [first]: ['W01'] });
+    const clashes = clashesFor(allRows(b), rowOf(b, first), 'W01');
+    expect(clashes.map((r) => String(r.job.id))).not.toContain(first);
+  });
+
+  it('answers for an order nobody is on yet', () => {
+    // The whole point: the supervisor is deciding *who* to put on it, so the
+    // check has to work before anyone is on it.
+    const [first, second] = twoOrders('UPL');
+    const b = board({ [first]: ['W01'] });
+    expect(rowOf(b, second).start).toBeNull(); // no crew, no bar
+    expect(rowOf(b, second).plannedStart).toBeInstanceOf(Date);
+    // Whatever the answer, it is computed rather than skipped.
+    expect(Array.isArray(clashesFor(allRows(b), rowOf(b, second), 'W01'))).toBe(
+      true,
+    );
+  });
+
+  it('lets bars that merely touch pass', () => {
+    // One ending exactly as the next begins is a hand-over, not a clash, so
+    // the boundary is tested exactly rather than hoping the seed lines up.
+    const [first, second] = twoOrders('UPL');
+    const b = board({ [first]: ['W01'] });
+    const done = rowOf(b, first).expectDate!;
+    const after = { ...rowOf(b, second), plannedStart: done, workers: [] };
+
+    expect(clashesFor([rowOf(b, first), after], after, 'W01')).toEqual([]);
+    // …and a minute earlier is a clash.
+    const overlapping = {
+      ...after,
+      plannedStart: new Date(done.getTime() - 60_000),
+    };
+    expect(
+      clashesFor([rowOf(b, first), overlapping], overlapping, 'W01'),
+    ).toHaveLength(1);
+  });
+
+  it('ignores an order that has been closed', () => {
+    const [first] = twoOrders('UPL');
+    const b = board({ [first]: ['W01'] });
+    const closed = allRows(b).map((r) =>
+      String(r.job.id) === first ? { ...r, completedToday: true } : r,
+    );
+    const other = closed.find(
+      (r) => r.line.key === 'UPL' && String(r.job.id) !== first,
+    )!;
+    expect(clashesFor(closed, other, 'W01')).toEqual([]);
   });
 });

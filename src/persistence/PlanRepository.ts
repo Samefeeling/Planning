@@ -18,6 +18,8 @@ export interface PersistedPlan {
     orderStarts?: Record<string, string>;
     /** Orders the supervisor approved for weekend working. */
     orderOvertime?: Record<string, boolean>;
+    /** Per order, the people approved to be on it while on another too. */
+    orderDoubleBooked?: Record<string, string[]>;
     progress?: Record<string, { date: string; qty: number }[]>;
     /** Daily rows persisted by the backend in the ASSY_Production list. */
     production?: Record<string, ProductionEntry[]>;

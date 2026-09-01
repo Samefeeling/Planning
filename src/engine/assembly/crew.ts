@@ -16,8 +16,9 @@
  */
 
 import { MAX_WORKERS_PER_ORDER, type Worker } from '@/domain/assembly';
-import { remainingQty } from './duration';
-import type { AssemblyGanttView } from './board';
+import { durationDays, remainingQty } from './duration';
+import { addDays, addWorkingDays } from './dates';
+import type { AssemblyGanttView, OrderRow } from './board';
 
 export interface CrewSuggestion {
   /** Job id → worker ids, for the orders that had nobody on them. */
@@ -42,11 +43,115 @@ function crewSize(available: number, positions: number): number {
   return Math.max(1, Math.min(perTeam, MAX_WORKERS_PER_ORDER, available));
 }
 
-export function suggestCrew(board: AssemblyGanttView): CrewSuggestion {
-  const allocations: Record<string, string[]> = {};
-  let staffed = 0;
-  let unstaffed = 0;
+/**
+ * When an order would run with `crew` people on it.
+ *
+ * From `plannedStart`, which the line hands out whether or not anyone is
+ * allocated — so this answers for an order nobody is on yet, which is exactly
+ * when a supervisor is deciding who to put on it.
+ */
+function span(row: OrderRow, crew: number): { from: Date; to: Date } | null {
+  const days = durationDays(row.job, crew);
+  if (days === null) return null;
+  const from = row.plannedStart;
+  return {
+    from,
+    to: row.overtime ? addDays(from, days) : addWorkingDays(from, days),
+  };
+}
 
+/**
+ * The orders `workerId` is already on that would run at the same time as
+ * `target` — the work they cannot be in two places for.
+ *
+ * Nobody does two jobs at once, so this is the check behind allocating: the
+ * supervisor either picks someone else or says explicitly that this one is
+ * fine (splitting their day between two orders, or covering a hand-over).
+ * Bars that merely touch — one ending as the next begins — do not clash.
+ *
+ * Only the target order can be unstaffed; any order the person is already on
+ * has at least one person, and therefore has real dates.
+ */
+export function clashesFor(
+  rows: OrderRow[],
+  target: OrderRow,
+  workerId: string,
+): OrderRow[] {
+  if (!target.line.schedulable || target.completedToday) return [];
+  // The span the order would have with this person on it — they may already
+  // be, in which case the crew size does not change.
+  const crew =
+    target.workers.filter((w) => String(w.id) !== workerId).length + 1;
+  const mine = span(target, crew);
+  if (!mine) return [];
+
+  const id = String(target.job.id);
+  return rows.filter(
+    (r) =>
+      String(r.job.id) !== id &&
+      r.line.schedulable &&
+      !r.completedToday &&
+      r.start !== null &&
+      r.expectDate !== null &&
+      r.workers.some((w) => String(w.id) === workerId) &&
+      r.start < mine.to &&
+      mine.from < r.expectDate,
+  );
+}
+
+interface Span {
+  from: Date;
+  to: Date;
+}
+
+const clashesWith = (booked: Span[] | undefined, want: Span): boolean =>
+  (booked ?? []).some((s) => s.from < want.to && want.from < s.to);
+
+/** Orders on a schedulable line with nobody on them and work left to do. */
+const waitingRows = (board: AssemblyGanttView): OrderRow[] =>
+  board.groups
+    .filter((g) => g.line.schedulable)
+    .flatMap((g) => g.rows)
+    .filter(
+      (r) =>
+        r.workers.length === 0 && !r.completedToday && remainingQty(r.job) > 0,
+    );
+
+/** How many orders are waiting for a crew — the number on the button. */
+export const countUnstaffed = (board: AssemblyGanttView): number =>
+  waitingRows(board).length;
+
+/**
+ * How many waves to run. Each one re-derives the board, so this bounds the
+ * work; whatever is left over is simply offered again next time.
+ */
+const MAX_WAVES = 40;
+
+/**
+ * Staff the earliest waiting order on each line, and say who went where.
+ *
+ * One per line, not several, because the moment an order is crewed the whole
+ * schedule moves — it takes a build position, and anything waiting on its
+ * parts follows it out. Guessing where the next two would land is how a
+ * suggestion ends up double-booking people; asking the scheduler is not.
+ */
+function staffOneWave(
+  board: AssemblyGanttView,
+  into: Record<string, string[]>,
+): number {
+  // Who is committed when, from the board as it stands.
+  const booked = new Map<string, Span[]>();
+  for (const row of board.groups.flatMap((g) => g.rows)) {
+    if (!row.start || !row.expectDate || row.completedToday) continue;
+    for (const w of row.workers) {
+      const held = booked.get(String(w.id));
+      const span = { from: row.start, to: row.expectDate };
+      if (held) held.push(span);
+      else booked.set(String(w.id), [span]);
+    }
+  }
+
+  let staffed = 0;
   for (const group of board.groups) {
     if (!group.line.schedulable) continue;
 
@@ -54,32 +159,92 @@ export function suggestCrew(board: AssemblyGanttView): CrewSuggestion {
     const pool: Worker[] = board.workers.filter(
       (w) => w.onShift && w.skills.includes(group.line.key),
     );
+    if (pool.length === 0) continue;
 
-    // Orders nobody has crewed, and that still have something left to make.
-    const waiting = group.rows.filter(
-      (row) =>
-        row.workers.length === 0 &&
-        !row.completedToday &&
-        remainingQty(row.job) > 0,
-    );
-    if (waiting.length === 0) continue;
-    if (pool.length === 0) {
-      unstaffed += waiting.length;
-      continue;
-    }
+    const waiting = group.rows
+      .filter(
+        (r) =>
+          r.workers.length === 0 &&
+          !r.completedToday &&
+          remainingQty(r.job) > 0 &&
+          !into[String(r.job.id)],
+      )
+      .sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime());
 
     const size = crewSize(pool.length, group.line.parallelOrders);
-    let cursor = 0;
-    for (const row of waiting) {
+    // The earliest order the line can actually crew. One that nobody is free
+    // for is skipped rather than stalling the line behind it — the schedule
+    // will have moved it out by the next round, and if it never becomes
+    // staffable it is left for the supervisor, which is the honest answer.
+    for (const next of waiting) {
+      // Build the team one at a time. Each person added shortens the bar, so
+      // the window the next has to be free across only ever narrows — nobody
+      // vetted against the longer window becomes a clash later.
       const crew: string[] = [];
       for (let i = 0; i < size; i++) {
-        crew.push(String(pool[cursor % pool.length].id));
-        cursor++;
+        const want = span(next, crew.length + 1);
+        if (!want) break;
+        const free = pool
+          .filter(
+            (w) =>
+              !crew.includes(String(w.id)) &&
+              !clashesWith(booked.get(String(w.id)), want),
+          )
+          // Spread the work: whoever is carrying least goes first.
+          .sort(
+            (a, b) =>
+              (booked.get(String(a.id))?.length ?? 0) -
+              (booked.get(String(b.id))?.length ?? 0),
+          );
+        if (free.length === 0) break;
+        crew.push(String(free[0].id));
       }
-      allocations[String(row.job.id)] = crew;
+      if (crew.length === 0) continue;
+
+      into[String(next.job.id)] = crew;
       staffed++;
+
+      // Book them for this wave too: the lines are staffed one after another,
+      // and somebody free on UPL is not still free once ASSY has taken them.
+      const taken = span(next, crew.length);
+      if (taken) {
+        for (const id of crew) {
+          const held = booked.get(id);
+          if (held) held.push(taken);
+          else booked.set(id, [taken]);
+        }
+      }
+      break; // one per line per round; the scheduler settles before the next
     }
   }
+  return staffed;
+}
 
-  return { allocations, staffed, unstaffed };
+/**
+ * Crew the waiting orders, letting the schedule settle between each round.
+ *
+ * `recompute` re-derives the board with the allocations so far. Without it
+ * only the first round runs — enough for a preview, not for the real thing:
+ * every span after the first is one the scheduler worked out, not one this
+ * guessed, which is what keeps the suggestion clash-free.
+ */
+export function suggestCrew(
+  board: AssemblyGanttView,
+  recompute?: (allocations: Record<string, string[]>) => AssemblyGanttView,
+): CrewSuggestion {
+  const allocations: Record<string, string[]> = {};
+  let view = board;
+
+  for (let wave = 0; wave < MAX_WAVES; wave++) {
+    if (staffOneWave(view, allocations) === 0) break;
+    if (!recompute) break;
+    view = recompute(allocations);
+  }
+
+  const staffed = Object.keys(allocations).length;
+  return {
+    allocations,
+    staffed,
+    unstaffed: countUnstaffed(board) - staffed,
+  };
 }

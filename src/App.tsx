@@ -16,6 +16,7 @@ import { BoardTools } from '@/features/assembly/BoardTools';
 import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
 import { OvertimePrompt } from '@/features/assembly/OvertimePrompt';
+import { ClashPrompt } from '@/features/assembly/ClashPrompt';
 import { SupervisorLock } from '@/features/assembly/SupervisorLock';
 import { SuggestCrew } from '@/features/assembly/SuggestCrew';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
@@ -39,6 +40,7 @@ export default function App() {
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderStarts = usePlanStore((s) => s.orderStarts);
   const orderOvertime = usePlanStore((s) => s.orderOvertime);
+  const orderDoubleBooked = usePlanStore((s) => s.orderDoubleBooked);
   const progress = usePlanStore((s) => s.progress);
   const production = usePlanStore((s) => s.production);
 
@@ -87,11 +89,26 @@ export default function App() {
         name: 'Working plan',
         savedAt: new Date().toISOString(),
         containers,
-        assembly: { orderWorkers, orderStarts, orderOvertime, progress, production },
+        assembly: {
+          orderWorkers,
+          orderStarts,
+          orderOvertime,
+          orderDoubleBooked,
+          progress,
+          production,
+        },
       });
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
-  }, [containers, orderWorkers, orderStarts, orderOvertime, progress, production]);
+  }, [
+    containers,
+    orderWorkers,
+    orderStarts,
+    orderOvertime,
+    orderDoubleBooked,
+    progress,
+    production,
+  ]);
 
   const activeJob =
     dnd.activeJobId && board ? board.jobsById.get(dnd.activeJobId) : null;
@@ -181,6 +198,8 @@ export default function App() {
 
       {/* Asks before any work is written into a Saturday or Sunday. */}
       <OvertimePrompt />
+      {/* …and before anyone is put on two orders at the same time. */}
+      <ClashPrompt />
     </div>
   );
 }

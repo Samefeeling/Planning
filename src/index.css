@@ -779,6 +779,42 @@ body.col-resizing {
   letter-spacing: 0.4px;
 }
 
+/*
+ * Someone on two orders at the same time. `!` is the accident — the schedule
+ * moved, or nobody looked — and `≡` is the supervisor saying they know: the
+ * person is splitting their day. Both are marked, because the fact matters
+ * more than the paperwork.
+ */
+.chip.clash {
+  border-color: var(--error);
+  background: var(--error-dim);
+  color: #7f1d1d;
+}
+.chip.shared {
+  border-color: var(--warn);
+  background: var(--warn-dim);
+  color: #78350f;
+}
+.chip-clash {
+  margin-left: 3px;
+  font-weight: 800;
+}
+/* Offered last in the picker, and shown with what they are already on. */
+.picker-item.busy .picker-skills {
+  color: var(--error);
+}
+
+.clash-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text);
+}
+.clash-list li {
+  font-family: var(--mono);
+  margin-bottom: 2px;
+}
+
 /* ---- weekend overtime confirmation ------------------------------------- */
 .ot-backdrop {
   position: fixed;

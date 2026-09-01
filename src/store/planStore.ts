@@ -55,6 +55,14 @@ interface PlanState {
    * board asks before writing weekend work.
    */
   orderOvertime: Record<string, boolean>;
+  /**
+   * Job id → workers the supervisor has explicitly allowed to be on this order
+   * while they are on another at the same time. Nobody does two jobs at once,
+   * so the board asks before allocating into an overlap; this is the answer.
+   * Stored against the order being allocated — the pair is approved either way
+   * round.
+   */
+  orderDoubleBooked: Record<string, string[]>;
   /** Job id → end-of-shift completed-quantity entries. */
   progress: Record<string, { date: string; qty: number }[]>;
   production: Record<string, ProductionEntry[]>;
@@ -73,6 +81,8 @@ interface PlanState {
   assignWorker: (jobId: JobId, workerId: string) => void;
   /** Take a worker off an order. */
   unassignWorker: (jobId: JobId, workerId: string) => void;
+  /** Record that the supervisor accepts this person being on two orders. */
+  approveDoubleBooking: (jobId: JobId, workerId: string) => void;
   /**
    * Crew several orders at once, for a freshly imported export. Only fills
    * orders that have nobody on them — an allocation already made is the
@@ -91,6 +101,7 @@ interface PlanState {
     orderWorkers?: Record<string, string[]>;
     orderStarts?: Record<string, string>;
     orderOvertime?: Record<string, boolean>;
+    orderDoubleBooked?: Record<string, string[]>;
     progress?: Record<string, { date: string; qty: number }[]>;
     production?: Record<string, ProductionEntry[]>;
   }) => void;
@@ -140,6 +151,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   orderWorkers: {},
   orderStarts: {},
   orderOvertime: {},
+  orderDoubleBooked: {},
   progress: {},
   production: {},
   initialized: false,
@@ -197,6 +209,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         orderWorkers,
         orderStarts: keep(state.orderStarts),
         orderOvertime: keep(state.orderOvertime),
+        orderDoubleBooked: keep(state.orderDoubleBooked),
         progress: keep(state.progress),
         production: keep(state.production),
         initialized: true,
@@ -226,10 +239,34 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set((state) => {
       const key = String(jobId);
       const current = state.orderWorkers[key] ?? [];
+      // Any approval to double-book them here goes with them: put the same
+      // person back later and the overlap is a fresh decision, not an old one.
+      const approved = (state.orderDoubleBooked[key] ?? []).filter(
+        (w) => w !== workerId,
+      );
+      const orderDoubleBooked = { ...state.orderDoubleBooked };
+      if (approved.length > 0) orderDoubleBooked[key] = approved;
+      else delete orderDoubleBooked[key];
+
       return {
         orderWorkers: {
           ...state.orderWorkers,
           [key]: current.filter((w) => w !== workerId),
+        },
+        orderDoubleBooked,
+      };
+    });
+  },
+
+  approveDoubleBooking(jobId, workerId) {
+    set((state) => {
+      const key = String(jobId);
+      const current = state.orderDoubleBooked[key] ?? [];
+      if (current.includes(workerId)) return state;
+      return {
+        orderDoubleBooked: {
+          ...state.orderDoubleBooked,
+          [key]: [...current, workerId],
         },
       };
     });
@@ -299,6 +336,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       orderWorkers: plan.orderWorkers ?? state.orderWorkers,
       orderStarts: plan.orderStarts ?? state.orderStarts,
       orderOvertime: plan.orderOvertime ?? state.orderOvertime,
+      orderDoubleBooked: plan.orderDoubleBooked ?? state.orderDoubleBooked,
       progress: plan.progress ?? state.progress,
       production: plan.production ?? state.production,
     }));
@@ -324,6 +362,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       orderWorkers: {},
       orderStarts: {},
       orderOvertime: {},
+      orderDoubleBooked: {},
       progress: {},
       production: {},
       initialized: true,

@@ -7,11 +7,17 @@
  * see `engine/assembly/crew`. It is deliberately one explicit click, gated by
  * the same lock as allocating by hand — nothing is invented behind the
  * supervisor's back — and it never touches an order that is already crewed.
+ *
+ * The suggestion is worked out on the click, not on every render: it staffs a
+ * round, re-derives the whole board, and staffs the next against the dates
+ * that came back, which is what keeps it from putting anyone on two orders at
+ * once. That costs a few milliseconds a round and is far too much to repeat
+ * behind a label.
  */
 
-import { useMemo } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
-import { suggestCrew } from '@/engine/assembly/crew';
+import { countUnstaffed, suggestCrew } from '@/engine/assembly/crew';
+import { recomputeAssemblyGantt } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
 import { Button } from '@/ui';
@@ -19,30 +25,33 @@ import { Button } from '@/ui';
 export function SuggestCrew({ board }: { board: AssemblyGanttView | null }) {
   const assignCrews = usePlanStore((s) => s.assignCrews);
   const unlocked = useSupervisorStore((s) => s.unlocked);
-  const suggestion = useMemo(
-    () => (board ? suggestCrew(board) : null),
-    [board],
-  );
 
+  const waiting = board ? countUnstaffed(board) : 0;
   // Nothing to say when every order already has its people.
-  if (!suggestion || suggestion.staffed === 0) return null;
+  if (!board || waiting === 0) return null;
+
+  const crewThem = () => {
+    const { allocations } = suggestCrew(
+      board,
+      (soFar) => recomputeAssemblyGantt(soFar) ?? board,
+    );
+    assignCrews(allocations);
+  };
 
   return (
     <Button
-      onClick={() => assignCrews(suggestion.allocations)}
+      onClick={crewThem}
       disabled={!unlocked}
       title={
         unlocked
-          ? `Put the qualified people on shift onto the ${suggestion.staffed} ` +
-            'orders that have nobody, so they can be scheduled. Orders that ' +
-            'already have a crew are left alone.' +
-            (suggestion.unstaffed > 0
-              ? ` ${suggestion.unstaffed} more have nobody qualified in today.`
-              : '')
+          ? `Put the qualified people on shift onto the ${waiting} orders that ` +
+            'have nobody, so they can be scheduled. Orders that already have a ' +
+            'crew are left alone, and nobody is put on two orders at once — an ' +
+            'order with nobody free across its days is left for you.'
           : 'Allocating crew needs the supervisor password'
       }
     >
-      Crew {suggestion.staffed} orders
+      Crew {waiting} orders
     </Button>
   );
 }

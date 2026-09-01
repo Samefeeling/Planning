@@ -77,6 +77,7 @@ const row = (
   line: UPL,
   workers,
   start: addDays(MON, startDay),
+  plannedStart: addDays(MON, startDay),
   expectDate: over.overtime
     ? addDays(MON, startDay + days)
     : addWorkingDays(addDays(MON, startDay), days),
