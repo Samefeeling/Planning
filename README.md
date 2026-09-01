@@ -11,7 +11,7 @@ polling.
 Source data comes from Epicor via SharePoint, refreshed **every five minutes
 and on demand**: orders from the `Planning1.csv` export, people from the
 `ASSY_Operator` list, and the material picture from the master workbook. The
-plan goes back the other way, into the `ASSY_Plan` list.
+plan goes back the other way, into the `ASSY_Production` list.
 
 ## What it does
 
@@ -27,6 +27,10 @@ plan goes back the other way, into the `ASSY_Plan` list.
   the hours the shift can deliver, so the week reads as a shape before anyone
   reads a number. Green below 80%, orange to 90%, red beyond. Drag a bar to a
   greener day to level the week.
+- **Today is picked out and the weekend is greyed** — the factory does not run
+  Saturday or Sunday. Work planned across a closed day still shows, muted: that
+  is exactly the case where somebody has to agree to overtime. When weekends
+  should be skipped outright, flip `WORKING_DAYS_ONLY` in `domain/assembly.ts`.
 - **Work load, in standard hours** — the remaining hours of an order
   (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
   its bar covers. Shown three ways: per line on the group header, for the whole
@@ -70,7 +74,7 @@ Needs **Node 18, 20 or 22** (Vite 6's requirement). `.nvmrc` and
 nvm use            # or: nvm install 22
 npm install
 npm run dev        # http://localhost:5173 — runs on bundled mock data
-npm test           # engine, adapter and integration tests (115)
+npm test           # engine, adapter and integration tests (125)
 npm run build      # type-check + production build
 ```
 
@@ -173,39 +177,66 @@ morning — so everyone counts as on shift unless an `OnShift` column is added.
 Workers are keyed by SharePoint **list item id**, not name, so renaming someone
 does not orphan the allocations already saved against them.
 
-### The plan → `ASSY_Plan`
+### The plan → `ASSY_Production`
 
-The board mirrors itself back into a SharePoint list, one row per order. Set
-`VITE_PLAN_LIST` to the list name to turn it on; **blank disables it entirely**,
-so the mock demo never writes.
+The board mirrors itself into the `ASSY_Production` list Resero already
+designed — the same shape as `PMD_Production`, so KPI work can aggregate both
+departments without a second mapping layer. **One row per order per day.** Set
+`VITE_PRODUCTION_LIST` to turn it on; blank disables it, so the mock demo never
+writes.
 
-Two directions of information meet in that list, and the split is the whole
-design:
+Each row carries two kinds of column, and the split is the whole design:
 
-| Column | Owner | Written when |
-| --- | --- | --- |
-| `Title` (job number) | key | on first sight of the order |
-| `Operators`, `OperatorIds` | the planner | someone is allocated or taken off |
-| `StartDate` | the planner | a bar is dragged |
-| `Line` | the planner | an order moves between lines |
-| `DueDate` | `Planning1.csv` | a refreshed export changes it |
-| `OrderQty`, `RemainingQty` | `Planning1.csv` | a refreshed export changes them |
-| `ExpectDate` | derived | the crew or the queue moves it |
+| Column | Kind | Owner | Written when |
+| --- | --- | --- | --- |
+| `Title` (job number), `Date` | key | — | the row is opened |
+| `Line` | order-level | the planner | an order moves between lines |
+| `Operators`, `OperatorIds` | order-level | the supervisor | someone is allocated or taken off |
+| `StartDate` | order-level | the supervisor | a bar is dragged |
+| `DueDate` | order-level | `Planning1.csv` | a refreshed export changes it |
+| `OrderQty`, `RemainingQty` | order-level | `Planning1.csv` | a refreshed export changes them |
+| `ExpectDate` | order-level | derived | the crew or the queue moves it |
+| `ShiftOutput`, `Complete`, `Reject`, `Rework` | row-level | the shift | the entry is saved |
+| `JobCompleted`, `Paused`, `PauseReason`, `Notes` | row-level | the shift | the entry is saved |
 
-So **dragging a bar to level the load writes `StartDate` only** — Epicor owns
-the Due Date and this board never changes it. Conversely a refreshed export
-updates `DueDate` and `RemainingQty` without disturbing the crew.
+**Dragging a bar to level the load writes `StartDate` only** — Epicor owns the
+Due Date and this board never changes it. Conversely a refreshed export updates
+`DueDate` and `RemainingQty` without disturbing the crew or anyone's booked
+output: order-level columns are kept in step on *every* row of a job, so a
+changed Due Date reaches rows booked weeks ago, and the patch carries only the
+columns that actually drifted.
 
-`StartDate` is the *effective* start — the later of the planner's drag, the
-line's queue, the predecessor's finish and any material date. That is when work
-actually begins, which is what a reader of the list wants; dragging an order
-earlier than its line can take it will not move the date.
+Every order holds **at least one row**. An order the list has never seen opens
+one on its start day with the production figures at zero; from then on each
+booked shift is its own row. The opening row is created once and never again,
+so it cannot drift to a new day when the bar moves.
+
+`StartDate` is the *effective* start — the later of the drag, the line's queue,
+the predecessor's finish and any material date. That is when work actually
+begins, which is what a reader of the list wants; dragging an order earlier
+than its line can take it will not move the date.
 
 Rows are diffed before writing, so a five-minute refresh with nothing changed
-costs one read and no writes. Orders that leave the export keep their row — the
-list is the record of what was planned, not a copy of today's CSV. A write
-failure shows in the header badge and the warning banner; it never blocks the
-board.
+costs one read and no writes. Orders that leave the export keep their rows —
+the list is the production record, not a copy of today's CSV. A read failure
+aborts before any write. Failures show in the header badge and the warning
+banner; they never block the board.
+
+### The supervisor gate
+
+Only a supervisor decides who works an order, so allocating and removing crew
+is behind `VITE_SUPERVISOR_PASSWORD`, entered once per session from the header.
+Booking the shift's output is deliberately **not** gated — that is the shift's
+own number to report. Leave the variable blank and the gate disappears
+entirely, which is how the demo runs.
+
+> **This is an operational gate, not a security boundary.** Every `VITE_*`
+> variable is compiled into the JavaScript bundle, so anyone who opens dev tools
+> can read the password. It stops the board being changed by whoever happens to
+> be standing at the terminal; it does not protect the SharePoint list — the
+> Graph token and the list's own permissions do that. Making it a real check
+> means moving the comparison to a server that holds the secret and returns a
+> session. Until then, do not reuse a password that matters anywhere else.
 
 ### Sheet → domain mapping (`excel` source)
 
@@ -252,8 +283,9 @@ domain  →  lib  →  engine  →  store  →  features (UI)
   state), `assemblySelectors` (derives the schedule), `uiStore` (selection).
 - **`persistence/`** — `PlanRepository` with a REST (`ApiPlanRepository`) and a
   localStorage fallback; the working plan autosaves.
-- **`features/`** — `assembly` (board, rows, bars, crew chips, inspector, dnd),
-  `refresh`, `source` (the manual CSV loader) and `sync` (write-back).
+- **`features/`** — `assembly` (board, rows, bars, crew chips, inspector, the
+  supervisor lock, dnd), `refresh`, `source` (the manual CSV loader) and `sync`
+  (write-back).
 
 ### How the schedule is derived
 
@@ -275,21 +307,20 @@ re-lays-out the board with no separate update path.
 | --- | --- | --- |
 | 1 ✅ | Assembly Gantt on mock data: crew, dates, booking, colours, predecessors | no |
 | 1b ✅ | Read the real sources: `Planning1.csv` orders, `ASSY_Operator` roster | no |
-| 2 ✅ | Write the plan back to the `ASSY_Plan` SharePoint list | no |
+| 2 ✅ | Write the plan back to the `ASSY_Production` SharePoint list | no |
 | 3 | Merge with the PMD dashboard into one page | yes |
 | 4 | KPI view; actual hours feed back to correct standard hours | yes |
 
-Stage 2 landed as a **direct Graph write** to `ASSY_Plan` (see above) rather
-than a service: crew, start day and line go straight to the list, and a
-refreshed export pushes Due Date and remaining quantity back into it. No
-backend to run.
+Stage 2 landed as a **direct Graph write** to `ASSY_Production` (see above)
+rather than a service: crew, start day, line and the shift's booked output all
+go straight to the list, and a refreshed export pushes Due Date and remaining
+quantity back into it. No backend to run.
 
-The booked shift output is the part still without a home. It is kept in
-`PlanRepository` — localStorage by default, or a REST service when
-`VITE_PERSIST_API_URL` is set — because `ASSY_Production` wants one row per job
-*per day*, which is a different shape from the one-row-per-order mirror.
+`PlanRepository` is still there as the local working copy — localStorage by
+default — so the board survives a reload before the next sync, and a REST
+service can take over by setting `VITE_PERSIST_API_URL`.
 
-The persistence service receives `X-Production-List: ASSY_Production` and
+That service receives `X-Production-List: ASSY_Production` and
 upserts `assembly.production` by Job + Date. Each entry has `Complete`,
 `ShiftOutput`, `Complete`, `Reject`, `Rework`, `JobCompleted`, `Paused`,
 `PauseReason`, and `Notes` fields.

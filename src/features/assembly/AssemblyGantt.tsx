@@ -290,6 +290,21 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
 
   return (
     <div className="assy" style={{ minWidth: labelWidth + gridWidth }}>
+      {/*
+        Day backgrounds for the whole board, drawn once behind the rows rather
+        than per row: today picked out, Saturday and Sunday greyed because the
+        factory is closed. Rows and bars paint on top.
+      */}
+      <div className="day-stripes" style={{ left: labelWidth, width: gridWidth }}>
+        {dayLoads.map((load, i) => (
+          <div
+            key={load.key}
+            className={`stripe ${load.working ? '' : 'closed'} ${load.isToday ? 'today' : ''}`}
+            style={{ left: i * dayWidth, width: dayWidth }}
+          />
+        ))}
+      </div>
+
       <div className="board-tools">
         <strong>Timeline zoom</strong>
         <button onClick={() => setDayWidth((w) => Math.max(44, w - 16))} aria-label="Zoom out">−</button>
@@ -338,21 +353,28 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           {days.map((d, i) => {
             const load = dayLoads[i];
             const pct = Math.round(load.pct);
+            // A closed day still shows what landed on it — that is the case
+            // for overtime — but muted, so it never reads as normal capacity.
+            const band = load.working ? load.band : 'closed';
             return (
               <div
                 key={i}
-                className={`daycol ${d.getDay() === 0 || d.getDay() === 6 ? 'weekend' : ''}`}
+                className={`daycol ${load.working ? '' : 'weekend'} ${load.isToday ? 'today' : ''}`}
                 style={{ left: i * dayWidth, width: dayWidth }}
                 title={
                   `${load.hours.toFixed(1)} h booked of ${load.capacity.toFixed(1)} h ` +
-                  `(${load.available} people) — ${pct}%`
+                  `(${load.available} people) — ${pct}%` +
+                  (load.working ? '' : ' · factory closed, needs overtime')
                 }
               >
-                <span className="daycol-date">{DAY_FMT.format(d)}</span>
-                <span className={`day-bar ${load.band}`}>
+                <span className="daycol-date">
+                  {DAY_FMT.format(d)}
+                  {load.isToday && <b className="today-tag">today</b>}
+                </span>
+                <span className={`day-bar ${band}`}>
                   <i style={{ height: `${Math.min(100, pct)}%` }} />
                 </span>
-                <span className={`day-load ${load.band}`}>{pct}%</span>
+                <span className={`day-load ${band}`}>{pct}%</span>
               </div>
             );
           })}

@@ -311,6 +311,8 @@ button {
   padding: 0;
 }
 .assy {
+  /* Anchors the day-stripe layer below. */
+  position: relative;
   --order-w: 200px;
   --qty-w: 58px;
   --date-w: 62px;
@@ -540,9 +542,57 @@ button {
 .day-load.green { color: var(--ok); }
 .day-load.orange { color: var(--warn); }
 .day-load.red { color: var(--error); }
-.daycol.weekend {
-  background: rgba(255, 255, 255, 0.02);
+/*
+ * Day backgrounds for the whole board — one layer, not one per row. Rows leave
+ * their track cells transparent, so these show through; bars sit at z-index 2.
+ */
+.day-stripes {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
 }
+.stripe {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+/* Saturday and Sunday: the factory is closed. */
+.stripe.closed {
+  background: rgba(100, 116, 139, 0.13);
+}
+.stripe.today {
+  background: rgba(37, 99, 235, 0.07);
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset -1px 0 0 rgba(37, 99, 235, 0.35);
+}
+
+/* Header columns get the same treatment, above the stripe layer. */
+.daycol.weekend {
+  background: rgba(100, 116, 139, 0.13);
+  color: var(--faint);
+}
+.daycol.today {
+  background: rgba(37, 99, 235, 0.09);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.today-tag {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  vertical-align: 1px;
+}
+/* A closed day still shows its load, muted — that is the overtime case. */
+.day-bar.closed i { background: var(--faint); }
+.day-load.closed { color: var(--faint); }
 
 /* line group */
 .agroup-label {
@@ -689,6 +739,13 @@ button {
   border-color: var(--border);
   color: var(--faint);
   cursor: default;
+}
+/* Crew changes are the supervisor's; locked chips stay readable, not clickable. */
+.chip.locked,
+.chip.locked:hover {
+  cursor: not-allowed;
+  opacity: 0.72;
+  border-color: var(--border);
 }
 .chip.add {
   background: var(--surface-3);
@@ -886,6 +943,91 @@ button {
   background: var(--error-dim);
   color: var(--error);
   font-size: 10.5px;
+}
+
+/* ---- supervisor gate ---------------------------------------------------- */
+.supervisor-wrap {
+  position: relative;
+}
+.supervisor-chip {
+  appearance: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.supervisor-chip.open {
+  background: var(--ok-dim);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.supervisor-prompt {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(30, 41, 59, 0.28);
+}
+.supervisor-prompt label {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.supervisor-prompt input {
+  padding: 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.supervisor-error {
+  font-size: 10.5px;
+  color: var(--error);
+}
+.supervisor-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ---- inspector header --------------------------------------------------- */
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inspector-head h2 {
+  flex: 1;
+  min-width: 0;
+}
+.inspector-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  font-size: 16px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.inspector-close:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
 }
 .date-head { flex-direction: column; gap: 3px; text-align: center; line-height: 1.15; }
 .date-head button { width: 22px; height: 18px; line-height: 12px; }

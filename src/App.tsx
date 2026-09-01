@@ -14,6 +14,7 @@ import { useDragDrop } from '@/features/assembly/useDragDrop';
 import { AssemblyGantt } from '@/features/assembly/AssemblyGantt';
 import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
+import { SupervisorLock } from '@/features/assembly/SupervisorLock';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
 import { usePlanSync, type PlanSyncState } from '@/features/sync/usePlanSync';
@@ -132,6 +133,7 @@ export default function App() {
         <div className="spacer" />
         <ScheduleSummary board={board} />
         <PlanSyncBadge sync={sync} />
+        <SupervisorLock />
         <CsvLoader />
         <RefreshControl onRefresh={() => void refresh()} />
       </header>

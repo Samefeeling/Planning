@@ -1,18 +1,19 @@
 /**
- * Keeps the `ASSY_Plan` SharePoint list in step with the board.
+ * Keeps the `ASSY_Production` SharePoint list in step with the board.
  *
- * It runs on two triggers, because two different things change:
+ * It runs on three triggers, because three different things change:
  *
- *  - the board itself — crew allocated, a bar dragged to a new start day. That
- *    is the planner typing, so it is debounced; nobody wants a Graph round trip
- *    per keystroke of a drag.
- *  - a fresh `Planning1.csv`, every five minutes. That is where DueDate and
- *    RemainingQty come back into the list.
+ *  - the supervisor allocates crew or drags a bar to a new start day;
+ *  - the shift books its output in the inspector — Shift Output, Complete,
+ *    Reject, Rework, Job Completed, pause and notes;
+ *  - a fresh `Planning1.csv` arrives, every five minutes. That is where Due
+ *    Date and remaining quantity come back into the list.
  *
- * Both funnel into the same diffing sync, so the second trigger is cheap when
- * nothing actually moved.
+ * All three funnel into the same diffing sync, so the last is cheap when
+ * nothing actually moved. Writes are debounced: nobody wants a Graph round trip
+ * per keystroke of a drag.
  *
- * Writing is **opt-in**: nothing leaves the browser unless `VITE_PLAN_LIST`
+ * Writing is **opt-in**: nothing leaves the browser unless `VITE_PRODUCTION_LIST`
  * names a list and Graph is configured. The mock demo never writes.
  */
 
@@ -20,16 +21,18 @@ import { useEffect, useRef, useState } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { readConfigFromEnv } from '@/data/excel/sharepoint.client';
 import {
-  planRowsFromBoard,
-  syncPlanRows,
+  PRODUCTION_LIST,
+  orderFactsFromBoard,
+  syncProduction,
   type SyncOutcome,
-} from '@/data/sharepoint/plan.sync';
+} from '@/data/sharepoint/production.sync';
+import { usePlanStore } from '@/store/planStore';
 
 /** Wait this long after the last board change before writing. */
 const DEBOUNCE_MS = 1200;
 
 export interface PlanSyncState {
-  /** False when `VITE_PLAN_LIST` is unset — the board is read-only then. */
+  /** False when the list is not configured — the board is then read-only. */
   enabled: boolean;
   list: string;
   busy: boolean;
@@ -40,9 +43,10 @@ export interface PlanSyncState {
 }
 
 export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
-  const list = (import.meta.env.VITE_PLAN_LIST ?? '').trim();
+  const list = (import.meta.env.VITE_PRODUCTION_LIST ?? '').trim();
   const cfg = readConfigFromEnv();
   const enabled = Boolean(list && cfg.siteUrl && cfg.token);
+  const production = usePlanStore((s) => s.production);
 
   const [state, setState] = useState<Omit<PlanSyncState, 'enabled' | 'list'>>({
     busy: false,
@@ -57,11 +61,13 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
   /** Set when a change arrives mid-flight, so nothing is silently dropped. */
   const stale = useRef(false);
 
-  // The plan the list should hold, serialised. The string is the effect's
+  // What the list should say, serialised. The string is the effect's
   // dependency, so a re-render that changes nothing costs no Graph call; the
   // effect parses it back rather than closing over the array, which keeps the
   // written rows and the fingerprint that triggered them in step.
-  const fingerprint = board ? JSON.stringify(planRowsFromBoard(board)) : '';
+  const fingerprint = board
+    ? JSON.stringify(orderFactsFromBoard(board, production))
+    : '';
 
   useEffect(() => {
     if (!enabled || !fingerprint) return;
@@ -74,7 +80,7 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
       running.current = true;
       setState((s) => ({ ...s, busy: true }));
 
-      const outcome = await syncPlanRows(cfg, list, JSON.parse(fingerprint));
+      const outcome = await syncProduction(cfg, list, JSON.parse(fingerprint));
 
       running.current = false;
       setState({
@@ -97,5 +103,5 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, list, fingerprint]);
 
-  return { enabled, list, ...state };
+  return { enabled, list: list || PRODUCTION_LIST, ...state };
 }

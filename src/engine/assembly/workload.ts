@@ -79,10 +79,22 @@ export function loadBand(pct: number): LoadBand {
   return 'red';
 }
 
+/** Saturday or Sunday — the factory is closed. */
+export const isWeekend = (d: Date): boolean =>
+  d.getDay() === 0 || d.getDay() === 6;
+
 /** One day column's load across the whole board. */
 export interface DayBoardLoad {
   key: string;
   date: Date;
+  /** The first column — the day the board is being planned on. */
+  isToday: boolean;
+  /**
+   * A day the factory runs. Weekends are closed, so work planned across one
+   * needs overtime; the board greys them and still shows what landed there,
+   * which is the signal the supervisor needs before agreeing to a Saturday.
+   */
+  working: boolean;
   /** Standard hours of work landing on the day, summed over every order. */
   hours: number;
   /** Hours the people available that day can deliver. */
@@ -127,7 +139,17 @@ export function boardDayLoads(
     );
     const pct = capacity > 0 ? (hours / capacity) * 100 : 0;
 
-    out.push({ key, date, hours, capacity, pct, band: loadBand(pct), available });
+    out.push({
+      key,
+      date,
+      isToday: key === todayKey,
+      working: !isWeekend(date),
+      hours,
+      capacity,
+      pct,
+      band: loadBand(pct),
+      available,
+    });
   }
   return out;
 }

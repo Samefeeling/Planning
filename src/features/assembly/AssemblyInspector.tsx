@@ -14,7 +14,6 @@ import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
 import {
   MAX_WORKERS_PER_ORDER,
-  ORDER_TYPE_LABEL,
   type MaterialPrepStatus,
 } from '@/domain/assembly';
 import { remainingQty } from '@/engine/assembly/duration';
@@ -48,6 +47,7 @@ const isoDay = (d: Date): string =>
 
 export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
+  const select = useUiStore((s) => s.select);
   const row = findOrderRow(board, selectedJobId);
   const recordProgress = usePlanStore((s) => s.recordProgress);
   const recordProduction = usePlanStore((s) => s.recordProduction);
@@ -92,6 +92,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const { job, status } = row;
   const today = isoDay(new Date());
   const left = remainingQty(job);
+  // Closed by the supervisor: the bar greys out and there is nothing left to
+  // book, but the history stays readable.
+  const closed = row.completedToday;
 
   const book = () => {
     const qty = Number(draft || 0);
@@ -114,17 +117,25 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
 
   return (
     <div className="inspector">
-      <h2>{String(job.id)}</h2>
+      <div className="inspector-head">
+        <h2>{String(job.id)}</h2>
+        {closed && <Badge variant="neutral">Job completed</Badge>}
+        <button
+          type="button"
+          className="inspector-close"
+          aria-label="Close order details"
+          title="Close"
+          onClick={() => select(null)}
+        >
+          ×
+        </button>
+      </div>
 
       <dl className="kv">
         <dt>Part</dt>
         <dd>{String(job.partNum)}</dd>
         <dt>Description</dt>
         <dd>{job.description || '—'}</dd>
-        <dt>Work order</dt>
-        <dd>{job.orderType ? ORDER_TYPE_LABEL[job.orderType] : '—'}</dd>
-        <dt>Line</dt>
-        <dd>{row.line.name}</dd>
         <dt>Progress</dt>
         <dd>
           {job.completedQty} / {job.completedQty + left}
