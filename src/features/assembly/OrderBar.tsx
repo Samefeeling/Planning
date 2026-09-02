@@ -117,8 +117,9 @@ export function OrderBar({
         })
       : workingSpans(row.start, end, continuous);
   const worked = spans.reduce((s, p) => s + p.worked, 0);
+  const completion = completedFraction(row.job);
   // Days of work already booked, in the same units as `WorkingSpan.worked`.
-  const doneDays = completedFraction(row.job) * worked;
+  const doneDays = completion * worked;
 
   const pieces =
     spans.length > 0
@@ -166,6 +167,7 @@ export function OrderBar({
         (readOnly ? '' : ` · position ${row.slot + 1} of ${row.line.parallelOrders}`) +
         (pieces.length > 1 ? ' · pauses over the weekend' : '') +
         (row.overtime ? ' · weekend overtime approved' : '') +
+        ` · ${Math.round(completion * 100)}% complete` +
         ` · ${row.status.reason}`
       }
       {...(dragLocked ? {} : listeners)}

@@ -31,8 +31,6 @@ const PREP_LABEL: Record<MaterialPrepStatus, string> = {
   shortage: 'Shortage',
 };
 
-/** Shared empty list so an order with no bookings keeps a stable reference. */
-const NO_ENTRIES: { date: string; qty: number }[] = [];
 const NO_PRODUCTION: ProductionEntry[] = [];
 
 const PAUSE_REASONS: { value: PauseReason; label: string }[] = [
@@ -98,12 +96,6 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const startOrder = usePlanStore((s) => s.startOrder);
   const saveProductionEntry = usePlanStore((s) => s.saveProductionEntry);
   const unlocked = useSupervisorStore((s) => s.unlocked);
-  // Select the stable map, then read from it. Returning a fresh `[]` from the
-  // selector would give React a new snapshot every render and loop forever.
-  const progressByJob = usePlanStore((s) => s.progress);
-  const entries = selectedJobId
-    ? (progressByJob[selectedJobId] ?? NO_ENTRIES)
-    : NO_ENTRIES;
   const [draft, setDraft] = useState('');
   const productionByJob = usePlanStore((s) => s.production);
   const productionEntries = selectedJobId
@@ -117,7 +109,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const [pauseReason, setPauseReason] = useState<PauseReason>('material-shortage');
   const [notes, setNotes] = useState('');
   const [overrideReason, setOverrideReason] = useState('');
-  const [message, setMessage] = useState('');
+  const [startMessage, setStartMessage] = useState('');
+  const [entryMessage, setEntryMessage] = useState('');
   const today = isoDay(new Date());
 
   useEffect(() => {
@@ -131,7 +124,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     setPauseReason(existing?.pauseReason ?? 'material-shortage');
     setNotes(existing?.notes ?? '');
     setOverrideReason('');
-    setMessage('');
+    setStartMessage('');
+    setEntryMessage('');
   }, [selectedJobId, productionEntries, today]);
 
   const close = (
@@ -175,15 +169,15 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     const reason = overrideReason.trim();
     if (!eligibility.allowed) {
       if (!eligibility.canOverride) {
-        setMessage(eligibility.reasons.join(' · '));
+        setStartMessage(eligibility.reasons.join(' · '));
         return;
       }
       if (!unlocked) {
-        setMessage('Unlock Supervisor to override the start gate.');
+        setStartMessage('Unlock Supervisor to override the start gate.');
         return;
       }
       if (!reason) {
-        setMessage('Enter an override reason before starting production.');
+        setStartMessage('Enter an override reason before starting production.');
         return;
       }
     }
@@ -193,34 +187,34 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       operatorIds: activeCrew.map((worker) => String(worker.id)),
       operatorNames: activeCrew.map((worker) => worker.name),
     });
-    setMessage('Production start confirmed.');
+    setStartMessage('Production start confirmed.');
   };
 
   const book = () => {
     if (closed) {
-      setMessage('Completed entries are locked.');
+      setEntryMessage('Completed entries are locked.');
       return;
     }
     const qty = Number(draft || 0);
     const numbers = [qty, Number(reject), Number(rework), Number(shiftOutput)];
     if (!numbers.every((n) => Number.isFinite(n) && n >= 0)) {
-      setMessage('All production quantities must be zero or greater.');
+      setEntryMessage('All production quantities must be zero or greater.');
       return;
     }
     if (qty > maxComplete) {
-      setMessage(`Complete cannot exceed the ${maxComplete} units available.`);
+      setEntryMessage(`Complete cannot exceed the ${maxComplete} units available.`);
       return;
     }
     if (!row.actualStart) {
-      setMessage('Confirm Start production before saving an entry.');
+      setEntryMessage('Confirm Start production before saving an entry.');
       return;
     }
     if (paused && jobCompleted) {
-      setMessage('An order cannot be paused and completed in the same entry.');
+      setEntryMessage('An order cannot be paused and completed in the same entry.');
       return;
     }
     if (numbers.every((n) => n === 0) && !paused && !jobCompleted && !notes.trim()) {
-      setMessage('Enter production, a pause, completion, or a note before saving.');
+      setEntryMessage('Enter production, a pause, completion, or a note before saving.');
       return;
     }
     const completedAt = jobCompleted ? new Date().toISOString() : null;
@@ -241,7 +235,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       remainingQty: row.sourceRemainingQty ?? row.job.remainingQty,
       completedQty: row.sourceCompletedQty ?? row.job.completedQty,
     });
-    setMessage(jobCompleted ? 'Entry saved. Crew released.' : 'Entry saved.');
+    setEntryMessage(jobCompleted ? 'Entry saved. Crew released.' : 'Entry saved.');
   };
 
   return (
@@ -259,9 +253,6 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       }
     >
       <div className="inspector-head">
-        <h2>{String(job.id)}</h2>
-        {closed && <Badge variant="neutral">Job completed</Badge>}
-        {row.overtime && <Badge variant="warn">Weekend overtime</Badge>}
         {close}
       </div>
 
@@ -269,6 +260,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
         <section className="inspector-section job-info">
           <h3>Job Info</h3>
           <dl className="kv">
+            <dt>Job</dt>
+            <dd className="job-number">{String(job.id)}</dd>
             <dt>Part</dt>
             <dd>{String(job.partNum)}</dd>
             <dt>Description</dt>
@@ -287,6 +280,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             <dd>{PREP_LABEL[job.materialPrep]}</dd>
           </dl>
           <div className="job-badges">
+            {closed && <Badge variant="neutral">Job completed</Badge>}
+            {row.overtime && <Badge variant="warn">Weekend overtime</Badge>}
             <Badge
               variant={
                 status.color === 'green'
@@ -376,6 +371,45 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
               </>
             )}
           </dl>
+          <div className="production-start">
+            {row.actualStart ? (
+              <div className="production-history">
+                <strong>Started</strong>{' '}
+                {new Date(row.actualStart.startedAt).toLocaleString('en-AU', {
+                  timeZone: 'Australia/Sydney',
+                })}
+                {row.actualStart.overrideReason &&
+                  ` · Override: ${row.actualStart.overrideReason}`}
+              </div>
+            ) : (
+              <>
+                {!eligibility.allowed && (
+                  <p className="hint">
+                    Start gate: {eligibility.reasons.join(' · ')}
+                  </p>
+                )}
+                {!eligibility.allowed && eligibility.canOverride && unlocked && (
+                  <textarea
+                    className="production-input"
+                    value={overrideReason}
+                    placeholder="Supervisor override reason (required)"
+                    onChange={(event) => setOverrideReason(event.target.value)}
+                  />
+                )}
+                <Button
+                  variant="primary"
+                  disabled={
+                    !eligibility.allowed &&
+                    (!eligibility.canOverride || !unlocked)
+                  }
+                  onClick={beginProduction}
+                >
+                  Start production
+                </Button>
+              </>
+            )}
+            {startMessage && <p className="hint action-message" role="status">{startMessage}</p>}
+          </div>
         </section>
 
         <section className="inspector-section production-entry">
@@ -386,17 +420,19 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             <label>Rework<input type="number" min={0} value={rework} onChange={(event) => setRework(event.target.value)} /></label>
             <label>Complete<input type="number" min={0} max={maxComplete} value={draft} placeholder={`≤ ${maxComplete}`} onChange={(event) => setDraft(event.target.value)} /></label>
           </div>
-          <label className="pause-toggle">
-            <input type="checkbox" checked={paused} onChange={(event) => setPaused(event.target.checked)} /> Pause
-          </label>
+          <div className="production-actions">
+            <label className="pause-toggle">
+              <input type="checkbox" checked={paused} onChange={(event) => setPaused(event.target.checked)} /> Pause
+            </label>
+            <label className="pause-toggle">
+              <input type="checkbox" checked={jobCompleted} onChange={(event) => setJobCompleted(event.target.checked)} /> Job Completed
+            </label>
+          </div>
           {paused && (
             <select className="production-input" value={pauseReason} onChange={(event) => setPauseReason(event.target.value as PauseReason)}>
               {PAUSE_REASONS.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
             </select>
           )}
-          <label className="pause-toggle">
-            <input type="checkbox" checked={jobCompleted} onChange={(event) => setJobCompleted(event.target.checked)} /> Job Completed
-          </label>
           <textarea className="production-input" value={notes} placeholder="Notes (optional)" onChange={(event) => setNotes(event.target.value)} />
           <div className="book">
             <input
@@ -409,73 +445,10 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
               Save entry
             </Button>
           </div>
-          {message && <p className="hint" role="status">{message}</p>}
+          {entryMessage && <p className="hint action-message" role="status">{entryMessage}</p>}
           <p className="hint">
             Entered at shift end. The Expect Date adjusts automatically.
           </p>
-        </section>
-
-        <section className="inspector-section production-status">
-          <h3>Production Status</h3>
-          {row.actualStart ? (
-            <div className="production-history">
-              <strong>Started</strong>{' '}
-              {new Date(row.actualStart.startedAt).toLocaleString('en-AU', {
-                timeZone: 'Australia/Sydney',
-              })}
-              {row.actualStart.overrideReason &&
-                ` · Override: ${row.actualStart.overrideReason}`}
-            </div>
-          ) : (
-            <>
-              {!eligibility.allowed && (
-                <p className="hint">
-                  Start gate: {eligibility.reasons.join(' · ')}
-                </p>
-              )}
-              {!eligibility.allowed && eligibility.canOverride && unlocked && (
-                <textarea
-                  className="production-input"
-                  value={overrideReason}
-                  placeholder="Supervisor override reason (required)"
-                  onChange={(event) => setOverrideReason(event.target.value)}
-                />
-              )}
-              <Button
-                variant="primary"
-                disabled={
-                  !eligibility.allowed &&
-                  (!eligibility.canOverride || !unlocked)
-                }
-                onClick={beginProduction}
-              >
-                Start production
-              </Button>
-            </>
-          )}
-          {entries.length > 0 && (
-            <div className="inspector-subsection">
-              <h4>Booked</h4>
-              {entries.map((entry) => (
-                <div className="shortage-row" key={entry.date}>
-                  <span className="part">{entry.date}</span>
-                  <span>{entry.qty} pcs</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {productionEntries.length > 0 && (
-            <div className="inspector-subsection">
-              <h4>ASSY_Production history</h4>
-              {productionEntries.map((entry) => (
-                <div className="production-history" key={entry.date}>
-                  <strong>{entry.date}</strong> · Shift output {entry.shiftOutput} · Complete {entry.complete} · Reject {entry.reject} · Rework {entry.rework}
-                  {entry.paused && ` · Paused: ${PAUSE_REASONS.find((reason) => reason.value === entry.pauseReason)?.label}`}
-                  {entry.jobCompleted && ' · Job Completed'}
-                </div>
-              ))}
-            </div>
-          )}
         </section>
       </div>
     </div>

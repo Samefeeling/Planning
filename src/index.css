@@ -268,7 +268,7 @@ button {
 
 /* ---- inspector --------------------------------------------------------- */
 .inspector {
-  padding: 12px;
+  padding: 8px;
   border-top: 1px solid var(--border);
 }
 /*
@@ -279,8 +279,8 @@ button {
 .inspector.floating {
   position: fixed;
   z-index: 50;
-  width: min(1120px, calc(100vw - 24px));
-  max-height: 84vh;
+  width: min(680px, calc(100vw - 24px));
+  max-height: min(300px, calc(100vh - 24px));
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -289,13 +289,9 @@ button {
 }
 .inspector-grid {
   display: grid;
-  grid-template-columns:
-    minmax(250px, 1.25fr)
-    minmax(190px, 0.8fr)
-    minmax(230px, 1fr)
-    minmax(230px, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: start;
-  margin-top: 8px;
+  margin-top: 4px;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
@@ -303,7 +299,7 @@ button {
 .inspector-section {
   align-self: stretch;
   min-width: 0;
-  padding: 10px;
+  padding: 8px;
   border-left: 1px solid var(--border);
   background: var(--surface);
 }
@@ -311,13 +307,13 @@ button {
   border-left: 0;
 }
 .inspector-section h3 {
-  margin: 0 0 9px;
+  margin: 0 0 6px;
   font-size: 12px;
   line-height: 1.2;
   color: var(--text);
 }
 .inspector-subsection {
-  margin-top: 11px;
+  margin-top: 7px;
 }
 .inspector-subsection h4 {
   margin: 0 0 5px;
@@ -327,15 +323,18 @@ button {
   letter-spacing: 0.35px;
 }
 .inspector-section .kv {
-  grid-template-columns: 82px 1fr;
-  margin-bottom: 8px;
+  grid-template-columns: 70px 1fr;
+  margin-bottom: 6px;
+}
+.inspector-section .job-number {
+  font-weight: 750;
 }
 .inspector-section .job-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
-@media (max-width: 880px) {
+@media (max-width: 700px) {
   .inspector-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -362,7 +361,7 @@ button {
 .kv {
   display: grid;
   grid-template-columns: 96px 1fr;
-  gap: 3px 8px;
+  gap: 2px 7px;
   font-size: 12px;
   margin-bottom: 10px;
 }
@@ -1082,9 +1081,12 @@ body.col-resizing {
   left: 0;
   top: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.16);
   pointer-events: none;
 }
+.bar.green .bar-progress { background: #4ade80; }
+.bar.orange .bar-progress { background: #fbbf24; }
+.bar.red .bar-progress { background: #f87171; }
+.bar.grey .bar-progress { background: #94a3b8; }
 /* Over the blocks, not inside one, so the label survives a narrow first
    stretch — a bar starting on a Friday is one column wide before the break. */
 .bar-label,
@@ -1513,6 +1515,7 @@ body.col-resizing {
 .inspector-head {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 .inspector-head h2 {
@@ -1579,12 +1582,16 @@ body.col-resizing {
 .team-free.none {
   color: var(--ok);
 }
-.production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 8px; }
+.production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 6px; }
 .production-grid label { color: var(--muted); font-size: 11px; }
 .production-grid input,
-.production-input { width: 100%; margin-top: 2px; padding: 6px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; font: inherit; }
-textarea.production-input { min-height: 54px; resize: vertical; margin: 7px 0; }
-.pause-toggle { display: flex; align-items: center; gap: 6px; margin: 5px 0; font-weight: 650; }
+.production-input { width: 100%; margin-top: 2px; padding: 4px 6px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; font: inherit; }
+textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
+.production-actions { display: flex; align-items: center; gap: 12px; margin: 4px 0; }
+.pause-toggle { display: flex; align-items: center; gap: 5px; margin: 0; font-weight: 650; white-space: nowrap; }
+.production-start { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--border); }
+.production-start .production-history { padding: 0; border-top: 0; }
+.action-message { margin-top: 5px; margin-bottom: 0; }
 .production-history { padding: 6px 0; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.45; }
 .sr-only { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0; pointer-events: none; }
 .picker-item {
