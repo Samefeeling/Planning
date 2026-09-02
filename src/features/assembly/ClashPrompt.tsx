@@ -6,10 +6,14 @@
  * Until the supervisor answers, nothing has changed — the person is not on the
  * second order.
  *
- * Two answers, and both are real:
- *   Confirm   they split their day between the two, or hand over part-way;
- *             the pair is recorded as approved and stops being flagged
- *   Cancel    leave them where they were and put someone else on it
+ * Three answers, and all of them are real:
+ *   Queue it        put them on and let the order wait for them, which is what
+ *                   the board does with a crew by default: they finish the one
+ *                   they are on and pick this up on the next shift
+ *   Both at once    they split their day, or hand over part-way; the pair is
+ *                   recorded as approved, the bars are left overlapping and
+ *                   their day reads as over-booked
+ *   Cancel          leave them where they are and put someone else on it
  */
 
 import { useEffect } from 'react';
@@ -42,7 +46,8 @@ export function ClashPrompt() {
   if (!request) return null;
 
   const jobId = JobId(request.jobId);
-  const confirm = () => {
+  /** Put them on. `overlap` also records that the two bars may run together. */
+  const put = (overlap: boolean) => {
     if (request.fromDay !== undefined || request.toDayExclusive !== undefined) {
       assignWindow(
         jobId,
@@ -53,7 +58,7 @@ export function ClashPrompt() {
     } else {
       assign(jobId, request.workerId);
     }
-    approve(jobId, request.workerId);
+    if (overlap) approve(jobId, request.workerId);
     clear();
   };
 
@@ -78,9 +83,11 @@ export function ClashPrompt() {
           ))}
         </ul>
         <p className="ot-note">
-          Nobody does two jobs at once, so both bars will be planned at a full
-          shift each and their day will read as over-booked. Confirm only if
-          they really are splitting the day or handing over part-way.
+          Queue it and this order waits for them: they finish what they are on
+          and pick this up on the next shift, which is how the board plans a
+          crew. Both at once plans a full shift on each, so their day reads as
+          over-booked — choose it only if they really are splitting the day or
+          handing over part-way.
         </p>
         {gated && (
           <p className="ot-gate">
@@ -88,8 +95,16 @@ export function ClashPrompt() {
           </p>
         )}
         <div className="ot-actions">
-          <Button autoFocus variant="primary" disabled={gated} onClick={confirm}>
-            Put them on anyway
+          <Button
+            autoFocus
+            variant="primary"
+            disabled={gated}
+            onClick={() => put(false)}
+          >
+            Queue it — they start when free
+          </Button>
+          <Button disabled={gated} onClick={() => put(true)}>
+            Both at once
           </Button>
           <Button onClick={clear}>Cancel</Button>
         </div>

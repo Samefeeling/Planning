@@ -65,6 +65,8 @@ function board(
   over: {
     orderStarts?: Record<string, string>;
     orderOvertime?: Record<string, boolean>;
+    orderWorkers?: Record<string, string[]>;
+    orderDoubleBooked?: Record<string, string[]>;
     jobLinks?: JobMaterialLink[];
     today?: Date;
   } = {},
@@ -101,9 +103,10 @@ function board(
         .map((j) => j.id),
     },
     // One person each, so a bar is exactly as long as the order's days.
-    orderWorkers: Object.fromEntries(
-      jobs.map((j, i) => [String(j.id), [`W${i}`]]),
-    ),
+    orderWorkers:
+      over.orderWorkers ??
+      Object.fromEntries(jobs.map((j, i) => [String(j.id), [`W${i}`]])),
+    orderDoubleBooked: over.orderDoubleBooked ?? {},
     orderStarts: over.orderStarts ?? {},
     orderOvertime: over.orderOvertime ?? {},
     progress: {},
@@ -353,4 +356,102 @@ describe('waiting on the orders that build the components', () => {
     expect(b.rowsByJob.get('B')!.start).not.toBeNull();
     expect(b.dependencyWarnings[0]).toMatch(/Circular/);
   });
+});
+
+/**
+ * The other chain: the people. A team finishes one order and picks up the
+ * next, so two bars sharing a person neither overlap nor leave a gap.
+ */
+describe('the crew hand-over', () => {
+  /** Two orders for one person, the second scheduled well into the future. */
+  const pair = (secondStart: Date) => [
+    job('FIRST', 2),
+    job('SECOND', 2, { startDate: secondStart }),
+  ];
+  const bothOnBill = { FIRST: ['W0'], SECOND: ['W0'] };
+
+  it('starts an order the shift after its crew finishes the last one', () => {
+    const b = board(pair(day(28)), { orderWorkers: bothOnBill });
+    const first = b.rowsByJob.get('FIRST')!;
+    const second = b.rowsByJob.get('SECOND')!;
+
+    // Thursday and Friday finish FIRST, so it ends at the close of the week;
+    // SECOND takes the next shift going rather than waiting for the day
+    // Epicor had pencilled in.
+    expect(first.start).toEqual(THU);
+    expect(first.expectDate).toEqual(day(12));
+    expect(second.start).toEqual(day(14));
+  });
+
+  it('never has one person on two orders at once', () => {
+    const b = board(pair(day(11)), { orderWorkers: bothOnBill });
+    const first = b.rowsByJob.get('FIRST')!;
+    const second = b.rowsByJob.get('SECOND')!;
+
+    expect(first.expectDate!.getTime()).toBeLessThanOrEqual(
+      second.start!.getTime(),
+    );
+  });
+
+  it('leaves an order where it is when its crew has nothing else on', () => {
+    // Different people, so there is no hand-over to bring SECOND forward.
+    const b = board(pair(day(28)), {
+      orderWorkers: { FIRST: ['W0'], SECOND: ['W1'] },
+    });
+    expect(b.rowsByJob.get('SECOND')!.start).toEqual(day(28));
+  });
+
+  it('waits for the last of a crew, not the first', () => {
+    // W0 is free on Monday, W1 not until Wednesday. The pair works together.
+    const jobs = [job('SHORT', 2), job('LONG', 4), job('BOTH', 1)];
+    const b = board(jobs, {
+      orderWorkers: { SHORT: ['W0'], LONG: ['W1'], BOTH: ['W0', 'W1'] },
+    });
+    expect(b.rowsByJob.get('SHORT')!.expectDate).toEqual(day(12));
+    expect(b.rowsByJob.get('LONG')!.expectDate).toEqual(day(16));
+    expect(b.rowsByJob.get('BOTH')!.start).toEqual(day(16));
+  });
+
+  it('takes the whole chain with an order dragged out', () => {
+    const jobs = pair(day(28));
+    const after = board(jobs, {
+      orderWorkers: bothOnBill,
+      orderStarts: { FIRST: day(16).toISOString() },
+    });
+    // FIRST runs Wed–Thu, so SECOND now begins on the Friday.
+    expect(after.rowsByJob.get('FIRST')!.expectDate).toEqual(day(18));
+    expect(after.rowsByJob.get('SECOND')!.start).toEqual(day(18));
+  });
+
+  it('brings the chain back in when that order is dragged earlier again', () => {
+    const jobs = pair(day(28));
+    const late = board(jobs, {
+      orderWorkers: bothOnBill,
+      orderStarts: { FIRST: day(18).toISOString() },
+    });
+    const early = board(jobs, {
+      orderWorkers: bothOnBill,
+      orderStarts: { FIRST: day(14).toISOString() },
+    });
+
+    expect(late.rowsByJob.get('SECOND')!.start!.getTime()).toBeGreaterThan(
+      early.rowsByJob.get('SECOND')!.start!.getTime(),
+    );
+    expect(early.rowsByJob.get('SECOND')!.start).toEqual(day(16));
+  });
+
+  it('lets the pair the supervisor approved run side by side', () => {
+    const jobs = pair(day(11));
+    const b = board(jobs, {
+      orderWorkers: bothOnBill,
+      orderDoubleBooked: { SECOND: ['W0'] },
+    });
+    // Explicitly allowed, so SECOND keeps its own day and the two overlap —
+    // the board marks that rather than quietly rescheduling around it.
+    expect(b.rowsByJob.get('SECOND')!.start).toEqual(day(11));
+    expect(b.rowsByJob.get('FIRST')!.expectDate!.getTime()).toBeGreaterThan(
+      b.rowsByJob.get('SECOND')!.start!.getTime(),
+    );
+  });
+
 });

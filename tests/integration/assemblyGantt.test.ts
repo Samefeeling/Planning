@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { MockSource } from '@/data/mock/MockSource';
 import { buildIndexes } from '@/engine/indexes';
-import { computeAssemblyGantt } from '@/engine/assembly/board';
+import { computeAssemblyGantt, type OrderRow } from '@/engine/assembly/board';
 import { workerLoad } from '@/engine/assembly/workload';
 import { remainingHours } from '@/engine/assembly/duration';
 import { usePlanStore } from '@/store/planStore';
@@ -103,10 +103,82 @@ describe('assembly Gantt (mock data)', () => {
     });
     const after = more.rowsByJob.get(id)!;
 
+    // Measured across the bar's own span, not against the calendar: people
+    // already on other orders bring their commitments with them, so putting
+    // them on this one can start it later even as it shortens the work.
+    const span = (r: OrderRow): number =>
+      r.expectDate!.getTime() - r.start!.getTime();
     expect(after.days!).toBeLessThan(row!.days!);
-    expect(after.expectDate!.getTime()).toBeLessThan(
-      row!.expectDate!.getTime(),
-    );
+    expect(span(after)).toBeLessThan(span(row!));
+  });
+
+  it('never has anyone on two orders at the same time', () => {
+    const b = build();
+    const rows = b.groups
+      .filter((g) => g.line.schedulable)
+      .flatMap((g) => g.rows)
+      .filter((r) => r.start && r.expectDate && !r.completedToday);
+    expect(rows.length).toBeGreaterThan(10);
+
+    const clashes: string[] = [];
+    for (const a of rows) {
+      for (const c of rows) {
+        if (String(a.job.id) >= String(c.job.id)) continue;
+        const shared = a.workers.filter((w) =>
+          c.workers.some((other) => String(other.id) === String(w.id)),
+        );
+        if (!shared.length) continue;
+        if (a.start! < c.expectDate! && c.start! < a.expectDate!) {
+          clashes.push(
+            `${String(a.job.id)} and ${String(c.job.id)} both have ` +
+              shared.map((w) => w.name).join(', '),
+          );
+        }
+      }
+    }
+    expect(clashes).toEqual([]);
+  });
+
+  it('hands a crew straight on to their next order', () => {
+    // Every order that follows another with the same people on it begins on
+    // the next shift going, not days later — allowing for the weekend and for
+    // the bar the crew is waiting on ending part-way through a day.
+    const b = build();
+    const rows = b.groups
+      .filter((g) => g.line.schedulable)
+      .flatMap((g) => g.rows)
+      .filter((r) => r.start && r.expectDate);
+
+    let handovers = 0;
+    for (const row of rows) {
+      // The order this crew finished last before starting this one.
+      const previous = rows
+        .filter(
+          (other) =>
+            other !== row &&
+            other.expectDate! <= row.start! &&
+            other.workers.some((w) =>
+              row.workers.some((mine) => String(mine.id) === String(w.id)),
+            ) &&
+            // Only a crew this order kept whole — a team that splits up waits
+            // for its slowest member, which is a gap with a reason.
+            row.workers.every((mine) =>
+              rows.some(
+                (o) =>
+                  o !== row &&
+                  o.expectDate! <= row.start! &&
+                  o.workers.some((w) => String(w.id) === String(mine.id)),
+              ),
+            ),
+        )
+        .sort((x, y) => y.expectDate!.getTime() - x.expectDate!.getTime())[0];
+      if (!previous || row.waitingOn) continue;
+      handovers++;
+      const gapDays =
+        (row.start!.getTime() - previous.expectDate!.getTime()) / 86_400_000;
+      expect(gapDays).toBeLessThanOrEqual(3.01); // ≤ a rounded shift + a weekend
+    }
+    expect(handovers).toBeGreaterThan(0);
   });
 
   it('leaves an order unschedulable when nobody is on it', () => {

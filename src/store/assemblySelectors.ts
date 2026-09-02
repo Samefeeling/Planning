@@ -18,6 +18,7 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
   const containers = usePlanStore((s) => s.containers);
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderCrewAssignments = usePlanStore((s) => s.orderCrewAssignments);
+  const orderDoubleBooked = usePlanStore((s) => s.orderDoubleBooked);
   const orderStarts = usePlanStore((s) => s.orderStarts);
   const orderActualStarts = usePlanStore((s) => s.orderActualStarts);
   const orderOvertime = usePlanStore((s) => s.orderOvertime);
@@ -34,6 +35,7 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
             containers,
             orderWorkers,
             orderCrewAssignments,
+            orderDoubleBooked,
             orderStarts,
             orderActualStarts,
             orderOvertime,
@@ -50,6 +52,7 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
       containers,
       orderWorkers,
       orderCrewAssignments,
+      orderDoubleBooked,
       orderStarts,
       orderActualStarts,
       orderOvertime,
@@ -96,6 +99,7 @@ export function recomputeAssemblyGantt(
         ]),
       ),
     },
+    orderDoubleBooked: plan.orderDoubleBooked,
     orderStarts: plan.orderStarts,
     orderActualStarts: plan.orderActualStarts,
     orderOvertime: plan.orderOvertime,

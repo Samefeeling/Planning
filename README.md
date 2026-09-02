@@ -69,15 +69,27 @@ plan goes back the other way, into the `ASSY_Production` list.
   would paint every working person red. So green has room, orange is full, and
   red is *over*: two orders at once, or work landing on leave or a closed day.
   An idle day is hollow rather than green, and planned leave is hatched.
-- **Nobody is on two orders at once** — a person cannot do two jobs at the same
-  time, so putting someone on an order whose bar runs across one they are
-  already on **asks the supervisor first**, and nothing is written until they
-  answer. They may say yes — splitting a day, or covering a hand-over — and
-  that pair is then recorded as approved. The crew picker offers busy people
-  last and says what they are already on; a chip marks the overlap either way,
-  `!` for one nobody approved and `≡` for one somebody did. Only allocation can
-  be gated this way: an overlap that appears because a bar was dragged, or a
-  refreshed export moved a date, is *marked* rather than prevented.
+- **A crew rolls from one order straight on to the next** — the schedule chains
+  on people as well as on parts. An order whose crew is still on something else
+  begins when the last of them is free, and begins *exactly* then rather than
+  on whatever day Epicor pencilled in: no two bars sharing a person overlap,
+  and no crew sits idle between them. So dragging a bar takes everything
+  downstream with it — the orders waiting on its parts *and* the orders waiting
+  on its people — and dragging it back brings them in again. An order whose
+  crew has nothing else on keeps its own start date; only a hand-over moves it.
+  Because the board plans in whole shifts, a bar that finishes part-way through
+  a day hands over on the next one.
+- **Nobody is on two orders at once** — putting someone on an order that runs
+  across one they are already on **asks the supervisor first**, and nothing is
+  written until they answer. *Queue it* puts them on and lets the order wait for
+  them, which is what the board does with a crew by default. *Both at once* is
+  for a day genuinely being split or handed over part-way: the pair is recorded
+  as approved, the two bars are left overlapping, and that person's day reads as
+  over-booked. The crew picker offers busy people last and says what they are
+  already on; a chip marks any overlap that remains, `!` for one nobody approved
+  and `≡` for one somebody did. A bar the planner dragged keeps its day whatever
+  else its crew is on — a drag is an instruction — so that overlap is *marked*
+  rather than prevented, as is one a refreshed export creates by moving a date.
 - **Crew drives duration** — up to **4 people** per order; bar length is
   remaining standard hours ÷ (crew × productive hours), so adding someone
   visibly shortens it and pulls the Expect Date in. The picker offers only
@@ -100,7 +112,9 @@ plan goes back the other way, into the `ASSY_Production` list.
   Date; if the new start pushes Expect Date past Due, the row turns red.
   **Rows themselves never move on their own**: the order they sit in is the
   planner's, and only dropping a bar on another line changes it. Which order
-  claims a build position first is a separate question, settled by date.
+  claims a build position first is a separate question, settled by date — and a
+  dragged bar claims its *people* before anything else does, or the order it was
+  taken off would simply take them back.
 - **Colour by date** (Ship is the booked departure, Due the later customer date):
 
   | | Condition | Meaning |
