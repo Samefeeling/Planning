@@ -279,13 +279,85 @@ button {
 .inspector.floating {
   position: fixed;
   z-index: 50;
-  width: 340px;
-  max-height: 78vh;
+  width: min(1120px, calc(100vw - 24px));
+  max-height: 84vh;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.26);
+}
+.inspector-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(250px, 1.25fr)
+    minmax(190px, 0.8fr)
+    minmax(230px, 1fr)
+    minmax(230px, 1fr);
+  align-items: start;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.inspector-section {
+  align-self: stretch;
+  min-width: 0;
+  padding: 10px;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+.inspector-section:first-child {
+  border-left: 0;
+}
+.inspector-section h3 {
+  margin: 0 0 9px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text);
+}
+.inspector-subsection {
+  margin-top: 11px;
+}
+.inspector-subsection h4 {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+}
+.inspector-section .kv {
+  grid-template-columns: 82px 1fr;
+  margin-bottom: 8px;
+}
+.inspector-section .job-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+@media (max-width: 880px) {
+  .inspector-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .inspector-section:nth-child(odd) {
+    border-left: 0;
+  }
+  .inspector-section:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
+}
+@media (max-width: 560px) {
+  .inspector-grid {
+    grid-template-columns: 1fr;
+  }
+  .inspector-section,
+  .inspector-section:nth-child(odd) {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+  .inspector-section:first-child {
+    border-top: 0;
+  }
 }
 .kv {
   display: grid;
@@ -1145,6 +1217,29 @@ body.col-resizing {
   color: var(--text);
   border-color: var(--accent);
 }
+.order-window {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.board-tools .order-window button {
+  width: auto;
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.board-tools .order-window button:first-child {
+  border-left: 0;
+}
+.board-tools .order-window button.active {
+  background: var(--accent);
+  color: #fff;
+}
 .attendance-row {
   position: sticky;
   left: 0;
@@ -1441,7 +1536,49 @@ body.col-resizing {
   color: var(--text);
 }
 .date-head { flex-direction: column; gap: 3px; text-align: center; line-height: 1.15; }
-.date-head button { width: 22px; height: 18px; line-height: 12px; }
+.date-head .date-hide { width: 22px; height: 18px; line-height: 12px; }
+.date-head .date-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.15;
+  cursor: pointer;
+}
+.date-head .date-sort span {
+  color: var(--faint);
+  font-size: 8px;
+}
+.date-head .date-sort.active,
+.date-head .date-sort:hover {
+  color: var(--accent);
+}
+.team-head {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+}
+.team-free {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: #b45309;
+  font-size: 9.5px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-free.none {
+  color: var(--ok);
+}
 .production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 8px; }
 .production-grid label { color: var(--muted); font-size: 11px; }
 .production-grid input,

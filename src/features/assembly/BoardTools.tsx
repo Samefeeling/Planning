@@ -18,6 +18,8 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
   const setDayWidth = useUiStore((s) => s.setDayWidth);
   const dateCols = useUiStore((s) => s.dateCols);
   const toggleDateCol = useUiStore((s) => s.toggleDateCol);
+  const orderWindow = useUiStore((s) => s.orderWindow);
+  const setOrderWindow = useUiStore((s) => s.setOrderWindow);
 
   if (!board) return null;
   const hidden = DATE_COLS.filter((key) => !dateCols[key]);
@@ -44,6 +46,21 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
         title="Standard hours still to run across every scheduled order"
       >
         {board.totals.remainingHours.toFixed(0)} h on the board
+      </span>
+      <span className="order-window" aria-label="Order date window">
+        <button
+          className={orderWindow === 'all' ? 'active' : ''}
+          onClick={() => setOrderWindow('all')}
+        >
+          All orders
+        </button>
+        <button
+          className={orderWindow === 'next-five' ? 'active' : ''}
+          onClick={() => setOrderWindow('next-five')}
+          title="Orders touching today and the next five working days"
+        >
+          Next 5 days
+        </button>
       </span>
       {/* Only the columns someone has hidden, so the row stays quiet. */}
       {hidden.map((key) => (

@@ -37,6 +37,7 @@ const clamp = (n: number, lo: number, hi: number): number =>
 export const DATE_COLS = ['start', 'due', 'expect', 'ship'] as const;
 export type DateCol = (typeof DATE_COLS)[number];
 export type DateCols = Record<DateCol, boolean>;
+export type OrderWindowFilter = 'all' | 'next-five';
 
 /** Column headings, shared by the board and the chip that brings one back. */
 export const DATE_COL_LABEL: Record<DateCol, string> = {
@@ -94,6 +95,8 @@ interface UiState {
   orderWidth: number;
   /** Which date columns are showing; hidden ones come back from the header. */
   dateCols: DateCols;
+  /** View-only row filter; never changes the underlying line sequence. */
+  orderWindow: OrderWindowFilter;
 
   /** Show an order's detail; `at` moves the panel, omitting it leaves it. */
   select: (jobId: string | null, at?: ClickPoint) => void;
@@ -101,6 +104,7 @@ interface UiState {
   setDayWidth: (px: number) => void;
   setOrderWidth: (px: number) => void;
   toggleDateCol: (key: DateCol) => void;
+  setOrderWindow: (filter: OrderWindowFilter) => void;
   askOvertime: (request: OvertimeRequest) => void;
   clearOvertime: () => void;
   askClash: (request: ClashRequest) => void;
@@ -118,6 +122,7 @@ export const useUiStore = create<UiState>((set) => ({
   dayWidth: DEFAULT_DAY_WIDTH,
   orderWidth: DEFAULT_ORDER_WIDTH,
   dateCols: { start: true, due: true, expect: true, ship: true },
+  orderWindow: 'all',
 
   // A follow-on pick — a predecessor in the detail itself — comes with no
   // point, and leaves the panel where the reader is already looking.
@@ -136,6 +141,7 @@ export const useUiStore = create<UiState>((set) => ({
     set((state) => ({
       dateCols: { ...state.dateCols, [key]: !state.dateCols[key] },
     })),
+  setOrderWindow: (orderWindow) => set({ orderWindow }),
   askOvertime: (overtimeRequest) => set({ overtimeRequest }),
   clearOvertime: () => set({ overtimeRequest: null }),
   askClash: (clashRequest) => set({ clashRequest }),

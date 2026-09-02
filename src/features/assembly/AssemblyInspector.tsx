@@ -265,206 +265,219 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
         {close}
       </div>
 
-      <dl className="kv">
-        <dt>Part</dt>
-        <dd>{String(job.partNum)}</dd>
-        <dt>Description</dt>
-        <dd>{job.description || '—'}</dd>
-        <dt>Progress</dt>
-        <dd>
-          {job.completedQty} / {job.completedQty + left}
-        </dd>
-        <dt>Due date</dt>
-        <dd>{job.dueDate ? formatDay(job.dueDate) : '—'}</dd>
-        <dt>Expect date</dt>
-        <dd className={`expect ${status.color}`}>
-          {row.expectDate ? formatDay(row.expectDate) : '—'}
-        </dd>
-        <dt>Ship date</dt>
-        <dd>{job.shipDate ? formatDay(job.shipDate) : '—'}</dd>
-        <dt>Kit</dt>
-        <dd>{PREP_LABEL[job.materialPrep]}</dd>
-      </dl>
-
-      <div className="job-badges" style={{ marginBottom: 10 }}>
-        <Badge
-          variant={
-            status.color === 'green'
-              ? 'ok'
-              : status.color === 'orange'
-                ? 'warn'
-                : status.color === 'red'
-                  ? 'error'
-                  : 'neutral'
-          }
-        >
-          {status.reason}
-        </Badge>
-        {row.waitingOn && (
-          <Badge variant="neutral">
-            Waits on {String(row.waitingOn.onJobId)}
-          </Badge>
-        )}
-      </div>
-
-      {row.predecessors.length > 0 && (
-        <>
-          <div className="section-title">Needs finished first</div>
-          <ul className="dep-list">
-            {row.predecessors.map((dep) => {
-              const on = rowsById.get(String(dep.onJobId));
-              const holding = row.waitingOn?.onJobId === dep.onJobId;
-              return (
-                <li key={String(dep.onJobId)} className={holding ? 'holding' : ''}>
-                  <span className="dep-job">
-                    {String(dep.onJobId)}
-                  </span>
-                  <span className="dep-part">
-                    {dep.part ? String(dep.part) : 'named in the order export'}
-                  </span>
-                  <span className="dep-when">
-                    {on?.line.name ?? '—'}
-                    {on?.expectDate ? ` · ${formatDay(on.expectDate)}` : ''}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
-
-      <div className="section-title">Crew &amp; pace</div>
-      <dl className="kv">
-        <dt>On the job</dt>
-        <dd>
-          {activeCrew.length} / {MAX_WORKERS_PER_ORDER} today
-          {activeCrew.length > 0 &&
-            ` — ${activeCrew.map((w) => w.name).join(', ')}`}
-        </dd>
-        <dt>Duration</dt>
-        <dd>{row.days === null ? '—' : `${row.days.toFixed(1)} days`}</dd>
-        <dt>Daily target</dt>
-        <dd>
-          {row.dailyTarget > 0 ? `${Math.round(row.dailyTarget)} / day` : '—'}
-        </dd>
-        {status.color !== 'green' && (
-          <>
-            <dt>To hit ship</dt>
-            <dd>
-              {row.crewToHitShip === null
-                ? `not reachable, even with ${MAX_WORKERS_PER_ORDER}`
-                : `${row.crewToHitShip} people`}
+      <div className="inspector-grid">
+        <section className="inspector-section job-info">
+          <h3>Job Info</h3>
+          <dl className="kv">
+            <dt>Part</dt>
+            <dd>{String(job.partNum)}</dd>
+            <dt>Description</dt>
+            <dd>{job.description || '—'}</dd>
+            <dt>Progress</dt>
+            <dd>{job.completedQty} / {job.completedQty + left}</dd>
+            <dt>Due date</dt>
+            <dd>{job.dueDate ? formatDay(job.dueDate) : '—'}</dd>
+            <dt>Expect date</dt>
+            <dd className={`expect ${status.color}`}>
+              {row.expectDate ? formatDay(row.expectDate) : '—'}
             </dd>
-          </>
-        )}
-      </dl>
-
-      <div className="section-title">Production status</div>
-      {row.actualStart ? (
-        <div className="production-history">
-          <strong>Started</strong> {new Date(row.actualStart.startedAt).toLocaleString('en-AU', { timeZone: 'Australia/Sydney' })}
-          {row.actualStart.overrideReason && ` · Override: ${row.actualStart.overrideReason}`}
-        </div>
-      ) : (
-        <>
-          {!eligibility.allowed && (
-            <p className="hint">Start gate: {eligibility.reasons.join(' · ')}</p>
+            <dt>Ship date</dt>
+            <dd>{job.shipDate ? formatDay(job.shipDate) : '—'}</dd>
+            <dt>Kit</dt>
+            <dd>{PREP_LABEL[job.materialPrep]}</dd>
+          </dl>
+          <div className="job-badges">
+            <Badge
+              variant={
+                status.color === 'green'
+                  ? 'ok'
+                  : status.color === 'orange'
+                    ? 'warn'
+                    : status.color === 'red'
+                      ? 'error'
+                      : 'neutral'
+              }
+            >
+              {status.reason}
+            </Badge>
+            {row.waitingOn && (
+              <Badge variant="neutral">
+                Waits on {String(row.waitingOn.onJobId)}
+              </Badge>
+            )}
+          </div>
+          {row.predecessors.length > 0 && (
+            <div className="inspector-subsection">
+              <h4>Needs finished first</h4>
+              <ul className="dep-list">
+                {row.predecessors.map((dep) => {
+                  const on = rowsById.get(String(dep.onJobId));
+                  const holding = row.waitingOn?.onJobId === dep.onJobId;
+                  return (
+                    <li
+                      key={String(dep.onJobId)}
+                      className={holding ? 'holding' : ''}
+                    >
+                      <span className="dep-job">{String(dep.onJobId)}</span>
+                      <span className="dep-part">
+                        {dep.part ? String(dep.part) : 'named in the order export'}
+                      </span>
+                      <span className="dep-when">
+                        {on?.line.name ?? '—'}
+                        {on?.expectDate ? ` · ${formatDay(on.expectDate)}` : ''}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           )}
-          {!eligibility.allowed && eligibility.canOverride && unlocked && (
-            <textarea
-              className="production-input"
-              value={overrideReason}
-              placeholder="Supervisor override reason (required)"
-              onChange={(event) => setOverrideReason(event.target.value)}
+          {row.material.shortages.length > 0 && (
+            <div className="inspector-subsection">
+              <h4>Short components</h4>
+              {row.material.shortages.map((shortage) => (
+                <div className="shortage-row" key={String(shortage.componentPart)}>
+                  <span className="part">{String(shortage.componentPart)}</span>
+                  <span>
+                    need {shortage.requiredQty}, free {shortage.freeOnHand} (−{shortage.shortQty})
+                    {shortage.coverageDate
+                      ? ` · PO ${shortage.poNum ?? ''} ${formatDay(shortage.coverageDate)}`
+                      : ' · no PO'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="inspector-section crew-pace">
+          <h3>Crew &amp; Pace</h3>
+          <dl className="kv">
+            <dt>On the job</dt>
+            <dd>
+              {activeCrew.length} / {MAX_WORKERS_PER_ORDER} today
+              {activeCrew.length > 0 &&
+                ` — ${activeCrew.map((worker) => worker.name).join(', ')}`}
+            </dd>
+            <dt>Duration</dt>
+            <dd>{row.days === null ? '—' : `${row.days.toFixed(1)} days`}</dd>
+            <dt>Daily target</dt>
+            <dd>
+              {row.dailyTarget > 0 ? `${Math.round(row.dailyTarget)} / day` : '—'}
+            </dd>
+            {status.color !== 'green' && (
+              <>
+                <dt>To hit ship</dt>
+                <dd>
+                  {row.crewToHitShip === null
+                    ? `not reachable, even with ${MAX_WORKERS_PER_ORDER}`
+                    : `${row.crewToHitShip} people`}
+                </dd>
+              </>
+            )}
+          </dl>
+        </section>
+
+        <section className="inspector-section production-entry">
+          <h3>Production Entry</h3>
+          <div className="production-grid">
+            <label>Shift output<input type="number" min={0} value={shiftOutput} onChange={(event) => setShiftOutput(event.target.value)} /></label>
+            <label>Reject<input type="number" min={0} value={reject} onChange={(event) => setReject(event.target.value)} /></label>
+            <label>Rework<input type="number" min={0} value={rework} onChange={(event) => setRework(event.target.value)} /></label>
+            <label>Complete<input type="number" min={0} max={maxComplete} value={draft} placeholder={`≤ ${maxComplete}`} onChange={(event) => setDraft(event.target.value)} /></label>
+          </div>
+          <label className="pause-toggle">
+            <input type="checkbox" checked={paused} onChange={(event) => setPaused(event.target.checked)} /> Pause
+          </label>
+          {paused && (
+            <select className="production-input" value={pauseReason} onChange={(event) => setPauseReason(event.target.value as PauseReason)}>
+              {PAUSE_REASONS.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+            </select>
+          )}
+          <label className="pause-toggle">
+            <input type="checkbox" checked={jobCompleted} onChange={(event) => setJobCompleted(event.target.checked)} /> Job Completed
+          </label>
+          <textarea className="production-input" value={notes} placeholder="Notes (optional)" onChange={(event) => setNotes(event.target.value)} />
+          <div className="book">
+            <input
+              className="sr-only"
+              aria-hidden="true"
+              tabIndex={-1}
+              onKeyDown={(event) => event.key === 'Enter' && book()}
             />
+            <Button variant="primary" disabled={closed} onClick={book}>
+              Save entry
+            </Button>
+          </div>
+          {message && <p className="hint" role="status">{message}</p>}
+          <p className="hint">
+            Entered at shift end. The Expect Date adjusts automatically.
+          </p>
+        </section>
+
+        <section className="inspector-section production-status">
+          <h3>Production Status</h3>
+          {row.actualStart ? (
+            <div className="production-history">
+              <strong>Started</strong>{' '}
+              {new Date(row.actualStart.startedAt).toLocaleString('en-AU', {
+                timeZone: 'Australia/Sydney',
+              })}
+              {row.actualStart.overrideReason &&
+                ` · Override: ${row.actualStart.overrideReason}`}
+            </div>
+          ) : (
+            <>
+              {!eligibility.allowed && (
+                <p className="hint">
+                  Start gate: {eligibility.reasons.join(' · ')}
+                </p>
+              )}
+              {!eligibility.allowed && eligibility.canOverride && unlocked && (
+                <textarea
+                  className="production-input"
+                  value={overrideReason}
+                  placeholder="Supervisor override reason (required)"
+                  onChange={(event) => setOverrideReason(event.target.value)}
+                />
+              )}
+              <Button
+                variant="primary"
+                disabled={
+                  !eligibility.allowed &&
+                  (!eligibility.canOverride || !unlocked)
+                }
+                onClick={beginProduction}
+              >
+                Start production
+              </Button>
+            </>
           )}
-          <Button
-            variant="primary"
-            disabled={!eligibility.allowed && (!eligibility.canOverride || !unlocked)}
-            onClick={beginProduction}
-          >
-            Start production
-          </Button>
-        </>
-      )}
-
-      <div className="section-title">Today&rsquo;s ASSY_Production entry</div>
-      <div className="production-grid">
-        <label>Shift output<input type="number" min={0} value={shiftOutput} onChange={(e) => setShiftOutput(e.target.value)} /></label>
-        <label>Reject<input type="number" min={0} value={reject} onChange={(e) => setReject(e.target.value)} /></label>
-        <label>Rework<input type="number" min={0} value={rework} onChange={(e) => setRework(e.target.value)} /></label>
-        <label>Complete<input type="number" min={0} max={maxComplete} value={draft} placeholder={`≤ ${maxComplete}`} onChange={(e) => setDraft(e.target.value)} /></label>
+          {entries.length > 0 && (
+            <div className="inspector-subsection">
+              <h4>Booked</h4>
+              {entries.map((entry) => (
+                <div className="shortage-row" key={entry.date}>
+                  <span className="part">{entry.date}</span>
+                  <span>{entry.qty} pcs</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {productionEntries.length > 0 && (
+            <div className="inspector-subsection">
+              <h4>ASSY_Production history</h4>
+              {productionEntries.map((entry) => (
+                <div className="production-history" key={entry.date}>
+                  <strong>{entry.date}</strong> · Shift output {entry.shiftOutput} · Complete {entry.complete} · Reject {entry.reject} · Rework {entry.rework}
+                  {entry.paused && ` · Paused: ${PAUSE_REASONS.find((reason) => reason.value === entry.pauseReason)?.label}`}
+                  {entry.jobCompleted && ' · Job Completed'}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
-      <label className="pause-toggle">
-        <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} /> Pause
-      </label>
-      {paused && (
-        <select className="production-input" value={pauseReason} onChange={(e) => setPauseReason(e.target.value as PauseReason)}>
-          {PAUSE_REASONS.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
-        </select>
-      )}
-      <label className="pause-toggle">
-        <input type="checkbox" checked={jobCompleted} onChange={(e) => setJobCompleted(e.target.checked)} /> Job Completed
-      </label>
-      <textarea className="production-input" value={notes} placeholder="Notes (optional)" onChange={(e) => setNotes(e.target.value)} />
-      <div className="book">
-        <input
-          className="sr-only"
-          aria-hidden="true"
-          tabIndex={-1}
-          onKeyDown={(e) => e.key === 'Enter' && book()}
-        />
-        <Button variant="primary" disabled={closed} onClick={book}>
-          Save entry
-        </Button>
-      </div>
-      {message && <p className="hint" role="status">{message}</p>}
-      <p className="hint">
-        Entered at the end of the shift. Short of the daily target and the
-        Expect Date slips out on its own.
-      </p>
-
-      {entries.length > 0 && (
-        <>
-          <div className="section-title">Booked</div>
-          {entries.map((e) => (
-            <div className="shortage-row" key={e.date}>
-              <span className="part">{e.date}</span>
-              <span>{e.qty} pcs</span>
-            </div>
-          ))}
-        </>
-      )}
-
-      {productionEntries.length > 0 && (
-        <>
-          <div className="section-title">ASSY_Production history</div>
-          {productionEntries.map((entry) => (
-            <div className="production-history" key={entry.date}>
-              <strong>{entry.date}</strong> · Shift output {entry.shiftOutput} · Complete {entry.complete} · Reject {entry.reject} · Rework {entry.rework}
-              {entry.paused && ` · Paused: ${PAUSE_REASONS.find((r) => r.value === entry.pauseReason)?.label}`}
-              {entry.jobCompleted && ' · Job Completed'}
-            </div>
-          ))}
-        </>
-      )}
-
-      {row.material.shortages.length > 0 && (
-        <>
-          <div className="section-title">Short components</div>
-          {row.material.shortages.map((s) => (
-            <div className="shortage-row" key={String(s.componentPart)}>
-              <span className="part">{String(s.componentPart)}</span>
-              <span>
-                need {s.requiredQty}, free {s.freeOnHand} (−{s.shortQty})
-                {s.coverageDate
-                  ? ` · PO ${s.poNum ?? ''} ${formatDay(s.coverageDate)}`
-                  : ' · no PO'}
-              </span>
-            </div>
-          ))}
-        </>
-      )}
     </div>
   );
 }

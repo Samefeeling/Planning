@@ -24,7 +24,11 @@ import {
 } from '@/domain/assembly';
 import { addDays, shiftFraction } from '@/engine/assembly/dates';
 import { remainingHours } from '@/engine/assembly/duration';
-import { boardDayLoads, rosterLoad } from '@/engine/assembly/workload';
+import {
+  boardDayLoads,
+  lineLoad,
+  rosterLoad,
+} from '@/engine/assembly/workload';
 import {
   MAX_ORDER_WIDTH,
   MIN_ORDER_WIDTH,
@@ -36,6 +40,13 @@ import {
 import { OrderBar } from './OrderBar';
 import { TeamChips } from './TeamChips';
 import { WorkerLoadChip } from './WorkerLoadChip';
+import {
+  activeWorkerIdsOnDay,
+  isInNextWorkingDays,
+  sortLineRows,
+  type OrderSort,
+  type OrderSortKey,
+} from './boardView';
 
 // Must match the widths in index.css (--qty-w, --date-w x4, --team-w),
 // otherwise the header's day columns drift out of line with the row tracks.
@@ -204,6 +215,7 @@ function LineGroupView({
   visibleDates,
   collapsed,
   onToggle,
+  filtered,
 }: {
   group: LineGroup;
   board: AssemblyGanttView;
@@ -216,6 +228,7 @@ function LineGroupView({
   visibleDates: DateCols;
   collapsed: boolean;
   onToggle: () => void;
+  filtered: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: String(group.line.id),
@@ -261,7 +274,9 @@ function LineGroupView({
         <div className="arow empty">
           <div className="acell order">
             {group.line.schedulable
-              ? 'Drop an order here'
+              ? filtered
+                ? 'No orders in the next five working days'
+                : 'Drop an order here'
               : 'No orders on this line'}
           </div>
         </div>
@@ -293,7 +308,9 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const setOrderWidth = useUiStore((s) => s.setOrderWidth);
   const visibleDates = useUiStore((s) => s.dateCols);
   const toggleDate = useUiStore((s) => s.toggleDateCol);
+  const orderWindow = useUiStore((s) => s.orderWindow);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [sort, setSort] = useState<OrderSort | null>(null);
 
   // The clock behind the "now" line. Five minutes is as fine as the line is
   // worth reading, and it keeps the board from re-rendering every second.
@@ -315,6 +332,27 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     () => board.groups.flatMap((group) => group.rows),
     [board],
   );
+  const visibleGroups = useMemo(
+    () =>
+      board.groups.map((group) => {
+        const filteredRows =
+          orderWindow === 'next-five'
+            ? group.rows.filter((row) =>
+                isInNextWorkingDays(row, board.today),
+              )
+            : group.rows;
+        return {
+          ...group,
+          rows: sortLineRows(filteredRows, sort),
+          load: lineLoad(filteredRows),
+        };
+      }),
+    [board.groups, board.today, orderWindow, sort],
+  );
+  const visibleRows = useMemo(
+    () => visibleGroups.flatMap((group) => group.rows),
+    [visibleGroups],
+  );
   // Every name in the header carries five load squares, so the whole roster's
   // week is worked out once here rather than once per chip on every render.
   // From today: the week to come is what a supervisor allocates against.
@@ -322,11 +360,12 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     () => rosterLoad(board.workers, allRows, board.today),
     [board, allRows],
   );
-  const allocated = new Set(
-    allRows.flatMap((row) => row.workers.map((worker) => String(worker.id))),
-  );
+  const allocated = activeWorkerIdsOnDay(allRows, board.today);
   const attendanceIds = new Set(attendance.map((worker) => String(worker.id)));
   const allocatedOnSite = [...allocated].filter((id) => attendanceIds.has(id)).length;
+  const unallocated = attendance.filter(
+    (worker) => !allocated.has(String(worker.id)),
+  );
   const allocationCoverage = attendance.length
     ? Math.round((allocatedOnSite / attendance.length) * 100)
     : 0;
@@ -358,7 +397,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   // arithmetic as the per-person and per-line loads, so the three agree. The
   // columns behind today instead carry what was booked as output.
   const dayLoads = boardDayLoads(
-    allRows,
+    visibleRows,
     board.workers,
     board.horizonStart,
     board.horizonDays,
@@ -373,11 +412,41 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       : (todayIndex + shiftFraction(now, SHIFT_START_HOUR, SHIFT_END_HOUR)) *
         dayWidth;
 
-  const dateHead = (key: DateCol, label: string) =>
+  const changeSort = (key: OrderSortKey) =>
+    setSort((current) => ({
+      key,
+      direction:
+        current?.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+    }));
+
+  const dateHead = (
+    key: DateCol,
+    label: string,
+    sortable: boolean,
+  ) =>
     visibleDates[key] && (
       <div className="acell date date-head frozen" style={{ left: headerLeft() }}>
-        <span>{label}</span>
-        <button onClick={() => toggleDate(key)} title={`Hide ${label}`}>−</button>
+        {sortable ? (
+          <button
+            className={`date-sort ${sort?.key === key ? 'active' : ''}`}
+            onClick={() => changeSort(key as OrderSortKey)}
+            title={`Sort each line by ${label}`}
+          >
+            {label}
+            <span aria-hidden="true">
+              {sort?.key === key ? (sort.direction === 'asc' ? '▲' : '▼') : '↕'}
+            </span>
+          </button>
+        ) : (
+          <span>{label}</span>
+        )}
+        <button
+          className="date-hide"
+          onClick={() => toggleDate(key)}
+          title={`Hide ${label}`}
+        >
+          −
+        </button>
       </div>
     );
 
@@ -475,11 +544,28 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           >
             Required Hours
           </div>
-          {dateHead('start', 'Start Date')}
-          {dateHead('due', 'Due Date')}
-          {dateHead('expect', 'Expect Date')}
-          {dateHead('ship', 'Ship Date')}
-          <div className="acell team frozen" style={{ left: headerOffset }}>Team</div>
+          {dateHead('start', 'Start Date', true)}
+          {dateHead('due', 'Due Date', true)}
+          {dateHead('expect', 'Expect Date', false)}
+          {dateHead('ship', 'Ship Date', true)}
+          <div
+            className="acell team team-head frozen"
+            style={{ left: headerOffset }}
+          >
+            <span>Team</span>
+            <span
+              className={`team-free ${unallocated.length === 0 ? 'none' : ''}`}
+              title={
+                unallocated.length > 0
+                  ? `Unallocated today: ${unallocated.map((worker) => worker.name).join(', ')}`
+                  : 'Everyone on site is allocated today'
+              }
+            >
+              {unallocated.length > 0
+                ? `Free: ${unallocated.map((worker) => worker.name).join(', ')}`
+                : 'All allocated'}
+            </span>
+          </div>
           {/* Load histogram: one column per day, coloured by band. */}
           <div className="acell track" style={{ width: gridWidth }}>
             {days.map((d, i) => {
@@ -517,7 +603,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
         </div>
       </div>
 
-      {board.groups.map((group) => (
+      {visibleGroups.map((group) => (
         <LineGroupView
           key={group.line.key}
           group={group}
@@ -531,6 +617,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           visibleDates={visibleDates}
           collapsed={Boolean(collapsed[group.line.key])}
           onToggle={() => setCollapsed((current) => ({ ...current, [group.line.key]: !current[group.line.key] }))}
+          filtered={orderWindow === 'next-five'}
         />
       ))}
     </div>
