@@ -115,9 +115,6 @@ function OrderRowView({
   return (
     <div
       className={`arow ${selected ? 'selected' : ''} ${isContext ? 'context' : ''} ${row.completedToday ? 'completed-today' : ''}`}
-      // The detail opens beside the pointer, so the click has to say where
-      // it was — see AssemblyInspector.
-      onClick={(e) => onSelect(String(row.job.id), { x: e.clientX, y: e.clientY })}
     >
       <div className="acell order">
         <span className="order-id">{String(row.job.id)}</span>
@@ -160,7 +157,12 @@ function OrderRowView({
         {isContext ? (
           <span className="chip empty">moulding</span>
         ) : (
-          <TeamChips row={row} roster={board.workers} rows={allRows} />
+          <TeamChips
+            row={row}
+            roster={board.workers}
+            rows={allRows}
+            disabled={row.completedToday}
+          />
         )}
       </div>
       <div className="acell track" style={{ width: gridWidth }}>

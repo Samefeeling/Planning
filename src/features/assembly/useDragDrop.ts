@@ -68,6 +68,7 @@ export function useDragDrop() {
       const { orderStarts, setOrderStart, setOvertime, containerOf, moveJob } =
         usePlanStore.getState();
       const key = String(jobId);
+      if (usePlanStore.getState().orderActualStarts[key]) return;
 
       const droppedOn =
         over?.data.current?.type === 'line'

@@ -11,7 +11,7 @@
  * a chip for someone on two orders at the same time is marked either way.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
 import type { Worker } from '@/domain/assembly';
 import { MAX_WORKERS_PER_ORDER } from '@/domain/assembly';
@@ -31,18 +31,40 @@ export function TeamChips({
   row,
   roster,
   rows,
+  disabled = false,
 }: {
   row: OrderRow;
   roster: Worker[];
   /** Every row on the board — an overlap on another line counts too. */
   rows: OrderRow[];
+  disabled?: boolean;
 }) {
-  const [picking, setPicking] = useState(false);
+  const jobId = String(row.job.id);
+  const pickerJobId = useUiStore((s) => s.crewPickerJobId);
+  const setCrewPicker = useUiStore((s) => s.setCrewPicker);
+  const picking = pickerJobId === jobId;
+  const root = useRef<HTMLDivElement>(null);
   const assign = usePlanStore((s) => s.assignWorker);
   const unassign = usePlanStore((s) => s.unassignWorker);
   const approved = usePlanStore((s) => s.orderDoubleBooked);
   const askClash = useUiStore((s) => s.askClash);
   const unlocked = useSupervisorStore((s) => s.unlocked);
+
+  useEffect(() => {
+    if (!picking) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setCrewPicker(null);
+    };
+    const closeEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCrewPicker(null);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeEscape);
+    };
+  }, [picking, setCrewPicker]);
 
   const onIt = new Set(row.workers.map((w) => String(w.id)));
   const full = row.workers.length >= MAX_WORKERS_PER_ORDER;
@@ -74,7 +96,7 @@ export function TeamChips({
     .sort((a, b) => a.busy.length - b.busy.length);
 
   const add = (worker: Worker, busy: OrderRow[]) => {
-    setPicking(false);
+    setCrewPicker(null);
     if (busy.length === 0) {
       assign(row.job.id, String(worker.id));
       return;
@@ -91,7 +113,7 @@ export function TeamChips({
   };
 
   return (
-    <div className="team">
+    <div className="team" ref={root}>
       {row.workers.map((w) => {
         const busy = clashes(String(w.id));
         const ok = busy.every((other) => isApproved(String(w.id), other));
@@ -101,9 +123,11 @@ export function TeamChips({
             className={`chip ${unlocked ? '' : 'locked'} ${
               busy.length === 0 ? '' : ok ? 'shared' : 'clash'
             }`}
-            disabled={!unlocked}
+            disabled={!unlocked || disabled}
             title={[
-              unlocked ? `${w.name} — click to remove` : `${w.name} — ${LOCKED}`,
+              unlocked && !disabled
+                ? `${w.name} — click to remove`
+                : `${w.name} — ${disabled ? 'completed order' : LOCKED}`,
               detail(w),
               busy.length > 0 &&
                 `${ok ? 'Splitting their day with' : 'Also on'}: ${busy
@@ -129,7 +153,7 @@ export function TeamChips({
 
       {row.workers.length === 0 && <span className="chip empty">no crew</span>}
 
-      {!full && (
+      {!full && !disabled && (
         <span className="chip-add-wrap">
           <button
             className={`chip add ${unlocked ? '' : 'locked'}`}
@@ -139,7 +163,7 @@ export function TeamChips({
             }
             onClick={(e) => {
               e.stopPropagation();
-              setPicking((p) => !p);
+              setCrewPicker(picking ? null : jobId);
             }}
           >
             {unlocked ? '+' : '🔒'}

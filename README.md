@@ -82,11 +82,13 @@ plan goes back the other way, into the `ASSY_Production` list.
   remaining standard hours ÷ (crew × productive hours), so adding someone
   visibly shortens it and pulls the Expect Date in. The picker offers only
   people who are on shift *and* qualified for that line.
-- **The order detail opens where you clicked** — beside the pointer, over the
-  board, rather than in a fixed column: the supervisor is already looking at
-  that row, and the schedule keeps the whole width. `×` or `Escape` closes it.
-- **Book the shift** — enter the quantity finished today; the Expect Date moves
-  on its own: short of the daily target it slips out, ahead of it pulls in.
+- **The order detail opens only from an order block** — beside the pointer,
+  over the board. Clicking a row, date, team cell or empty timeline does not
+  open it. `×` or `Escape` closes it.
+- **Start, then book the shift** — `Start production` records the exact start
+  instant and locks the order against further dragging. Entering the completed
+  quantity moves Expect Date; saving `Job Completed` stores the exact completion
+  instant and releases the active crew in the same state update.
 - **Production actuals** — Shift Output, Complete, Reject, Rework, Job Completed and Pause
   reasons are captured as daily records for the `ASSY_Production` SharePoint
   list. Its columns intentionally mirror `PMD_Production`, allowing KPI.ts to
@@ -310,15 +312,16 @@ Each row carries two kinds of column, and the split is the whole design:
 
 | Column | Kind | Owner | Written when |
 | --- | --- | --- | --- |
-| `Title` (job number), `Date` | key | — | the row is opened |
+| `RecordKey` (`Job|YYYY-MM-DD`), `Title`, `Date` | key | — | the row is opened |
 | `Line` | order-level | the planner | an order moves between lines |
-| `Operators`, `OperatorIds` | order-level | the supervisor | someone is allocated or taken off |
-| `StartDate` | order-level | the supervisor | a bar is dragged |
+| `StartDate` | order-level | the planner | a bar is dragged |
+| `ActualStartAt`, `StartOverrideReason` | order-level | the supervisor | production is started |
 | `DueDate` | order-level | `Planning1.csv` | a refreshed export changes it |
 | `OrderQty`, `RemainingQty` | order-level | `Planning1.csv` | a refreshed export changes them |
 | `ExpectDate` | order-level | derived | the crew or the queue moves it |
+| `Operators`, `OperatorIds` | row-level snapshot | the supervisor | the entry is saved |
 | `ShiftOutput`, `Complete`, `Reject`, `Rework` | row-level | the shift | the entry is saved |
-| `JobCompleted`, `Paused`, `PauseReason`, `Notes` | row-level | the shift | the entry is saved |
+| `JobCompleted`, `CompletedAt`, `Paused`, `PauseReason`, `Notes` | row-level | the shift | the entry is saved |
 
 **Dragging a bar to level the load writes `StartDate` only** — Epicor owns the
 Due Date and this board never changes it. Conversely a refreshed export updates
@@ -332,16 +335,17 @@ one on its start day with the production figures at zero; from then on each
 booked shift is its own row. The opening row is created once and never again,
 so it cannot drift to a new day when the bar moves.
 
-`StartDate` is the *effective* start — the day the bar actually begins, after
-a predecessor, short material or a closed weekend has had its say. That is when
-work really starts, which is what a reader of the list wants. A hand-dragged
-start is honoured as given; an automatic one waits for a free build position.
+`StartDate` is the planned/effective day on the schedule. `ActualStartAt` is a
+separate immutable instant set by the Start production button, so a planned
+date can never be mistaken for proof that production began.
 
 Rows are diffed before writing, so a five-minute refresh with nothing changed
 costs one read and no writes. Orders that leave the export keep their rows —
 the list is the production record, not a copy of today's CSV. A read failure
-aborts before any write. Failures show in the header badge and the warning
-banner; they never block the board.
+aborts before any write and transient failures retry with bounded backoff.
+Duplicate Job + Date rows are reported and left untouched. See
+[`docs/sharepoint-production-schema.md`](docs/sharepoint-production-schema.md)
+before enabling write-back.
 
 ### The supervisor gate
 

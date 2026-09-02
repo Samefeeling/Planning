@@ -174,7 +174,8 @@ export interface Job {
   startDate: Date | null;
   /** Material "required by" date (planning `Req. By`). */
   reqBy: Date | null;
-  released: boolean;
+  /** Null means the source did not provide a trustworthy release value. */
+  released: boolean | null;
   /** Scheduling priority; 1 is most urgent. */
   priority: number;
   /**

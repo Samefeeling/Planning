@@ -18,8 +18,10 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
   const containers = usePlanStore((s) => s.containers);
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderStarts = usePlanStore((s) => s.orderStarts);
+  const orderActualStarts = usePlanStore((s) => s.orderActualStarts);
   const orderOvertime = usePlanStore((s) => s.orderOvertime);
   const progress = usePlanStore((s) => s.progress);
+  const progressBaselines = usePlanStore((s) => s.progressBaselines);
   const production = usePlanStore((s) => s.production);
 
   return useMemo(
@@ -31,8 +33,10 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
             containers,
             orderWorkers,
             orderStarts,
+            orderActualStarts,
             orderOvertime,
             progress,
+            progressBaselines,
             production,
             workers: dataset.workers,
             today: new Date(),
@@ -44,8 +48,10 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
       containers,
       orderWorkers,
       orderStarts,
+      orderActualStarts,
       orderOvertime,
       progress,
+      progressBaselines,
       production,
     ],
   );
@@ -75,8 +81,10 @@ export function recomputeAssemblyGantt(
     containers: plan.containers,
     orderWorkers: { ...plan.orderWorkers, ...extraCrew },
     orderStarts: plan.orderStarts,
+    orderActualStarts: plan.orderActualStarts,
     orderOvertime: plan.orderOvertime,
     progress: plan.progress,
+    progressBaselines: plan.progressBaselines,
     production: plan.production,
     workers: dataset.workers,
     today: new Date(),

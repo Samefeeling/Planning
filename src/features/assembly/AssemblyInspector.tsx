@@ -17,11 +17,14 @@ import {
   type MaterialPrepStatus,
 } from '@/domain/assembly';
 import { remainingQty } from '@/engine/assembly/duration';
+import { startEligibility } from '@/engine/assembly/release';
 import { formatDay } from '@/lib/time';
 import { Badge, Button } from '@/ui';
 import type { PauseReason, ProductionEntry } from '@/store/planStore';
+import { useSupervisorStore } from '@/store/supervisorStore';
 
 const PREP_LABEL: Record<MaterialPrepStatus, string> = {
+  unknown: 'Unknown',
   'not-prepared': 'Not prepared',
   preparing: 'Preparing',
   ready: 'Ready',
@@ -92,8 +95,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       ),
     [board],
   );
-  const recordProgress = usePlanStore((s) => s.recordProgress);
-  const recordProduction = usePlanStore((s) => s.recordProduction);
+  const startOrder = usePlanStore((s) => s.startOrder);
+  const saveProductionEntry = usePlanStore((s) => s.saveProductionEntry);
+  const unlocked = useSupervisorStore((s) => s.unlocked);
   // Select the stable map, then read from it. Returning a fresh `[]` from the
   // selector would give React a new snapshot every render and loop forever.
   const progressByJob = usePlanStore((s) => s.progress);
@@ -112,16 +116,23 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const [jobCompleted, setJobCompleted] = useState(false);
   const [pauseReason, setPauseReason] = useState<PauseReason>('material-shortage');
   const [notes, setNotes] = useState('');
+  const [overrideReason, setOverrideReason] = useState('');
+  const [message, setMessage] = useState('');
+  const today = isoDay(new Date());
 
   useEffect(() => {
-    setDraft('');
-    setReject('0');
-    setRework('0');
-    setShiftOutput('0');
-    setPaused(false);
-    setJobCompleted(false);
-    setNotes('');
-  }, [selectedJobId]);
+    const existing = productionEntries.find((entry) => entry.date === today);
+    setDraft(existing ? String(existing.complete) : '');
+    setReject(String(existing?.reject ?? 0));
+    setRework(String(existing?.rework ?? 0));
+    setShiftOutput(String(existing?.shiftOutput ?? 0));
+    setPaused(Boolean(existing?.paused));
+    setJobCompleted(Boolean(existing?.jobCompleted));
+    setPauseReason(existing?.pauseReason ?? 'material-shortage');
+    setNotes(existing?.notes ?? '');
+    setOverrideReason('');
+    setMessage('');
+  }, [selectedJobId, productionEntries, today]);
 
   const close = (
     <button
@@ -140,18 +151,70 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   if (!row) return null;
 
   const { job, status } = row;
-  const today = isoDay(new Date());
   const left = remainingQty(job);
+  const existingToday = productionEntries.find((entry) => entry.date === today);
+  const maxComplete = left + (existingToday?.complete ?? 0);
   // Closed by the supervisor: the bar greys out and there is nothing left to
   // book, but the history stays readable.
   const closed = row.completedToday;
 
+  const eligibility = startEligibility(job.released, row.release, row.workers.length);
+
+  const beginProduction = () => {
+    if (row.actualStart) return;
+    const reason = overrideReason.trim();
+    if (!eligibility.allowed) {
+      if (!eligibility.canOverride) {
+        setMessage(eligibility.reasons.join(' · '));
+        return;
+      }
+      if (!unlocked) {
+        setMessage('Unlock Supervisor to override the start gate.');
+        return;
+      }
+      if (!reason) {
+        setMessage('Enter an override reason before starting production.');
+        return;
+      }
+    }
+    startOrder(job.id, {
+      startedAt: new Date().toISOString(),
+      overrideReason: eligibility.allowed ? null : reason,
+      operatorIds: row.workers.map((worker) => String(worker.id)),
+      operatorNames: row.workers.map((worker) => worker.name),
+    });
+    setMessage('Production start confirmed.');
+  };
+
   const book = () => {
+    if (closed) {
+      setMessage('Completed entries are locked.');
+      return;
+    }
     const qty = Number(draft || 0);
-    if (![qty, Number(reject), Number(rework), Number(shiftOutput)].every((n) => Number.isFinite(n) && n >= 0)) return;
-    if (qty === 0 && Number(reject) === 0 && Number(rework) === 0 && Number(shiftOutput) === 0 && !paused && !jobCompleted) return;
-    recordProgress(job.id, today, qty);
-    recordProduction(job.id, {
+    const numbers = [qty, Number(reject), Number(rework), Number(shiftOutput)];
+    if (!numbers.every((n) => Number.isFinite(n) && n >= 0)) {
+      setMessage('All production quantities must be zero or greater.');
+      return;
+    }
+    if (qty > maxComplete) {
+      setMessage(`Complete cannot exceed the ${maxComplete} units available.`);
+      return;
+    }
+    if (!row.actualStart) {
+      setMessage('Confirm Start production before saving an entry.');
+      return;
+    }
+    if (paused && jobCompleted) {
+      setMessage('An order cannot be paused and completed in the same entry.');
+      return;
+    }
+    if (numbers.every((n) => n === 0) && !paused && !jobCompleted && !notes.trim()) {
+      setMessage('Enter production, a pause, completion, or a note before saving.');
+      return;
+    }
+    const completedAt = jobCompleted ? new Date().toISOString() : null;
+    saveProductionEntry(job.id, {
       date: today,
       complete: qty,
       reject: Number(reject),
@@ -160,9 +223,15 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       paused,
       pauseReason: paused ? pauseReason : null,
       jobCompleted,
+      operatorIds: row.workers.map((worker) => String(worker.id)),
+      operatorNames: row.workers.map((worker) => worker.name),
+      completedAt,
       notes: notes.trim(),
+    }, {
+      remainingQty: row.sourceRemainingQty ?? row.job.remainingQty,
+      completedQty: row.sourceCompletedQty ?? row.job.completedQty,
     });
-    setDraft('');
+    setMessage(jobCompleted ? 'Entry saved. Crew released.' : 'Entry saved.');
   };
 
   return (
@@ -237,14 +306,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
               const holding = row.waitingOn?.onJobId === dep.onJobId;
               return (
                 <li key={String(dep.onJobId)} className={holding ? 'holding' : ''}>
-                  <button
-                    type="button"
-                    className="dep-job"
-                    title="Show this order on the board"
-                    onClick={() => select(String(dep.onJobId))}
-                  >
+                  <span className="dep-job">
                     {String(dep.onJobId)}
-                  </button>
+                  </span>
                   <span className="dep-part">
                     {dep.part ? String(dep.part) : 'named in the order export'}
                   </span>
@@ -285,12 +349,41 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
         )}
       </dl>
 
+      <div className="section-title">Production status</div>
+      {row.actualStart ? (
+        <div className="production-history">
+          <strong>Started</strong> {new Date(row.actualStart.startedAt).toLocaleString('en-AU', { timeZone: 'Australia/Sydney' })}
+          {row.actualStart.overrideReason && ` · Override: ${row.actualStart.overrideReason}`}
+        </div>
+      ) : (
+        <>
+          {!eligibility.allowed && (
+            <p className="hint">Start gate: {eligibility.reasons.join(' · ')}</p>
+          )}
+          {!eligibility.allowed && eligibility.canOverride && unlocked && (
+            <textarea
+              className="production-input"
+              value={overrideReason}
+              placeholder="Supervisor override reason (required)"
+              onChange={(event) => setOverrideReason(event.target.value)}
+            />
+          )}
+          <Button
+            variant="primary"
+            disabled={!eligibility.allowed && (!eligibility.canOverride || !unlocked)}
+            onClick={beginProduction}
+          >
+            Start production
+          </Button>
+        </>
+      )}
+
       <div className="section-title">Today&rsquo;s ASSY_Production entry</div>
       <div className="production-grid">
         <label>Shift output<input type="number" min={0} value={shiftOutput} onChange={(e) => setShiftOutput(e.target.value)} /></label>
         <label>Reject<input type="number" min={0} value={reject} onChange={(e) => setReject(e.target.value)} /></label>
         <label>Rework<input type="number" min={0} value={rework} onChange={(e) => setRework(e.target.value)} /></label>
-        <label>Complete<input type="number" min={0} max={left} value={draft} placeholder={`≤ ${left}`} onChange={(e) => setDraft(e.target.value)} /></label>
+        <label>Complete<input type="number" min={0} max={maxComplete} value={draft} placeholder={`≤ ${maxComplete}`} onChange={(e) => setDraft(e.target.value)} /></label>
       </div>
       <label className="pause-toggle">
         <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} /> Pause
@@ -311,10 +404,11 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           tabIndex={-1}
           onKeyDown={(e) => e.key === 'Enter' && book()}
         />
-        <Button variant="primary" onClick={book}>
+        <Button variant="primary" disabled={closed} onClick={book}>
           Save entry
         </Button>
       </div>
+      {message && <p className="hint" role="status">{message}</p>}
       <p className="hint">
         Entered at the end of the shift. Short of the daily target and the
         Expect Date slips out on its own.

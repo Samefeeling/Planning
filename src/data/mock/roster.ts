@@ -18,5 +18,6 @@ export function demoWorkers(): Worker[] {
     name: w.name,
     skills: (w.skills ?? []) as LineKey[],
     onShift: Boolean(w.onShift),
+    synthetic: true,
   }));
 }

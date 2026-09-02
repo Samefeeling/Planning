@@ -79,6 +79,8 @@ interface UiState {
   selectedAt: ClickPoint | null;
   overtimeRequest: OvertimeRequest | null;
   clashRequest: ClashRequest | null;
+  /** The only employee picker allowed to be open on the board. */
+  crewPickerJobId: string | null;
   lastRefresh: Date | null;
   /**
    * Timeline zoom. It lives here rather than in the board because the zoom
@@ -92,6 +94,7 @@ interface UiState {
 
   /** Show an order's detail; `at` moves the panel, omitting it leaves it. */
   select: (jobId: string | null, at?: ClickPoint) => void;
+  setCrewPicker: (jobId: string | null) => void;
   setDayWidth: (px: number) => void;
   setOrderWidth: (px: number) => void;
   toggleDateCol: (key: DateCol) => void;
@@ -107,6 +110,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectedAt: null,
   overtimeRequest: null,
   clashRequest: null,
+  crewPickerJobId: null,
   lastRefresh: null,
   dayWidth: DEFAULT_DAY_WIDTH,
   orderWidth: DEFAULT_ORDER_WIDTH,
@@ -115,7 +119,12 @@ export const useUiStore = create<UiState>((set) => ({
   // A follow-on pick — a predecessor in the detail itself — comes with no
   // point, and leaves the panel where the reader is already looking.
   select: (selectedJobId, at) =>
-    set((state) => ({ selectedJobId, selectedAt: at ?? state.selectedAt })),
+    set((state) => ({
+      selectedJobId,
+      selectedAt: at ?? state.selectedAt,
+      crewPickerJobId: null,
+    })),
+  setCrewPicker: (crewPickerJobId) => set({ crewPickerJobId }),
   setDayWidth: (px) =>
     set({ dayWidth: clamp(px, MIN_DAY_WIDTH, MAX_DAY_WIDTH) }),
   setOrderWidth: (px) =>

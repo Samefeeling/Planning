@@ -26,6 +26,7 @@ export interface ReleaseCheck {
 }
 
 const PREP_LABEL: Record<MaterialPrepStatus, string> = {
+  unknown: 'kit status missing',
   'not-prepared': 'kit not prepared',
   preparing: 'kit being prepared',
   ready: 'kit ready',
@@ -72,7 +73,7 @@ export function releaseCheck(
     return {
       level: 'caution',
       releasable: false,
-      needsOverride: false,
+      needsOverride: prep === 'unknown',
       reason: PREP_LABEL[prep],
     };
   }
@@ -82,5 +83,31 @@ export function releaseCheck(
     releasable: true,
     needsOverride: false,
     reason: 'Material ready',
+  };
+}
+
+export interface StartEligibility {
+  allowed: boolean;
+  canOverride: boolean;
+  reasons: string[];
+}
+
+/** Fail-safe gate for the irreversible transition from planned to started. */
+export function startEligibility(
+  released: boolean | null,
+  release: ReleaseCheck,
+  crewCount: number,
+): StartEligibility {
+  const reasons: string[] = [];
+  if (crewCount <= 0) reasons.push('Allocate at least one employee');
+  if (released !== true) {
+    reasons.push(released === false ? 'Order is not released' : 'Release status is missing');
+  }
+  if (!release.releasable) reasons.push(release.reason);
+  return {
+    allowed: reasons.length === 0,
+    // A supervisor may accept release/material uncertainty, never a zero crew.
+    canOverride: crewCount > 0,
+    reasons,
   };
 }

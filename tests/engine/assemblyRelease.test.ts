@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { releaseCheck } from '@/engine/assembly/release';
+import { releaseCheck, startEligibility } from '@/engine/assembly/release';
 import type { MaterialStatus } from '@/domain/types';
 
 const ok: MaterialStatus = { level: 'ok', earliestStart: null, shortages: [] };
@@ -57,5 +57,20 @@ describe('release gate', () => {
     const r = releaseCheck(short, 'not-prepared');
     expect(r.level).toBe('blocked');
     expect(r.reason).toMatch(/no PO/);
+  });
+
+  it('treats missing kit and release fields as override-only, never ready', () => {
+    const release = releaseCheck(ok, 'unknown');
+    const gate = startEligibility(null, release, 2);
+    expect(release.needsOverride).toBe(true);
+    expect(gate.allowed).toBe(false);
+    expect(gate.canOverride).toBe(true);
+    expect(gate.reasons.join(' ')).toMatch(/missing/);
+  });
+
+  it('does not allow even a supervisor override without a crew', () => {
+    const gate = startEligibility(false, releaseCheck(ok, 'ready'), 0);
+    expect(gate.allowed).toBe(false);
+    expect(gate.canOverride).toBe(false);
   });
 });

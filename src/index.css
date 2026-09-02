@@ -103,36 +103,22 @@ button {
 }
 
 /*
- * The schedule takes the width it can get. The right-hand column exists only
- * for unassigned orders, so it collapses to nothing when the pool renders
- * nothing — and the order detail floats over the board beside the pointer.
+ * The schedule owns the full width; order detail floats beside the selected
+ * block. The former pull-job side column is intentionally not rendered.
  */
 .app-body {
   position: relative;
   flex: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: block;
   min-height: 0;
 }
 
 .board-pane {
   min-width: 0;
+  height: 100%;
   overflow: auto;
   background: var(--bg);
 }
-.side-pane {
-  width: 300px;
-  border-left: 1px solid var(--border);
-  background: var(--surface);
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-}
-/* Nothing unassigned: no column, no border, no gap in the schedule. */
-.side-pane:empty {
-  display: none;
-}
-
 /* ---- ui primitives ----------------------------------------------------- */
 .badge {
   display: inline-flex;

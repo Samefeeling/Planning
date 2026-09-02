@@ -184,9 +184,12 @@ describe('parsePlanningCsv', () => {
     const withShip = sample
       .replace('JobHead_StartHour', 'JobHead_StartHour,JobHead_ShipDate')
       .replace('21.9\n', '21.9,2026-09-14T00:00:00\n');
-    expect(
-      byId(withShip).get('018140-1-1')!.shipDate?.toISOString().slice(0, 10),
-    ).toBe('2026-09-14');
+    const ship = byId(withShip).get('018140-1-1')!.shipDate!;
+    expect([ship.getFullYear(), ship.getMonth() + 1, ship.getDate()]).toEqual([
+      2026,
+      9,
+      14,
+    ]);
   });
 
   it('finds the PMD/ASSY column by its values when the header is unfamiliar', () => {

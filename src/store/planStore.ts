@@ -38,7 +38,27 @@ export interface ProductionEntry {
   pauseReason: PauseReason | null;
   /** Explicit supervisor confirmation that no more work remains on this job. */
   jobCompleted: boolean;
+  /** Immutable crew snapshot for this shift. */
+  operatorIds?: string[];
+  operatorNames?: string[];
+  /** Exact completion instant; set only when `jobCompleted` is true. */
+  completedAt?: string | null;
   notes: string;
+}
+
+export interface ActualStartRecord {
+  /** Exact instant the Start production button was confirmed. */
+  startedAt: string;
+  /** Required whenever the normal release gate was overridden. */
+  overrideReason: string | null;
+  operatorIds: string[];
+  operatorNames: string[];
+}
+
+export interface ProgressBaseline {
+  /** Source quantities at the first local booking, used to avoid double counting. */
+  remainingQty: number;
+  completedQty: number;
 }
 
 interface PlanState {
@@ -49,6 +69,7 @@ interface PlanState {
   orderWorkers: Record<string, string[]>;
   /** Job id → ISO day the planner dragged the bar to. */
   orderStarts: Record<string, string>;
+  orderActualStarts: Record<string, ActualStartRecord>;
   /**
    * Job id → supervisor approval to work this order at the weekend. Absent
    * means no: the schedule steps over Saturday and Sunday by default, and the
@@ -65,6 +86,7 @@ interface PlanState {
   orderDoubleBooked: Record<string, string[]>;
   /** Job id → end-of-shift completed-quantity entries. */
   progress: Record<string, { date: string; qty: number }[]>;
+  progressBaselines: Record<string, ProgressBaseline>;
   production: Record<string, ProductionEntry[]>;
 
   /** Seed lanes from each job's home work centre; the rest go to the pool. */
@@ -91,18 +113,27 @@ interface PlanState {
   assignCrews: (allocations: Record<string, string[]>) => void;
   /** Pin an order's bar to a start day (null clears the pin). */
   setOrderStart: (jobId: JobId, isoDay: string | null) => void;
+  startOrder: (jobId: JobId, record: ActualStartRecord) => void;
   /** Approve, or withdraw, weekend working on one order. */
   setOvertime: (jobId: JobId, approved: boolean) => void;
   /** Record the quantity finished on a given day (replaces that day's entry). */
   recordProgress: (jobId: JobId, isoDay: string, qty: number) => void;
   recordProduction: (jobId: JobId, entry: ProductionEntry) => void;
+  /** Save the shift and its progress atomically; completion also releases crew. */
+  saveProductionEntry: (
+    jobId: JobId,
+    entry: ProductionEntry,
+    source: ProgressBaseline,
+  ) => void;
   /** Replace the assembly plan wholesale (e.g. loaded from persistence). */
   setAssemblyPlan: (plan: {
     orderWorkers?: Record<string, string[]>;
     orderStarts?: Record<string, string>;
+    orderActualStarts?: Record<string, ActualStartRecord>;
     orderOvertime?: Record<string, boolean>;
     orderDoubleBooked?: Record<string, string[]>;
     progress?: Record<string, { date: string; qty: number }[]>;
+    progressBaselines?: Record<string, ProgressBaseline>;
     production?: Record<string, ProductionEntry[]>;
   }) => void;
   /** Move a job into `toContainer` at `toIndex` (end if omitted). */
@@ -150,9 +181,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
   orderWorkers: {},
   orderStarts: {},
+  orderActualStarts: {},
   orderOvertime: {},
   orderDoubleBooked: {},
   progress: {},
+  progressBaselines: {},
   production: {},
   initialized: false,
 
@@ -208,9 +241,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         containers: next,
         orderWorkers,
         orderStarts: keep(state.orderStarts),
+        orderActualStarts: keep(state.orderActualStarts),
         orderOvertime: keep(state.orderOvertime),
         orderDoubleBooked: keep(state.orderDoubleBooked),
         progress: keep(state.progress),
+        progressBaselines: keep(state.progressBaselines),
         production: keep(state.production),
         initialized: true,
       };
@@ -294,6 +329,20 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     });
   },
 
+  startOrder(jobId, record) {
+    set((state) => {
+      const key = String(jobId);
+      if (
+        state.orderActualStarts[key] ||
+        record.operatorIds.length === 0 ||
+        Number.isNaN(Date.parse(record.startedAt))
+      ) return state;
+      return {
+        orderActualStarts: { ...state.orderActualStarts, [key]: record },
+      };
+    });
+  },
+
   setOvertime(jobId, approved) {
     set((state) => {
       const orderOvertime = { ...state.orderOvertime };
@@ -331,13 +380,69 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     });
   },
 
+  saveProductionEntry(jobId, entry, source) {
+    set((state) => {
+      const key = String(jobId);
+      const actualStart = state.orderActualStarts[key];
+      const quantities = [
+        entry.complete,
+        entry.reject,
+        entry.rework,
+        entry.shiftOutput,
+      ];
+      if (
+        !actualStart ||
+        !quantities.every((value) => Number.isFinite(value) && value >= 0) ||
+        (entry.jobCompleted && !entry.completedAt)
+      ) return state;
+      const savedEntry: ProductionEntry = {
+        ...entry,
+        operatorIds: entry.operatorIds ?? actualStart.operatorIds,
+        operatorNames: entry.operatorNames ?? actualStart.operatorNames,
+      };
+      const productionEntries = (state.production[key] ?? []).filter(
+        (existing) => existing.date !== savedEntry.date,
+      );
+      const progressEntries = (state.progress[key] ?? []).filter(
+        (existing) => existing.date !== savedEntry.date,
+      );
+      const orderWorkers = { ...state.orderWorkers };
+      const orderDoubleBooked = { ...state.orderDoubleBooked };
+      if (savedEntry.jobCompleted) {
+        delete orderWorkers[key];
+        delete orderDoubleBooked[key];
+      }
+      return {
+        production: {
+          ...state.production,
+          [key]: [...productionEntries, savedEntry].sort((a, b) =>
+            a.date.localeCompare(b.date),
+          ),
+        },
+        progress: {
+          ...state.progress,
+          [key]: [...progressEntries, { date: savedEntry.date, qty: savedEntry.complete }].sort(
+            (a, b) => a.date.localeCompare(b.date),
+          ),
+        },
+        progressBaselines: state.progressBaselines[key]
+          ? state.progressBaselines
+          : { ...state.progressBaselines, [key]: source },
+        orderWorkers,
+        orderDoubleBooked,
+      };
+    });
+  },
+
   setAssemblyPlan(plan) {
     set((state) => ({
       orderWorkers: plan.orderWorkers ?? state.orderWorkers,
       orderStarts: plan.orderStarts ?? state.orderStarts,
+      orderActualStarts: plan.orderActualStarts ?? state.orderActualStarts,
       orderOvertime: plan.orderOvertime ?? state.orderOvertime,
       orderDoubleBooked: plan.orderDoubleBooked ?? state.orderDoubleBooked,
       progress: plan.progress ?? state.progress,
+      progressBaselines: plan.progressBaselines ?? state.progressBaselines,
       production: plan.production ?? state.production,
     }));
   },
@@ -361,9 +466,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       containers: seed(workCenters, jobs),
       orderWorkers: {},
       orderStarts: {},
+      orderActualStarts: {},
       orderOvertime: {},
       orderDoubleBooked: {},
       progress: {},
+      progressBaselines: {},
       production: {},
       initialized: true,
     });

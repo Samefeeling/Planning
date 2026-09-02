@@ -13,7 +13,11 @@ import { remainingHours } from '@/engine/assembly/duration';
 import { usePlanStore } from '@/store/planStore';
 import { DEFAULT_HORIZON_DAYS, LINES } from '@/domain/assembly';
 import type { PlanningDataset } from '@/domain/types';
-import type { ProductionEntry } from '@/store/planStore';
+import type {
+  ActualStartRecord,
+  ProductionEntry,
+  ProgressBaseline,
+} from '@/store/planStore';
 
 let dataset: PlanningDataset;
 
@@ -28,7 +32,9 @@ const TODAY = new Date('2026-09-11T00:00:00');
 function build(over: {
   orderWorkers?: Record<string, string[]>;
   orderStarts?: Record<string, string>;
+  orderActualStarts?: Record<string, ActualStartRecord>;
   progress?: Record<string, { date: string; qty: number }[]>;
+  progressBaselines?: Record<string, ProgressBaseline>;
   production?: Record<string, ProductionEntry[]>;
 } = {}) {
   const indexes = buildIndexes(dataset);
@@ -40,7 +46,9 @@ function build(over: {
     containers: state.containers,
     orderWorkers: over.orderWorkers ?? state.orderWorkers,
     orderStarts: over.orderStarts ?? {},
+    orderActualStarts: over.orderActualStarts ?? {},
     progress: over.progress ?? {},
+    progressBaselines: over.progressBaselines ?? {},
     production: over.production ?? {},
     workers: dataset.workers,
     today: TODAY,
@@ -125,6 +133,64 @@ describe('assembly Gantt (mock data)', () => {
 
     expect(after.job.completedQty).toBeGreaterThan(row!.job.completedQty);
     expect(after.days!).toBeLessThan(row!.days!);
+  });
+
+  it('does not deduct a local booking twice after the source catches up', () => {
+    const base = build();
+    const row = [...base.rowsByJob.values()].find((candidate) => candidate.job.remainingQty > 10)!;
+    const id = String(row.job.id);
+    const qty = 5;
+    const baseline = {
+      remainingQty: row.sourceRemainingQty!,
+      completedQty: row.sourceCompletedQty!,
+    };
+    const refreshed: PlanningDataset = {
+      ...dataset,
+      jobs: dataset.jobs.map((job) =>
+        String(job.id) === id
+          ? {
+              ...job,
+              remainingQty: job.remainingQty - qty,
+              completedQty: job.completedQty + qty,
+            }
+          : job,
+      ),
+    };
+    const state = usePlanStore.getState();
+    const after = computeAssemblyGantt({
+      dataset: refreshed,
+      indexes: buildIndexes(refreshed),
+      containers: state.containers,
+      orderWorkers: state.orderWorkers,
+      orderStarts: {},
+      progress: { [id]: [{ date: '2026-09-11', qty }] },
+      progressBaselines: { [id]: baseline },
+      production: {},
+      workers: refreshed.workers,
+      today: TODAY,
+    });
+
+    expect(after.rowsByJob.get(id)!.job.remainingQty).toBe(
+      baseline.remainingQty - qty,
+    );
+  });
+
+  it('uses the confirmed actual start and ignores later planned dragging', () => {
+    const base = build();
+    const row = [...base.rowsByJob.values()].find((candidate) => candidate.workers.length > 0)!;
+    const id = String(row.job.id);
+    const actual: ActualStartRecord = {
+      startedAt: '2026-09-11T03:15:00.000Z',
+      overrideReason: null,
+      operatorIds: row.workers.map((worker) => String(worker.id)),
+      operatorNames: row.workers.map((worker) => worker.name),
+    };
+    const after = build({
+      orderStarts: { [id]: '2026-09-25T00:00:00.000Z' },
+      orderActualStarts: { [id]: actual },
+    });
+    expect(after.rowsByJob.get(id)!.actualStart).toEqual(actual);
+    expect(after.rowsByJob.get(id)!.start).toEqual(TODAY);
   });
 
   it('greys a completed job today and removes it the following day', () => {

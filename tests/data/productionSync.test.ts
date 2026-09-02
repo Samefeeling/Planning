@@ -127,10 +127,13 @@ describe('syncProduction', () => {
       fields: {
         [C.jobNum]: 'ASM8001',
         [C.date]: '2026-09-14',
+        [C.recordKey]: 'ASM8001|2026-09-14',
         [C.line]: 'UPL',
         [C.operators]: 'Gate',
         [C.operatorIds]: 'W02',
         [C.startDate]: '2026-09-14T00:00:00.000Z',
+        [C.actualStartAt]: null,
+        [C.startOverrideReason]: '',
         [C.dueDate]: '2026-09-22T00:00:00.000Z',
         [C.expectDate]: '2026-09-16T00:00:00.000Z',
         [C.orderQty]: 60,
@@ -140,6 +143,7 @@ describe('syncProduction', () => {
         [C.reject]: 0,
         [C.rework]: 0,
         [C.jobCompleted]: false,
+        [C.completedAt]: null,
         [C.paused]: false,
         [C.pauseReason]: '',
         [C.notes]: '',
@@ -274,6 +278,50 @@ describe('syncProduction', () => {
         [C.jobCompleted]: true,
       }),
     });
+  });
+
+  it('keeps each shift crew snapshot after the active crew changes', async () => {
+    const calls = stubGraph([stored({ [C.operators]: 'Gate', [C.operatorIds]: 'W02' })]);
+    await syncProduction(CFG, 'ASSY_Production', [
+      order({
+        operatorIds: [],
+        operatorNames: [],
+        shifts: [
+          shift({
+            operatorIds: ['W02'],
+            operatorNames: ['Gate'],
+            complete: 10,
+            jobCompleted: true,
+            completedAt: '2026-09-14T05:00:00.000Z',
+          }),
+        ],
+      }),
+    ]);
+
+    const [write] = writes(calls);
+    expect(write.body).toMatchObject({
+      [C.operators]: 'Gate',
+      [C.operatorIds]: 'W02',
+      [C.completedAt]: '2026-09-14T05:00:00.000Z',
+    });
+  });
+
+  it('refuses ambiguous duplicate rows for the same order and day', async () => {
+    const calls = stubGraph([stored({}, '1'), stored({}, '2')]);
+    const out = await syncProduction(CFG, 'ASSY_Production', [order()]);
+
+    expect(out.errors[0]).toContain('duplicate SharePoint rows');
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it('never writes fallback demo employee ids', async () => {
+    const calls = stubGraph([]);
+    const out = await syncProduction(CFG, 'ASSY_Production', [
+      order({ hasSyntheticCrew: true }),
+    ]);
+
+    expect(out.errors[0]).toContain('fallback demo employees');
+    expect(writes(calls)).toEqual([]);
   });
 
   it('leaves rows for orders that are no longer in the export', async () => {

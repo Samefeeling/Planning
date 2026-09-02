@@ -18,6 +18,7 @@ export type OrderType = 'cutting-sewing' | 'upholstery' | 'final-assembly';
 
 /** Physical prep state of the material kit, set by the material handler. */
 export type MaterialPrepStatus =
+  | 'unknown'
   | 'not-prepared'
   | 'preparing'
   | 'ready'
@@ -124,6 +125,8 @@ export interface Worker {
   supervisor?: string;
   /** ISO days the worker is unavailable; supplied by the future attendance API. */
   plannedLeave?: string[];
+  /** True only for the built-in fallback roster; never written to SharePoint. */
+  synthetic?: boolean;
 }
 
 /** Nobody is allocated to more than this many orders' worth of work at once. */

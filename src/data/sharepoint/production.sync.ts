@@ -45,11 +45,14 @@ export const PRODUCTION_COLUMNS = {
   // key
   jobNum: 'Title',
   date: 'Date',
+  recordKey: 'RecordKey',
   // order-level
   line: 'Line',
   operators: 'Operators',
   operatorIds: 'OperatorIds',
   startDate: 'StartDate',
+  actualStartAt: 'ActualStartAt',
+  startOverrideReason: 'StartOverrideReason',
   dueDate: 'DueDate',
   expectDate: 'ExpectDate',
   orderQty: 'OrderQty',
@@ -60,6 +63,7 @@ export const PRODUCTION_COLUMNS = {
   reject: 'Reject',
   rework: 'Rework',
   jobCompleted: 'JobCompleted',
+  completedAt: 'CompletedAt',
   paused: 'Paused',
   pauseReason: 'PauseReason',
   notes: 'Notes',
@@ -68,9 +72,9 @@ export const PRODUCTION_COLUMNS = {
 /** The order-level columns, kept identical across every row of a job. */
 const ORDER_LEVEL = [
   PRODUCTION_COLUMNS.line,
-  PRODUCTION_COLUMNS.operators,
-  PRODUCTION_COLUMNS.operatorIds,
   PRODUCTION_COLUMNS.startDate,
+  PRODUCTION_COLUMNS.actualStartAt,
+  PRODUCTION_COLUMNS.startOverrideReason,
   PRODUCTION_COLUMNS.dueDate,
   PRODUCTION_COLUMNS.expectDate,
   PRODUCTION_COLUMNS.orderQty,
@@ -85,8 +89,12 @@ export interface OrderFacts {
   operatorIds: string[];
   /** The same people by name, so the list is readable without a join. */
   operatorNames: string[];
+  /** True when the roster is the built-in fallback; those ids must not sync. */
+  hasSyntheticCrew?: boolean;
   /** Effective start: the later of the drag, the queue and the predecessor. */
   startDate: string | null;
+  actualStartAt?: string | null;
+  startOverrideReason?: string | null;
   /** Epicor's date. From the CSV, never written by a drag. */
   dueDate: string | null;
   expectDate: string | null;
@@ -131,7 +139,10 @@ export function orderFactsFromBoard(
         line: group.line.name,
         operatorIds: row.workers.map((w) => String(w.id)),
         operatorNames: row.workers.map((w) => w.name),
-        startDate: iso(row.start),
+        hasSyntheticCrew: row.workers.some((w) => w.synthetic),
+        startDate: iso(row.plannedStart),
+        actualStartAt: row.actualStart?.startedAt ?? null,
+        startOverrideReason: row.actualStart?.overrideReason ?? null,
         dueDate: iso(row.job.dueDate),
         expectDate: iso(row.expectDate),
         orderQty: row.job.remainingQty + row.job.completedQty,
@@ -148,9 +159,9 @@ function orderFields(facts: OrderFacts): ListItemFields {
   const c = PRODUCTION_COLUMNS;
   return {
     [c.line]: facts.line ?? '',
-    [c.operators]: facts.operatorNames.join(', '),
-    [c.operatorIds]: facts.operatorIds.join(','),
     [c.startDate]: facts.startDate,
+    [c.actualStartAt]: facts.actualStartAt ?? null,
+    [c.startOverrideReason]: facts.startOverrideReason ?? '',
     [c.dueDate]: facts.dueDate,
     [c.expectDate]: facts.expectDate,
     [c.orderQty]: facts.orderQty,
@@ -175,15 +186,21 @@ function blankShift(date: string): ProductionEntry {
 
 function rowFields(facts: OrderFacts, shift: ProductionEntry): ListItemFields {
   const c = PRODUCTION_COLUMNS;
+  const operatorIds = shift.operatorIds ?? facts.operatorIds;
+  const operatorNames = shift.operatorNames ?? facts.operatorNames;
   return {
     [c.jobNum]: facts.jobNum,
     [c.date]: shift.date,
+    [c.recordKey]: `${facts.jobNum}|${shift.date}`,
     ...orderFields(facts),
+    [c.operators]: operatorNames.join(', '),
+    [c.operatorIds]: operatorIds.join(','),
     [c.shiftOutput]: shift.shiftOutput,
     [c.complete]: shift.complete,
     [c.reject]: shift.reject,
     [c.rework]: shift.rework,
     [c.jobCompleted]: shift.jobCompleted,
+    [c.completedAt]: shift.completedAt ?? null,
     [c.paused]: shift.paused,
     [c.pauseReason]: shift.pauseReason ?? '',
     [c.notes]: shift.notes,
@@ -270,8 +287,26 @@ export async function syncProduction(
   }
 
   for (const facts of orders) {
+    if (facts.hasSyntheticCrew) {
+      out.errors.push(
+        `${facts.jobNum}: fallback demo employees were not written to SharePoint`,
+      );
+      continue;
+    }
     const rows = byJob.get(facts.jobNum) ?? [];
-    const byDay = new Map(rows.map((r) => [rowDay(r.fields), r]));
+    const byDay = new Map<string, (typeof rows)[number]>();
+    const duplicateDays = new Set<string>();
+    for (const row of rows) {
+      const key = rowDay(row.fields);
+      if (byDay.has(key)) duplicateDays.add(key);
+      else byDay.set(key, row);
+    }
+    if (duplicateDays.size > 0) {
+      out.errors.push(
+        `${facts.jobNum}: duplicate SharePoint rows for ${[...duplicateDays].join(', ')}`,
+      );
+      continue;
+    }
 
     // Every order holds at least one row: open one when the list has none and
     // no shift has been booked. Once it exists this branch never fires again,
@@ -311,7 +346,23 @@ export async function syncProduction(
     const orderWide = orderFields(facts);
     for (const row of rows) {
       if (touched.has(rowDay(row.fields))) continue;
-      const stale = drift(row.fields, orderWide, ORDER_LEVEL);
+      const isOpenPlaceholder =
+        facts.shifts.length === 0 && rowDay(row.fields) === facts.anchorDay;
+      const wanted = isOpenPlaceholder
+        ? {
+            ...orderWide,
+            [PRODUCTION_COLUMNS.operators]: facts.operatorNames.join(', '),
+            [PRODUCTION_COLUMNS.operatorIds]: facts.operatorIds.join(','),
+          }
+        : orderWide;
+      const keys = isOpenPlaceholder
+        ? [
+            ...ORDER_LEVEL,
+            PRODUCTION_COLUMNS.operators,
+            PRODUCTION_COLUMNS.operatorIds,
+          ]
+        : ORDER_LEVEL;
+      const stale = drift(row.fields, wanted, keys);
       if (Object.keys(stale).length === 0) {
         out.unchanged++;
         continue;

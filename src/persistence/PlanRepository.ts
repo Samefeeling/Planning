@@ -4,7 +4,11 @@
  */
 
 import type { Containers } from '@/store/planStore';
-import type { ProductionEntry } from '@/store/planStore';
+import type {
+  ActualStartRecord,
+  ProductionEntry,
+  ProgressBaseline,
+} from '@/store/planStore';
 
 export interface PersistedPlan {
   id: string;
@@ -16,11 +20,14 @@ export interface PersistedPlan {
   assembly?: {
     orderWorkers?: Record<string, string[]>;
     orderStarts?: Record<string, string>;
+    /** Exact, immutable production start confirmation. */
+    orderActualStarts?: Record<string, ActualStartRecord>;
     /** Orders the supervisor approved for weekend working. */
     orderOvertime?: Record<string, boolean>;
     /** Per order, the people approved to be on it while on another too. */
     orderDoubleBooked?: Record<string, string[]>;
     progress?: Record<string, { date: string; qty: number }[]>;
+    progressBaselines?: Record<string, ProgressBaseline>;
     /** Daily rows persisted by the backend in the ASSY_Production list. */
     production?: Record<string, ProductionEntry[]>;
   };

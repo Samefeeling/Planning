@@ -65,6 +65,11 @@ import {
   type ScheduleStatus,
 } from './dates';
 import { lineLoad, type LineLoad } from './workload';
+import type {
+  ActualStartRecord,
+  ProductionEntry,
+  ProgressBaseline,
+} from '@/store/planStore';
 
 /** One shift's booked output on an order. */
 export interface BookedDay {
@@ -77,9 +82,15 @@ export interface BookedDay {
 
 export interface OrderRow {
   job: Job;
+  /** Quantities exactly as supplied by the current source refresh. */
+  sourceRemainingQty?: number;
+  sourceCompletedQty?: number;
   line: LineDef;
   /** Crew allocated to this order (already capped at the maximum). */
   workers: Worker[];
+  /** Confirmed production start, separate from the planned bar date. */
+  actualStart?: ActualStartRecord | null;
+  completedAt?: string | null;
   /** Bar start; null when the order cannot be scheduled (no crew). */
   start: Date | null;
   /**
@@ -167,12 +178,14 @@ export interface AssemblyInputs {
   orderWorkers: Record<string, string[]>;
   /** Job id → ISO day the planner dragged the bar to. */
   orderStarts: Record<string, string>;
+  orderActualStarts?: Record<string, ActualStartRecord>;
   /** Job id → supervisor approval to work this order at the weekend. */
   orderOvertime?: Record<string, boolean>;
   /** Job id → end-of-shift completed-quantity entries. */
   progress: Record<string, { date: string; qty: number }[]>;
+  progressBaselines?: Record<string, ProgressBaseline>;
   /** Daily production confirmations, including explicit job completion. */
-  production?: Record<string, { date: string; jobCompleted: boolean }[]>;
+  production?: Record<string, ProductionEntry[]>;
   workers: Worker[];
   today: Date;
 }
@@ -228,8 +241,12 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
   const start = startOfDay(mouldingStart(job) ?? today);
   return {
     job,
+    sourceRemainingQty: job.remainingQty,
+    sourceCompletedQty: job.completedQty,
     line,
     workers: [],
+    actualStart: null,
+    completedAt: null,
     start,
     plannedStart: start,
     expectDate: addDays(start, days),
@@ -287,7 +304,9 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     input;
   const orderOvertime = input.orderOvertime ?? {};
   const progress = input.progress ?? {};
+  const progressBaselines = input.progressBaselines ?? {};
   const production = input.production ?? {};
+  const orderActualStarts = input.orderActualStarts ?? {};
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const completionDate = (job: Job): string | null =>
     (production[String(job.id)] ?? [])
@@ -295,6 +314,11 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       .map((entry) => entry.date)
       .sort()
       .at(-1) ?? null;
+  const completionInstant = (job: Job): string | null =>
+    (production[String(job.id)] ?? [])
+      .filter((entry) => entry.jobCompleted)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .at(-1)?.completedAt ?? null;
 
   /**
    * Fold the shift's completed-quantity entries into the order, so the bar
@@ -306,11 +330,19 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       0,
     );
     if (booked <= 0) return job;
-    const done = Math.min(job.completedQty + booked, job.completedQty + job.remainingQty);
+    const baseline = progressBaselines[String(job.id)];
+    const total = job.completedQty + job.remainingQty;
+    // Once Epicor reflects a local booking, its RemainingQty wins. Until then,
+    // the original source snapshot minus local bookings wins. Taking the lower
+    // value prevents the same output being deducted a second time on refresh.
+    const effectiveRemaining = baseline
+      ? Math.min(job.remainingQty, Math.max(0, baseline.remainingQty - booked))
+      : Math.max(0, job.remainingQty - booked);
+    const done = Math.max(job.completedQty, total - effectiveRemaining);
     return {
       ...job,
       completedQty: done,
-      remainingQty: Math.max(0, job.remainingQty + job.completedQty - done),
+      remainingQty: effectiveRemaining,
     };
   };
 
@@ -334,6 +366,9 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     // both the lanes and the unassigned pool on the next calendar day.
     .filter((j) => !completionDate(j) || completionDate(j)! >= todayKey)
     .map(withProgress);
+  const sourceJobsById = new Map(
+    dataset.jobs.map((job) => [String(job.id), job]),
+  );
   const jobsById = new Map(assemblyJobs.map((j) => [String(j.id), j]));
   const workersById = new Map(input.workers.map((w) => [String(w.id), w]));
   // Two different "starts". Work is planned from today — there is no working
@@ -368,6 +403,8 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
    * the board opens — there is no working yesterday.
    */
   const wantedStart = (id: string): Date => {
+    const actual = orderActualStarts[id];
+    if (actual) return startOfDay(new Date(actual.startedAt));
     const pinned = orderStarts[id];
     const wanted = pinned
       ? startOfDay(new Date(pinned))
@@ -425,7 +462,15 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     const line =
       pending.find((p) => p.ids.includes(id))?.line ?? LINES[1];
 
-    const workers = (orderWorkers[id] ?? [])
+    const actualStart = orderActualStarts[id] ?? null;
+    const latestCrew = (production[id] ?? [])
+      .filter((entry) => (entry.operatorIds ?? []).length > 0)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .at(-1)?.operatorIds;
+    const workerIds = (orderWorkers[id] ?? []).length > 0
+      ? orderWorkers[id]
+      : actualStart?.operatorIds ?? latestCrew ?? [];
+    const workers = workerIds
       .slice(0, MAX_WORKERS_PER_ORDER)
       .map((w) => workersById.get(String(w)))
       .filter((w): w is Worker => Boolean(w));
@@ -447,7 +492,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     for (const dep of predecessors) {
       const predId = String(dep.onJobId);
       const pred = resolve(predId, seen) ?? mouldingRows.get(predId) ?? null;
-      if (pred?.expectDate && pred.expectDate > want) {
+      if (!actualStart && pred?.expectDate && pred.expectDate > want) {
         want = pred.expectDate;
         waitingOn = dep;
       }
@@ -459,17 +504,19 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       indexes.poByPart,
     );
     // Material that only lands on a future PO cannot be worked before then.
-    if (material.earliestStart && material.earliestStart > want) {
+    if (!actualStart && material.earliestStart && material.earliestStart > want) {
       want = startOfDay(material.earliestStart);
     }
-    if (!overtime) want = nextWorkingDay(want);
+    if (!overtime && !actualStart) want = nextWorkingDay(want);
 
     // Take one of the line's build positions. The order keeps the day it asked
     // for whenever one is free; otherwise it queues behind the first to clear,
     // unless the planner dragged it there by hand.
     const slots = slotsFor(line);
-    const claim = claimSlot(slots, want, Boolean(orderStarts[id]));
-    const start = overtime ? claim.start : nextWorkingDay(claim.start);
+    const claim = claimSlot(slots, want, Boolean(orderStarts[id] || actualStart));
+    const start = overtime || actualStart
+      ? claim.start
+      : nextWorkingDay(claim.start);
 
     const expectDate = completedToday
       ? planStart
@@ -489,10 +536,14 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
 
     const row: OrderRow = {
       job,
+      sourceRemainingQty: sourceJobsById.get(id)?.remainingQty ?? job.remainingQty,
+      sourceCompletedQty: sourceJobsById.get(id)?.completedQty ?? job.completedQty,
       line,
       workers,
+      actualStart,
+      completedAt: completionInstant(job),
       start: completedToday ? planStart : days === null ? null : start,
-      plannedStart: completedToday ? planStart : start,
+      plannedStart: start,
       expectDate,
       days: completedToday ? 0 : days,
       slot: claim.slot,

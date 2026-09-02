@@ -116,6 +116,7 @@ const ORDER_TYPES: Record<string, OrderType> = {
 };
 
 const PREP_VALUES = new Set<MaterialPrepStatus>([
+  'unknown',
   'not-prepared',
   'preparing',
   'ready',
@@ -239,7 +240,7 @@ function readOrderType(raw: string, line: Job['line']): OrderType | null {
 
 function readPrep(raw: string): MaterialPrepStatus {
   const p = raw.trim().toLowerCase().replace(/\s+/g, '-') as MaterialPrepStatus;
-  return PREP_VALUES.has(p) ? p : 'ready';
+  return PREP_VALUES.has(p) ? p : 'unknown';
 }
 
 /** Parse the text of `Planning1.csv` into production orders. */
@@ -355,8 +356,12 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
       reqBy: date(cell(row, col.startDate)),
       released:
         releasedRaw === ''
-          ? true
-          : ['true', 'yes', 'y', '1'].includes(releasedRaw),
+          ? null
+          : ['true', 'yes', 'y', '1'].includes(releasedRaw)
+            ? true
+            : ['false', 'no', 'n', '0'].includes(releasedRaw)
+              ? false
+              : null,
       priority: num(cell(row, col.priority)) ?? 3,
       materialPrep: readPrep(cell(row, col.materialPrep)),
       tool: null,

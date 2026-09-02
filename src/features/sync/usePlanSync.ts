@@ -30,6 +30,7 @@ import { usePlanStore } from '@/store/planStore';
 
 /** Wait this long after the last board change before writing. */
 const DEBOUNCE_MS = 1200;
+const RETRY_MS = [5_000, 15_000, 60_000] as const;
 
 export interface PlanSyncState {
   /** False when the list is not configured — the board is then read-only. */
@@ -56,6 +57,8 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
   });
 
   const timer = useRef<number | undefined>(undefined);
+  const retryTimer = useRef<number | undefined>(undefined);
+  const retryAttempt = useRef(0);
   /** Guards against a second sync starting while one is still in flight. */
   const running = useRef(false);
   /** Set when a change arrives mid-flight, so nothing is silently dropped. */
@@ -80,7 +83,17 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
       running.current = true;
       setState((s) => ({ ...s, busy: true }));
 
-      const outcome = await syncProduction(cfg, list, JSON.parse(fingerprint));
+      let outcome: SyncOutcome;
+      try {
+        outcome = await syncProduction(cfg, list, JSON.parse(fingerprint));
+      } catch (error) {
+        outcome = {
+          created: 0,
+          updated: 0,
+          unchanged: 0,
+          errors: [error instanceof Error ? error.message : String(error)],
+        };
+      }
 
       running.current = false;
       setState({
@@ -92,13 +105,30 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
 
       if (stale.current) {
         stale.current = false;
+        retryAttempt.current = 0;
         void run();
+      } else if (
+        outcome.errors.some((error) =>
+          /\b(429|5\d\d)\b|fetch|network|timeout|temporar/i.test(error),
+        )
+      ) {
+        const at = Math.min(retryAttempt.current, RETRY_MS.length - 1);
+        retryAttempt.current += 1;
+        window.clearTimeout(retryTimer.current);
+        retryTimer.current = window.setTimeout(() => void run(), RETRY_MS[at]);
+      } else {
+        retryAttempt.current = 0;
       }
     };
 
     window.clearTimeout(timer.current);
+    window.clearTimeout(retryTimer.current);
+    retryAttempt.current = 0;
     timer.current = window.setTimeout(() => void run(), DEBOUNCE_MS);
-    return () => window.clearTimeout(timer.current);
+    return () => {
+      window.clearTimeout(timer.current);
+      window.clearTimeout(retryTimer.current);
+    };
     // `cfg` is read from import.meta.env and is stable for the session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, list, fingerprint]);

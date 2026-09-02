@@ -38,9 +38,11 @@ export function OrderBar({
   onSelect: (jobId: string, at?: { x: number; y: number }) => void;
 }) {
   const id = String(row.job.id);
+  const dragLocked = readOnly || Boolean(row.actualStart) || row.completedToday;
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: `bar:${id}`,
+      disabled: dragLocked,
       // The drop handler moves the bar from where it is drawn, which is not
       // necessarily where the planner last pinned it: the line's capacity, a
       // predecessor or a weekend may have pushed it out. Sending the rendered
@@ -57,9 +59,17 @@ export function OrderBar({
 
   if (!row.start || row.days === null) {
     return (
-      <div className="bar-missing" title="No crew allocated — cannot schedule">
+      <button
+        type="button"
+        className="bar-missing"
+        title="No crew allocated — cannot schedule"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect(id, { x: event.clientX, y: event.clientY });
+        }}
+      >
         no crew
-      </div>
+      </button>
     );
   }
 
@@ -117,7 +127,10 @@ export function OrderBar({
         width,
         transform: CSS.Translate.toString(transform),
       }}
-      onClick={(e) => onSelect(id, { x: e.clientX, y: e.clientY })}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect(id, { x: e.clientX, y: e.clientY });
+      }}
       title={
         `${row.job.id} · ${row.days.toFixed(1)} d worked with ${row.workers.length}` +
         (readOnly ? '' : ` · position ${row.slot + 1} of ${row.line.parallelOrders}`) +
@@ -125,8 +138,8 @@ export function OrderBar({
         (row.overtime ? ' · weekend overtime approved' : '') +
         ` · ${row.status.reason}`
       }
-      {...(readOnly ? {} : listeners)}
-      {...(readOnly ? {} : attributes)}
+      {...(dragLocked ? {} : listeners)}
+      {...(dragLocked ? {} : attributes)}
     >
       {pieces.map((piece) => (
         <div

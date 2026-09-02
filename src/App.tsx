@@ -1,7 +1,6 @@
 /**
  * Application shell: loads data, bootstraps/persists the plan, wires the global
- * drag-and-drop context, and lays out the assembly board, order pool and
- * inspector.
+ * drag-and-drop context, and lays out the assembly board and inspector.
  */
 
 import { useEffect, useRef } from 'react';
@@ -13,7 +12,6 @@ import { createPlanRepository, CURRENT_PLAN_ID } from '@/persistence';
 import { useDragDrop } from '@/features/assembly/useDragDrop';
 import { AssemblyGantt } from '@/features/assembly/AssemblyGantt';
 import { BoardTools } from '@/features/assembly/BoardTools';
-import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
 import { OvertimePrompt } from '@/features/assembly/OvertimePrompt';
 import { ClashPrompt } from '@/features/assembly/ClashPrompt';
@@ -39,9 +37,11 @@ export default function App() {
   const containers = usePlanStore((s) => s.containers);
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderStarts = usePlanStore((s) => s.orderStarts);
+  const orderActualStarts = usePlanStore((s) => s.orderActualStarts);
   const orderOvertime = usePlanStore((s) => s.orderOvertime);
   const orderDoubleBooked = usePlanStore((s) => s.orderDoubleBooked);
   const progress = usePlanStore((s) => s.progress);
+  const progressBaselines = usePlanStore((s) => s.progressBaselines);
   const production = usePlanStore((s) => s.production);
 
 
@@ -92,9 +92,11 @@ export default function App() {
         assembly: {
           orderWorkers,
           orderStarts,
+          orderActualStarts,
           orderOvertime,
           orderDoubleBooked,
           progress,
+          progressBaselines,
           production,
         },
       });
@@ -104,9 +106,11 @@ export default function App() {
     containers,
     orderWorkers,
     orderStarts,
+    orderActualStarts,
     orderOvertime,
     orderDoubleBooked,
     progress,
+    progressBaselines,
     production,
   ]);
 
@@ -159,8 +163,8 @@ export default function App() {
       >
         {/*
           The schedule has the whole width. An order's detail opens beside the
-          pointer instead of in a column, and the unassigned pane appears only
-          when there is something in it — see AssemblyPool.
+          pointer instead of in a column. Unassigned jobs remain in plan state
+          but no pull-job side column is rendered.
         */}
         <div className="app-body">
           <div className="board-pane assembly-pane">
@@ -173,9 +177,6 @@ export default function App() {
               </div>
             )}
           </div>
-          <aside className="side-pane">
-            {board && <AssemblyPool board={board} />}
-          </aside>
           {board && <AssemblyInspector board={board} />}
         </div>
 

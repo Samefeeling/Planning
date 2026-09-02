@@ -39,6 +39,7 @@ const C = {
 } as const;
 
 const PREP_VALUES = new Set<MaterialPrepStatus>([
+  'unknown',
   'not-prepared',
   'preparing',
   'ready',
@@ -65,7 +66,7 @@ function readOrderType(raw: string | null): OrderType | null {
 
 function readPrep(raw: string | null): MaterialPrepStatus {
   const p = raw?.trim().toLowerCase().replace(/\s+/g, '-') as MaterialPrepStatus;
-  return p && PREP_VALUES.has(p) ? p : 'ready';
+  return p && PREP_VALUES.has(p) ? p : 'unknown';
 }
 
 export function parseJobs(planning: Sheet): ParseOutcome<Job> {
@@ -106,7 +107,8 @@ export function parseJobs(planning: Sheet): ParseOutcome<Job> {
       dueDate: asDate(row[C.dueDate]),
       startDate: asDate(row[C.startDate]),
       reqBy: asDate(row[C.reqBy]),
-      released: asBool(row[C.released]),
+      released:
+        asStr(row[C.released]) === null ? null : asBool(row[C.released]),
       priority: asNum(row[C.priority]) ?? 3,
       materialPrep: readPrep(asStr(row[C.materialPrep])),
       tool: dieRaw ? ToolId(dieRaw) : null,
