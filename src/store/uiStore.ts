@@ -97,6 +97,8 @@ interface UiState {
   dateCols: DateCols;
   /** View-only row filter; never changes the underlying line sequence. */
   orderWindow: OrderWindowFilter;
+  /** Weekend timeline columns; hidden by default to keep the working week compact. */
+  showWeekends: boolean;
 
   /** Show an order's detail; `at` moves the panel, omitting it leaves it. */
   select: (jobId: string | null, at?: ClickPoint) => void;
@@ -105,6 +107,7 @@ interface UiState {
   setOrderWidth: (px: number) => void;
   toggleDateCol: (key: DateCol) => void;
   setOrderWindow: (filter: OrderWindowFilter) => void;
+  toggleWeekends: () => void;
   askOvertime: (request: OvertimeRequest) => void;
   clearOvertime: () => void;
   askClash: (request: ClashRequest) => void;
@@ -122,7 +125,8 @@ export const useUiStore = create<UiState>((set) => ({
   dayWidth: DEFAULT_DAY_WIDTH,
   orderWidth: DEFAULT_ORDER_WIDTH,
   dateCols: { start: true, due: true, expect: true, ship: true },
-  orderWindow: 'all',
+  orderWindow: 'next-five',
+  showWeekends: false,
 
   // A follow-on pick — a predecessor in the detail itself — comes with no
   // point, and leaves the panel where the reader is already looking.
@@ -142,6 +146,7 @@ export const useUiStore = create<UiState>((set) => ({
       dateCols: { ...state.dateCols, [key]: !state.dateCols[key] },
     })),
   setOrderWindow: (orderWindow) => set({ orderWindow }),
+  toggleWeekends: () => set((state) => ({ showWeekends: !state.showWeekends })),
   askOvertime: (overtimeRequest) => set({ overtimeRequest }),
   clearOvertime: () => set({ overtimeRequest: null }),
   askClash: (clashRequest) => set({ clashRequest }),

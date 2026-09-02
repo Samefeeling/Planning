@@ -22,12 +22,12 @@ import { useUiStore } from '@/store/uiStore';
 import { DEFAULT_DAY_WIDTH } from '@/store/uiStore';
 import { DRAG_TYPE_BAR } from '@/features/assembly/OrderBar';
 import {
-  addDays,
   isWeekend,
   nextWorkingDay,
   startOfDay,
 } from '@/engine/assembly/dates';
 import { dayKey } from '@/engine/assembly/workload';
+import { shiftTimelineDays } from './boardView';
 
 /** Prefer the specific card target, then a lane/pool, then the nearest. */
 const collisionDetection: CollisionDetection = (args) => {
@@ -63,6 +63,7 @@ export function useDragDrop() {
     if (active.data.current?.type === DRAG_TYPE_BAR) {
       const jobId = JobId(String(active.data.current.jobId));
       const dayWidth = Number(active.data.current.dayWidth) || DEFAULT_DAY_WIDTH;
+      const showWeekends = active.data.current.showWeekends === true;
       const dayShift = Math.round((delta?.x ?? 0) / dayWidth);
 
       const { orderStarts, setOrderStart, setOvertime, containerOf, moveJob } =
@@ -87,7 +88,9 @@ export function useDragDrop() {
         : orderStarts[key]
           ? startOfDay(new Date(orderStarts[key]))
           : startOfDay(new Date());
-      const moved = startOfDay(addDays(from, dayShift));
+      const moved = startOfDay(
+        shiftTimelineDays(from, dayShift, showWeekends),
+      );
 
       // The factory is shut at the weekend. Ask before writing work into one;
       // nothing changes until the supervisor answers.

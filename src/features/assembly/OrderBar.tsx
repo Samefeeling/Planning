@@ -2,20 +2,19 @@
  * One order's bar on the day grid. Draggable left/right to move its start day;
  * coloured by how the Expect Date compares with the Ship and Due dates.
  *
- * The bar spans calendar time — start to Expect Date — but is drawn as one
- * block per stretch of open days, so a weekend shows as a break in the work
- * rather than as work nobody does. Drawn as a single block it would have to be
- * either too short (worked days, stopping before its own Expect Date) or a lie
- * (calendar days, claiming the crew worked Saturday).
+ * The bar spans start to Expect Date and is drawn as one block per stretch of
+ * open days. Weekend gaps appear only while weekend columns are enabled; with
+ * them hidden, Friday and Monday meet on the compact working-day axis.
  */
 
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { OrderRow } from '@/engine/assembly/board';
-import { addDays, wholeDaysBetween, workingSpans } from '@/engine/assembly/dates';
+import { addDays, workingSpans } from '@/engine/assembly/dates';
 import { completedFraction } from '@/engine/assembly/duration';
 import { PRODUCTIVE_HOURS_PER_PERSON } from '@/domain/assembly';
 import { MS_PER_DAY } from '@/lib/time';
+import { timelineDayOffset } from './boardView';
 
 export const DRAG_TYPE_BAR = 'order-bar';
 
@@ -26,6 +25,7 @@ export function OrderBar({
   row,
   horizonStart,
   dayWidth,
+  showWeekends,
   readOnly = false,
   selected,
   onSelect,
@@ -33,6 +33,7 @@ export function OrderBar({
   row: OrderRow;
   horizonStart: Date;
   dayWidth: number;
+  showWeekends: boolean;
   /** PMD rows mirror the moulding plan — shown, never scheduled here. */
   readOnly?: boolean;
   selected: boolean;
@@ -55,6 +56,7 @@ export function OrderBar({
         // The zoom is live, so the pixels-to-days conversion has to travel with
         // the drag rather than assume the default column width.
         dayWidth,
+        showWeekends,
       },
     });
 
@@ -74,12 +76,14 @@ export function OrderBar({
     );
   }
 
-  const offsetDays = wholeDaysBetween(row.start, horizonStart);
+  const axisOffset = (date: Date) =>
+    timelineDayOffset(date, horizonStart, showWeekends);
+  const offsetDays = axisOffset(row.start);
   const left = offsetDays * dayWidth;
   const end = row.expectDate ?? row.planThrough ?? row.start;
-  // The whole calendar span, weekend included: the right-hand edge is the
-  // Expect Date, which is the date the row itself shows.
-  const span = Math.max(0, (end.getTime() - row.start.getTime()) / MS_PER_DAY);
+  // When weekends are hidden, their zero-width dates are removed from the
+  // coordinate system rather than leaving blank columns behind.
+  const span = Math.max(0, axisOffset(end) - offsetDays);
   const width = Math.max(span * dayWidth, MIN_PIECE_PX * 2);
 
   // Two kinds of order run straight through: one the supervisor has approved
@@ -121,17 +125,14 @@ export function OrderBar({
   // Days of work already booked, in the same units as `WorkingSpan.worked`.
   const doneDays = completion * worked;
 
-  const pieces =
+  const pieces = (
     spans.length > 0
       ? spans.map((piece) => ({
           key: piece.from.getTime(),
-          left:
-            ((piece.from.getTime() - row.start!.getTime()) / MS_PER_DAY) *
-            dayWidth,
+          left: (axisOffset(piece.from) - offsetDays) * dayWidth,
           width: Math.max(
-            ((piece.to.getTime() - piece.from.getTime()) / MS_PER_DAY) *
-              dayWidth,
-            MIN_PIECE_PX,
+            (axisOffset(piece.to) - axisOffset(piece.from)) * dayWidth,
+            0,
           ),
           // How much of this stretch is already finished.
           done:
@@ -143,7 +144,16 @@ export function OrderBar({
               : 0,
         }))
       : // A closed order has no span left to draw, but still needs a handle.
-        [{ key: 0, left: 0, width, done: 1 }];
+        [{ key: 0, left: 0, width, done: 1 }]
+  )
+    .filter((piece) => piece.width > 0)
+    .map((piece) => ({
+      ...piece,
+      width: Math.max(piece.width, MIN_PIECE_PX),
+    }));
+
+  // A weekend-only overtime piece disappears with the weekend columns.
+  if (pieces.length === 0) return null;
 
   return (
     <div

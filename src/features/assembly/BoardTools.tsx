@@ -20,6 +20,8 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
   const toggleDateCol = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
   const setOrderWindow = useUiStore((s) => s.setOrderWindow);
+  const showWeekends = useUiStore((s) => s.showWeekends);
+  const toggleWeekends = useUiStore((s) => s.toggleWeekends);
 
   if (!board) return null;
   const hidden = DATE_COLS.filter((key) => !dateCols[key]);
@@ -57,11 +59,22 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
         <button
           className={orderWindow === 'next-five' ? 'active' : ''}
           onClick={() => setOrderWindow('next-five')}
-          title="Orders touching today and the next five working days"
+          title="Orders touching yesterday or the next five working days"
         >
-          Next 5 days
+          5 days + yesterday
         </button>
       </span>
+      <button
+        className="date-restore"
+        onClick={toggleWeekends}
+        title={
+          showWeekends
+            ? 'Hide Saturday and Sunday'
+            : 'Show Saturday and Sunday'
+        }
+      >
+        {showWeekends ? '− Weekends' : '+ Weekends'}
+      </button>
       {/* Only the columns someone has hidden, so the row stays quiet. */}
       {hidden.map((key) => (
         <button

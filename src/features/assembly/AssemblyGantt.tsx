@@ -22,7 +22,7 @@ import {
   SHIFT_END_HOUR,
   SHIFT_START_HOUR,
 } from '@/domain/assembly';
-import { addDays, shiftFraction } from '@/engine/assembly/dates';
+import { addDays, isWeekend, shiftFraction } from '@/engine/assembly/dates';
 import { remainingHours } from '@/engine/assembly/duration';
 import {
   boardDayLoads,
@@ -99,6 +99,7 @@ function OrderRowView({
   dayWidth,
   orderWidth,
   visibleDates,
+  showWeekends,
 }: {
   row: OrderRow;
   board: AssemblyGanttView;
@@ -110,6 +111,7 @@ function OrderRowView({
   dayWidth: number;
   orderWidth: number;
   visibleDates: DateCols;
+  showWeekends: boolean;
 }) {
   const isContext = !row.line.schedulable;
   let dateOffset = orderWidth + QTY_W + HOURS_W;
@@ -190,6 +192,7 @@ function OrderRowView({
           row={row}
           horizonStart={board.horizonStart}
           dayWidth={dayWidth}
+          showWeekends={showWeekends}
           readOnly={isContext}
           selected={selected}
           onSelect={onSelect}
@@ -213,6 +216,7 @@ function LineGroupView({
   dayWidth,
   orderWidth,
   visibleDates,
+  showWeekends,
   collapsed,
   onToggle,
   filtered,
@@ -226,6 +230,7 @@ function LineGroupView({
   dayWidth: number;
   orderWidth: number;
   visibleDates: DateCols;
+  showWeekends: boolean;
   collapsed: boolean;
   onToggle: () => void;
   filtered: boolean;
@@ -275,7 +280,7 @@ function LineGroupView({
           <div className="acell order">
             {group.line.schedulable
               ? filtered
-                ? 'No orders in the next five working days'
+                ? 'No orders from yesterday through the next five working days'
                 : 'Drop an order here'
               : 'No orders on this line'}
           </div>
@@ -293,6 +298,7 @@ function LineGroupView({
             dayWidth={dayWidth}
             orderWidth={orderWidth}
             visibleDates={visibleDates}
+            showWeekends={showWeekends}
           />
         ))
       ))}
@@ -309,7 +315,10 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const visibleDates = useUiStore((s) => s.dateCols);
   const toggleDate = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const showWeekends = useUiStore((s) => s.showWeekends);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
+    PMD: true,
+  });
   const [sort, setSort] = useState<OrderSort | null>(null);
 
   // The clock behind the "now" line. Five minutes is as fine as the line is
@@ -320,10 +329,13 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     return () => window.clearInterval(id);
   }, []);
 
-  const days = Array.from({ length: board.horizonDays }, (_, i) =>
+  const calendarDays = Array.from({ length: board.horizonDays }, (_, i) =>
     addDays(board.horizonStart, i),
   );
-  const gridWidth = board.horizonDays * dayWidth;
+  const days = showWeekends
+    ? calendarDays
+    : calendarDays.filter((day) => !isWeekend(day));
+  const gridWidth = days.length * dayWidth;
   const dateCount = Object.values(visibleDates).filter(Boolean).length;
   const labelWidth =
     orderWidth + QTY_W + HOURS_W + DATE_W * dateCount + TEAM_W;
@@ -396,13 +408,16 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   // Hours booked per day against the hours the shift can deliver — the same
   // arithmetic as the per-person and per-line loads, so the three agree. The
   // columns behind today instead carry what was booked as output.
-  const dayLoads = boardDayLoads(
+  const calendarDayLoads = boardDayLoads(
     visibleRows,
     board.workers,
     board.horizonStart,
     board.horizonDays,
     board.today,
   );
+  const dayLoads = showWeekends
+    ? calendarDayLoads
+    : calendarDayLoads.filter((load) => load.working);
 
   // Where the shift has got to, as a fraction of today's column.
   const todayIndex = dayLoads.findIndex((load) => load.isToday);
@@ -462,8 +477,8 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     >
       {/*
         Day backgrounds for the whole board, drawn once behind the rows rather
-        than per row: today picked out, days already gone faded, Saturday and
-        Sunday greyed because the factory is closed. Rows and bars paint on top.
+        than per row: today is picked out and days already gone are faded.
+        Saturday and Sunday are greyed when their optional columns are visible.
       */}
       <div className="day-stripes" style={{ left: labelWidth, width: gridWidth }}>
         {dayLoads.map((load, i) => (
@@ -615,6 +630,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           dayWidth={dayWidth}
           orderWidth={orderWidth}
           visibleDates={visibleDates}
+          showWeekends={showWeekends}
           collapsed={Boolean(collapsed[group.line.key])}
           onToggle={() => setCollapsed((current) => ({ ...current, [group.line.key]: !current[group.line.key] }))}
           filtered={orderWindow === 'next-five'}

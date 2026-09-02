@@ -23,3 +23,14 @@ describe('single employee picker', () => {
     expect(useUiStore.getState().selectedJobId).toBe('JOB-2');
   });
 });
+
+describe('board display defaults', () => {
+  it('opens on five working days plus yesterday with weekends hidden', () => {
+    const state = useUiStore.getState();
+    expect(state.orderWindow).toBe('next-five');
+    expect(state.showWeekends).toBe(false);
+    state.toggleWeekends();
+    expect(useUiStore.getState().showWeekends).toBe(true);
+    useUiStore.getState().toggleWeekends();
+  });
+});
