@@ -12,8 +12,9 @@
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { OrderRow } from '@/engine/assembly/board';
-import { wholeDaysBetween, workingSpans } from '@/engine/assembly/dates';
+import { addDays, wholeDaysBetween, workingSpans } from '@/engine/assembly/dates';
 import { completedFraction } from '@/engine/assembly/duration';
+import { PRODUCTIVE_HOURS_PER_PERSON } from '@/domain/assembly';
 import { MS_PER_DAY } from '@/lib/time';
 
 export const DRAG_TYPE_BAR = 'order-bar';
@@ -75,7 +76,7 @@ export function OrderBar({
 
   const offsetDays = wholeDaysBetween(row.start, horizonStart);
   const left = offsetDays * dayWidth;
-  const end = row.expectDate ?? row.start;
+  const end = row.expectDate ?? row.planThrough ?? row.start;
   // The whole calendar span, weekend included: the right-hand edge is the
   // Expect Date, which is the date the row itself shows.
   const span = Math.max(0, (end.getTime() - row.start.getTime()) / MS_PER_DAY);
@@ -85,7 +86,36 @@ export function OrderBar({
   // for the weekend, and a moulding row — the presses keep their own calendar,
   // and this lane mirrors their plan rather than restating it in our hours.
   const continuous = row.overtime || readOnly;
-  const spans = workingSpans(row.start, end, continuous);
+  const plannedSpans = row.crewDays?.map((day) => ({
+    from: day.date,
+    to: addDays(
+      day.date,
+      day.perWorkerHours / PRODUCTIVE_HOURS_PER_PERSON,
+    ),
+  }));
+  const merged = (plannedSpans ?? []).reduce<{ from: Date; to: Date }[]>(
+    (out, next) => {
+      const previous = out.at(-1);
+      if (previous && previous.to.getTime() === next.from.getTime()) {
+        previous.to = next.to;
+      } else {
+        out.push({ ...next });
+      }
+      return out;
+    },
+    [],
+  );
+  let workedBefore = 0;
+  const spans =
+    row.crewDays && !readOnly
+      ? merged.map((piece) => {
+          const worked =
+            (piece.to.getTime() - piece.from.getTime()) / MS_PER_DAY;
+          const result = { ...piece, worked, workedBefore };
+          workedBefore += worked;
+          return result;
+        })
+      : workingSpans(row.start, end, continuous);
   const worked = spans.reduce((s, p) => s + p.worked, 0);
   // Days of work already booked, in the same units as `WorkingSpan.worked`.
   const doneDays = completedFraction(row.job) * worked;

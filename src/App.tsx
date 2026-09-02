@@ -36,6 +36,7 @@ export default function App() {
 
   const containers = usePlanStore((s) => s.containers);
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
+  const orderCrewAssignments = usePlanStore((s) => s.orderCrewAssignments);
   const orderStarts = usePlanStore((s) => s.orderStarts);
   const orderActualStarts = usePlanStore((s) => s.orderActualStarts);
   const orderOvertime = usePlanStore((s) => s.orderOvertime);
@@ -91,6 +92,7 @@ export default function App() {
         containers,
         assembly: {
           orderWorkers,
+          orderCrewAssignments,
           orderStarts,
           orderActualStarts,
           orderOvertime,
@@ -105,6 +107,7 @@ export default function App() {
   }, [
     containers,
     orderWorkers,
+    orderCrewAssignments,
     orderStarts,
     orderActualStarts,
     orderOvertime,

@@ -134,24 +134,34 @@ export function orderFactsFromBoard(
   return board.groups
     .filter((group) => group.line.schedulable)
     .flatMap((group) =>
-      group.rows.map((row) => ({
-        jobNum: String(row.job.id),
-        line: group.line.name,
-        operatorIds: row.workers.map((w) => String(w.id)),
-        operatorNames: row.workers.map((w) => w.name),
-        hasSyntheticCrew: row.workers.some((w) => w.synthetic),
-        startDate: iso(row.plannedStart),
-        actualStartAt: row.actualStart?.startedAt ?? null,
-        startOverrideReason: row.actualStart?.overrideReason ?? null,
-        dueDate: iso(row.job.dueDate),
-        expectDate: iso(row.expectDate),
-        orderQty: row.job.remainingQty + row.job.completedQty,
-        remainingQty: row.job.remainingQty,
-        // The day the order opens its record on. Falls back to the horizon so
-        // an order with no crew — and so no start — still gets its one row.
-        anchorDay: day(row.start) ?? day(board.horizonStart)!,
-        shifts: production[String(row.job.id)] ?? [],
-      })),
+      group.rows.map((row) => {
+        const anchorDay = day(row.start) ?? day(board.horizonStart)!;
+        const anchorIds =
+          row.crewDays?.find((crewDay) => crewDay.day === anchorDay)?.workerIds ??
+          row.crewDays?.[0]?.workerIds ??
+          row.workers.map((worker) => String(worker.id));
+        const anchorCrew = row.workers.filter((worker) =>
+          anchorIds.includes(String(worker.id)),
+        );
+        return {
+          jobNum: String(row.job.id),
+          line: group.line.name,
+          operatorIds: anchorCrew.map((worker) => String(worker.id)),
+          operatorNames: anchorCrew.map((worker) => worker.name),
+          hasSyntheticCrew: anchorCrew.some((worker) => worker.synthetic),
+          startDate: iso(row.plannedStart),
+          actualStartAt: row.actualStart?.startedAt ?? null,
+          startOverrideReason: row.actualStart?.overrideReason ?? null,
+          dueDate: iso(row.job.dueDate),
+          expectDate: iso(row.expectDate),
+          orderQty: row.job.remainingQty + row.job.completedQty,
+          remainingQty: row.job.remainingQty,
+          // The day the order opens its record on. Falls back to the horizon so
+          // an order with no crew — and so no start — still gets its one row.
+          anchorDay,
+          shifts: production[String(row.job.id)] ?? [],
+        };
+      }),
     );
 }
 

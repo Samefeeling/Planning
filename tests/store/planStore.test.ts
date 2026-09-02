@@ -21,6 +21,7 @@ describe('ASSY_Production bookings', () => {
       progress: {},
       progressBaselines: {},
       orderWorkers: {},
+      orderCrewAssignments: {},
       orderDoubleBooked: {},
       orderActualStarts: {},
     });
@@ -30,6 +31,16 @@ describe('ASSY_Production bookings', () => {
     const job = JobId('ASSY-102');
     usePlanStore.setState({
       orderWorkers: { [String(job)]: ['W01', 'W02'] },
+      orderCrewAssignments: {
+        [String(job)]: [
+          { workerId: 'W01', fromDay: null, toDayExclusive: null },
+          {
+            workerId: 'W02',
+            fromDay: '2026-08-31',
+            toDayExclusive: '2026-09-02',
+          },
+        ],
+      },
       orderDoubleBooked: { [String(job)]: ['W02'] },
     });
     usePlanStore.getState().startOrder(job, {
@@ -56,8 +67,28 @@ describe('ASSY_Production bookings', () => {
     const state = usePlanStore.getState();
     expect(state.progress[String(job)]).toEqual([{ date: '2026-08-31', qty: 7 }]);
     expect(state.orderWorkers[String(job)]).toBeUndefined();
+    expect(state.orderCrewAssignments[String(job)]).toBeUndefined();
     expect(state.orderDoubleBooked[String(job)]).toBeUndefined();
     expect(state.production[String(job)][0].operatorIds).toEqual(['W01', 'W02']);
+  });
+
+  it('keeps a bounded allocation separate from the legacy whole-order crew', () => {
+    const job = JobId('SFM507569');
+    usePlanStore.getState().assignWorkerWindow(
+      job,
+      'Bill',
+      '2026-09-02',
+      '2026-09-04',
+    );
+
+    expect(usePlanStore.getState().orderCrewAssignments[String(job)]).toEqual([
+      {
+        workerId: 'Bill',
+        fromDay: '2026-09-02',
+        toDayExclusive: '2026-09-04',
+      },
+    ]);
+    expect(usePlanStore.getState().orderWorkers[String(job)]).toEqual([]);
   });
 
   it('keeps the crew allocated after a normal save', () => {

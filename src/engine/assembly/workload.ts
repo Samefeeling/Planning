@@ -155,7 +155,6 @@ export function boardDayLoads(
     const past = key < todayKey;
     // A day already gone shows what the shift booked, not what was planned for
     // it — there is nothing left to plan, and the two are rarely the same.
-    // `hoursOnDay` is per person, so multiply back up by the crew on the order.
     const hours = past
       ? scheduled.reduce(
           (s, r) =>
@@ -163,7 +162,7 @@ export function boardDayLoads(
           0,
         )
       : scheduled.reduce(
-          (s, r) => s + hoursOnDay(r, date) * r.workers.length,
+          (s, r) => s + hoursOnDay(r, date),
           0,
         );
     const pct = capacity > 0 ? (hours / capacity) * 100 : 0;
@@ -189,9 +188,9 @@ export function boardDayLoads(
 export interface LineLoad {
   /** Standard hours still to run across the line's orders. */
   hours: number;
-  /** Distinct people allocated anywhere on the line. */
+  /** Most people planned simultaneously on the line on any covered day. */
   crew: number;
-  /** Hours that crew delivers in a day. */
+  /** Average daily capacity across the shifts currently covered. */
   capacityPerDay: number;
   /** Calendar days to clear the queue; null when nobody is allocated. */
   daysOfWork: number | null;
@@ -216,7 +215,20 @@ export const dayKey = (d: Date): string =>
  * days worked, which is precisely the sum of the open overlaps below, so an
  * order's daily shares always add back up to its remaining hours.
  */
-function hoursOnDay(row: OrderRow, from: Date): number {
+function hoursOnDay(
+  row: OrderRow,
+  from: Date,
+  workerId?: string,
+): number {
+  if (row.crewDays) {
+    const plan = row.crewDays.find((day) => day.day === dayKey(from));
+    if (!plan) return 0;
+    if (workerId && !plan.workerIds.includes(workerId)) return 0;
+    return workerId ? plan.perWorkerHours : plan.hours;
+  }
+
+  // Compatibility for hand-built rows in older integrations and tests. New
+  // board rows always carry `crewDays`, which is the source of truth.
   if (!row.start || !row.expectDate || row.days === null || row.days <= 0) {
     return 0;
   }
@@ -230,8 +242,10 @@ function hoursOnDay(row: OrderRow, from: Date): number {
     Math.max(row.start.getTime(), from.getTime());
   if (overlapMs <= 0) return 0;
 
-  const share = remainingHours(row.job) / crew;
-  return share * (overlapMs / MS_PER_DAY / row.days);
+  const total = remainingHours(row.job) * (overlapMs / MS_PER_DAY / row.days);
+  if (!workerId) return total;
+  if (!row.workers.some((worker) => String(worker.id) === workerId)) return 0;
+  return total / crew;
 }
 
 /**
@@ -263,7 +277,7 @@ export function workerLoad(
     const entries: LoadEntry[] = [];
 
     for (const row of mine) {
-      const hours = hoursOnDay(row, date);
+      const hours = hoursOnDay(row, date, id);
       if (hours <= 0) continue;
       jobs.add(String(row.job.id));
       entries.push({
@@ -391,16 +405,35 @@ export function loadPreview(
 /** Work still queued on a line, and how long its crew needs to clear it. */
 export function lineLoad(rows: OrderRow[]): LineLoad {
   const hours = rows.reduce((s, r) => s + remainingHours(r.job), 0);
-  const crew = new Set(rows.flatMap((r) => r.workers.map((w) => String(w.id))))
-    .size;
-  const capacityPerDay = crew * PRODUCTIVE_HOURS_PER_PERSON;
+  const byDay = new Map<string, Set<string>>();
+  for (const row of rows) {
+    for (const day of row.crewDays ?? []) {
+      const active = byDay.get(day.day) ?? new Set<string>();
+      day.workerIds.forEach((workerId) => active.add(workerId));
+      byDay.set(day.day, active);
+    }
+  }
+  const dayCrews = [...byDay.values()].map((active) => active.size);
+  const legacyCrew = new Set(
+    rows.flatMap((row) => row.workers.map((worker) => String(worker.id))),
+  ).size;
+  const crew = dayCrews.length > 0 ? Math.max(...dayCrews) : legacyCrew;
+  const capacityPerDay =
+    dayCrews.length > 0
+      ? (dayCrews.reduce((sum, count) => sum + count, 0) /
+          dayCrews.length) *
+        PRODUCTIVE_HOURS_PER_PERSON
+      : legacyCrew * PRODUCTIVE_HOURS_PER_PERSON;
 
   return {
     hours,
     crew,
     capacityPerDay,
     daysOfWork: capacityPerDay > 0 ? hours / capacityPerDay : null,
-    needsCrew: rows.filter((r) => r.line.schedulable && r.workers.length === 0)
-      .length,
+    needsCrew: rows.filter(
+      (r) =>
+        r.line.schedulable &&
+        (r.uncoveredHours ?? (r.workers.length === 0 ? 1 : 0)) > 0,
+    ).length,
   };
 }

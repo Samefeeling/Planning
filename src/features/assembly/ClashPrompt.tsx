@@ -23,6 +23,7 @@ export function ClashPrompt() {
   const request = useUiStore((s) => s.clashRequest);
   const clear = useUiStore((s) => s.clearClash);
   const assign = usePlanStore((s) => s.assignWorker);
+  const assignWindow = usePlanStore((s) => s.assignWorkerWindow);
   const approve = usePlanStore((s) => s.approveDoubleBooking);
   // The same gate as allocating by hand: this *is* an allocation, and a
   // heavier one than most.
@@ -42,7 +43,16 @@ export function ClashPrompt() {
 
   const jobId = JobId(request.jobId);
   const confirm = () => {
-    assign(jobId, request.workerId);
+    if (request.fromDay !== undefined || request.toDayExclusive !== undefined) {
+      assignWindow(
+        jobId,
+        request.workerId,
+        request.fromDay ?? null,
+        request.toDayExclusive ?? null,
+      );
+    } else {
+      assign(jobId, request.workerId);
+    }
     approve(jobId, request.workerId);
     clear();
   };

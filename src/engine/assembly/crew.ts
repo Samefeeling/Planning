@@ -15,9 +15,14 @@
  * Pure. No React, no store.
  */
 
-import { MAX_WORKERS_PER_ORDER, type Worker } from '@/domain/assembly';
-import { durationDays, remainingQty } from './duration';
+import {
+  MAX_WORKERS_PER_ORDER,
+  type CrewAssignment,
+  type Worker,
+} from '@/domain/assembly';
+import { durationDays, remainingHours, remainingQty } from './duration';
 import { addDays, addWorkingDays } from './dates';
+import { planVariableCrew } from './crewSchedule';
 import type { AssemblyGanttView, OrderRow } from './board';
 
 export interface CrewSuggestion {
@@ -78,25 +83,126 @@ export function clashesFor(
   workerId: string,
 ): OrderRow[] {
   if (!target.line.schedulable || target.completedToday) return [];
-  // The span the order would have with this person on it — they may already
-  // be, in which case the crew size does not change.
-  const crew =
-    target.workers.filter((w) => String(w.id) !== workerId).length + 1;
-  const mine = span(target, crew);
-  if (!mine) return [];
-
+  const current =
+    target.crewAssignments ??
+    target.workers.map((worker) => ({
+      workerId: String(worker.id),
+      fromDay: null,
+      toDayExclusive: null,
+    }));
+  const proposed: CrewAssignment[] = current.some(
+    (assignment) => assignment.workerId === workerId,
+  )
+    ? current
+    : [...current, { workerId, fromDay: null, toDayExclusive: null }];
+  const mine = planVariableCrew(
+    target.plannedStart,
+    remainingHours(target.job),
+    proposed,
+    target.overtime,
+  );
+  const mineDays = new Set(
+    mine.crewDays
+      .filter((day) => day.workerIds.includes(workerId))
+      .map((day) => day.day),
+  );
+  if (mineDays.size === 0) return [];
   const id = String(target.job.id);
   return rows.filter(
     (r) =>
       String(r.job.id) !== id &&
       r.line.schedulable &&
       !r.completedToday &&
-      r.start !== null &&
-      r.expectDate !== null &&
       r.workers.some((w) => String(w.id) === workerId) &&
-      r.start < mine.to &&
-      mine.from < r.expectDate,
+      (r.crewDays
+        ? r.crewDays.some(
+            (day) =>
+              day.workerIds.includes(workerId) && mineDays.has(day.day),
+          )
+        : (() => {
+            const legacy = span(r, Math.max(1, r.workers.length));
+            return legacy
+              ? mine.crewDays.some(
+                  (day) => day.date >= legacy.from && day.date < legacy.to,
+                )
+              : false;
+          })()),
   );
+}
+
+export interface FreeCrewWindow {
+  /** First local day the worker can help this order. */
+  fromDay: string;
+  /** First unavailable day; null means they can stay through completion. */
+  toDayExclusive: string | null;
+  /** Orders beginning on the boundary, shown as the reason for the hand-off. */
+  nextJobIds: string[];
+}
+
+/**
+ * Earliest useful gap a worker can lend to an order without touching a later
+ * commitment. This is what turns Bill's empty 2/9–3/9 into a safe hand-off
+ * instead of rejecting him because he has another order later in the week.
+ */
+export function freeCrewWindow(
+  rows: OrderRow[],
+  target: OrderRow,
+  workerId: string,
+): FreeCrewWindow | null {
+  const current =
+    target.crewAssignments ??
+    target.workers.map((worker) => ({
+      workerId: String(worker.id),
+      fromDay: null,
+      toDayExclusive: null,
+    }));
+  const proposed: CrewAssignment[] = current.some(
+    (assignment) => assignment.workerId === workerId,
+  )
+    ? current
+    : [...current, { workerId, fromDay: null, toDayExclusive: null }];
+  const plan = planVariableCrew(
+    target.plannedStart,
+    remainingHours(target.job),
+    proposed,
+    target.overtime,
+  );
+  const candidateDays = plan.crewDays.filter((day) =>
+    day.workerIds.includes(workerId),
+  );
+  if (candidateDays.length === 0) return null;
+
+  const otherRows = rows.filter(
+    (row) =>
+      String(row.job.id) !== String(target.job.id) && !row.completedToday,
+  );
+  const busy = new Map<string, string[]>();
+  for (const row of otherRows) {
+    for (const day of row.crewDays ?? []) {
+      if (!day.workerIds.includes(workerId)) continue;
+      const jobs = busy.get(day.day) ?? [];
+      jobs.push(String(row.job.id));
+      busy.set(day.day, jobs);
+    }
+  }
+
+  const firstConflict = candidateDays.findIndex((day) => busy.has(day.day));
+  if (firstConflict < 0) {
+    return {
+      fromDay: candidateDays[0].day,
+      toDayExclusive: null,
+      nextJobIds: [],
+    };
+  }
+  // A gap after an immediate conflict needs an explicit user choice; the
+  // default offered here is deliberately only the safe leading gap.
+  if (firstConflict === 0) return null;
+  const boundary = candidateDays[firstConflict].day;
+  return {
+    fromDay: candidateDays[0].day,
+    toDayExclusive: boundary,
+    nextJobIds: busy.get(boundary) ?? [],
+  };
 }
 
 interface Span {
@@ -239,6 +345,30 @@ export function suggestCrew(
     if (staffOneWave(view, allocations) === 0) break;
     if (!recompute) break;
     view = recompute(allocations);
+  }
+
+  // A predecessor staffed in a later wave can move an already-suggested
+  // successor. Validate against the settled board, removing the most recent
+  // suggestion in any pair until no person occupies two orders on one day.
+  if (recompute) {
+    view = recompute(allocations);
+    for (let guard = 0; guard < MAX_WAVES * 3; guard++) {
+      const jobIds = Object.keys(allocations).reverse();
+      const bad = jobIds.find((jobId) => {
+        const row = view.rowsByJob.get(jobId);
+        return row?.workers.some(
+          (worker) =>
+            clashesFor(
+              [...view.rowsByJob.values()],
+              row,
+              String(worker.id),
+            ).length > 0,
+        );
+      });
+      if (!bad) break;
+      delete allocations[bad];
+      view = recompute(allocations);
+    }
   }
 
   const staffed = Object.keys(allocations).length;

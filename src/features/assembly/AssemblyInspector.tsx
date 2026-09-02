@@ -157,8 +157,18 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   // Closed by the supervisor: the bar greys out and there is nothing left to
   // book, but the history stays readable.
   const closed = row.completedToday;
+  const activeCrewIds =
+    row.crewDays?.find((day) => day.day === today)?.workerIds ??
+    (row.crewDays ? [] : row.workers.map((worker) => String(worker.id)));
+  const activeCrew = row.workers.filter((worker) =>
+    activeCrewIds.includes(String(worker.id)),
+  );
 
-  const eligibility = startEligibility(job.released, row.release, row.workers.length);
+  const eligibility = startEligibility(
+    job.released,
+    row.release,
+    activeCrew.length,
+  );
 
   const beginProduction = () => {
     if (row.actualStart) return;
@@ -180,8 +190,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     startOrder(job.id, {
       startedAt: new Date().toISOString(),
       overrideReason: eligibility.allowed ? null : reason,
-      operatorIds: row.workers.map((worker) => String(worker.id)),
-      operatorNames: row.workers.map((worker) => worker.name),
+      operatorIds: activeCrew.map((worker) => String(worker.id)),
+      operatorNames: activeCrew.map((worker) => worker.name),
     });
     setMessage('Production start confirmed.');
   };
@@ -223,8 +233,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       paused,
       pauseReason: paused ? pauseReason : null,
       jobCompleted,
-      operatorIds: row.workers.map((worker) => String(worker.id)),
-      operatorNames: row.workers.map((worker) => worker.name),
+      operatorIds: activeCrew.map((worker) => String(worker.id)),
+      operatorNames: activeCrew.map((worker) => worker.name),
       completedAt,
       notes: notes.trim(),
     }, {
@@ -327,9 +337,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       <dl className="kv">
         <dt>On the job</dt>
         <dd>
-          {row.workers.length} / {MAX_WORKERS_PER_ORDER}
-          {row.workers.length > 0 &&
-            ` — ${row.workers.map((w) => w.name).join(', ')}`}
+          {activeCrew.length} / {MAX_WORKERS_PER_ORDER} today
+          {activeCrew.length > 0 &&
+            ` — ${activeCrew.map((w) => w.name).join(', ')}`}
         </dd>
         <dt>Duration</dt>
         <dd>{row.days === null ? '—' : `${row.days.toFixed(1)} days`}</dd>

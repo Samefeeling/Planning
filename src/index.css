@@ -382,6 +382,7 @@ button {
   position: relative;
   --order-w: 200px;
   --qty-w: 58px;
+  --hours-w: 82px;
   --date-w: 62px;
   --team-w: 172px;
   font-size: 12px;
@@ -501,6 +502,15 @@ body.col-resizing {
   font-size: 9.5px;
   font-weight: 600;
   color: var(--faint);
+}
+.acell.hours {
+  width: var(--hours-w);
+  flex: 0 0 var(--hours-w);
+  justify-content: center;
+  text-align: center;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 .acell.date {
   width: var(--date-w);
@@ -690,7 +700,7 @@ body.col-resizing {
   width: 2px;
   margin-left: -1px;
   z-index: 6;
-  background: var(--accent);
+  background: #ef4444;
   cursor: help;
 }
 .now-line::before {
@@ -699,7 +709,44 @@ body.col-resizing {
   top: 0;
   left: -3px;
   border: 4px solid transparent;
-  border-top-color: var(--accent);
+  border-top-color: #ef4444;
+}
+
+.crew-window-editor {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+  padding: 7px;
+}
+.crew-window-editor label {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.crew-window-editor input {
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.crew-window-actions {
+  display: flex;
+  gap: 5px;
+}
+.crew-window-actions button {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
 }
 
 /* Header columns get the same treatment, above the stripe layer. */

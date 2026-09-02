@@ -129,6 +129,20 @@ export interface Worker {
   synthetic?: boolean;
 }
 
+/**
+ * One person's planned time on an order.
+ *
+ * Null boundaries follow the order: a null `fromDay` means its scheduled
+ * start, and a null `toDayExclusive` means until the order is complete. Date
+ * boundaries are local `YYYY-MM-DD`; the end is exclusive, so a person can
+ * finish one order and begin the next on that day without an overlap.
+ */
+export interface CrewAssignment {
+  workerId: string;
+  fromDay: string | null;
+  toDayExclusive: string | null;
+}
+
 /** Nobody is allocated to more than this many orders' worth of work at once. */
 export const MAX_WORKERS_PER_ORDER = 4;
 

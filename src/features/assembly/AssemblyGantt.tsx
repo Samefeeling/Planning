@@ -23,6 +23,7 @@ import {
   SHIFT_START_HOUR,
 } from '@/domain/assembly';
 import { addDays, shiftFraction } from '@/engine/assembly/dates';
+import { remainingHours } from '@/engine/assembly/duration';
 import { boardDayLoads, rosterLoad } from '@/engine/assembly/workload';
 import {
   MAX_ORDER_WIDTH,
@@ -41,6 +42,7 @@ import { WorkerLoadChip } from './WorkerLoadChip';
 // The Order column is the exception: it is dragged, so it comes from the store
 // and is pushed back into CSS as --order-w.
 const QTY_W = 58;
+const HOURS_W = 82;
 const DATE_W = 62;
 const TEAM_W = 172;
 
@@ -99,7 +101,7 @@ function OrderRowView({
   visibleDates: DateCols;
 }) {
   const isContext = !row.line.schedulable;
-  let dateOffset = orderWidth + QTY_W;
+  let dateOffset = orderWidth + QTY_W + HOURS_W;
   const frozenDate = (visible: boolean): React.CSSProperties | undefined => {
     if (!visible) return undefined;
     const style = { left: dateOffset };
@@ -135,6 +137,13 @@ function OrderRowView({
         {row.job.completedQty > 0 && (
           <span className="qty-left">{row.job.remainingQty} left</span>
         )}
+      </div>
+      <div
+        className="acell hours frozen"
+        style={{ left: orderWidth + QTY_W }}
+        title="Remaining standard labour hours used by the schedule"
+      >
+        {remainingHours(row.job).toFixed(1)} h
       </div>
       {visibleDates.start && (
         <div
@@ -299,7 +308,8 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   );
   const gridWidth = board.horizonDays * dayWidth;
   const dateCount = Object.values(visibleDates).filter(Boolean).length;
-  const labelWidth = orderWidth + QTY_W + DATE_W * dateCount + TEAM_W;
+  const labelWidth =
+    orderWidth + QTY_W + HOURS_W + DATE_W * dateCount + TEAM_W;
   const attendance = board.workers.filter((worker) => worker.onShift);
   const allRows = useMemo(
     () => board.groups.flatMap((group) => group.rows),
@@ -320,7 +330,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const allocationCoverage = attendance.length
     ? Math.round((allocatedOnSite / attendance.length) * 100)
     : 0;
-  let headerOffset = orderWidth + QTY_W;
+  let headerOffset = orderWidth + QTY_W + HOURS_W;
   const headerLeft = () => {
     const left = headerOffset;
     headerOffset += DATE_W;
@@ -459,6 +469,12 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
             />
           </div>
           <div className="acell qty frozen" style={{ left: orderWidth }}>Order Qty</div>
+          <div
+            className="acell hours frozen"
+            style={{ left: orderWidth + QTY_W }}
+          >
+            Required Hours
+          </div>
           {dateHead('start', 'Start Date')}
           {dateHead('due', 'Due Date')}
           {dateHead('expect', 'Expect Date')}

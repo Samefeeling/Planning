@@ -66,6 +66,9 @@ export interface ClashRequest {
   withJobIds: string[];
   /** How each of those reads on the board: "ASM8002 · UPL · 4 Sep – 8 Sep". */
   withLabels: string[];
+  /** Optional bounded hand-over window; absent means the whole order. */
+  fromDay?: string | null;
+  toDayExclusive?: string | null;
 }
 
 interface UiState {

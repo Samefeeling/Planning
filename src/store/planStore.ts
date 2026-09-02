@@ -11,7 +11,10 @@
 import { create } from 'zustand';
 import type { JobId } from '@/domain/ids';
 import type { Job, WorkCenter } from '@/domain/types';
-import { MAX_WORKERS_PER_ORDER } from '@/domain/assembly';
+import {
+  MAX_WORKERS_PER_ORDER,
+  type CrewAssignment,
+} from '@/domain/assembly';
 
 /** Container id for the un-scheduled job pool. */
 export const POOL_ID = '__pool__';
@@ -65,8 +68,10 @@ interface PlanState {
   containers: Containers;
   initialized: boolean;
 
-  /** Job id → allocated worker ids (assembly; capped at four). */
+  /** Legacy mirror of whole-order allocations; bounded windows live below. */
   orderWorkers: Record<string, string[]>;
+  /** Canonical, date-bounded crew plan. Old `orderWorkers` migrate into this. */
+  orderCrewAssignments: Record<string, CrewAssignment[]>;
   /** Job id → ISO day the planner dragged the bar to. */
   orderStarts: Record<string, string>;
   orderActualStarts: Record<string, ActualStartRecord>;
@@ -101,6 +106,18 @@ interface PlanState {
   setContainers: (containers: Containers) => void;
   /** Put a worker on an order (no-op when full or already on it). */
   assignWorker: (jobId: JobId, workerId: string) => void;
+  assignWorkerWindow: (
+    jobId: JobId,
+    workerId: string,
+    fromDay: string | null,
+    toDayExclusive: string | null,
+  ) => void;
+  updateWorkerWindow: (
+    jobId: JobId,
+    workerId: string,
+    fromDay: string | null,
+    toDayExclusive: string | null,
+  ) => void;
   /** Take a worker off an order. */
   unassignWorker: (jobId: JobId, workerId: string) => void;
   /** Record that the supervisor accepts this person being on two orders. */
@@ -128,6 +145,7 @@ interface PlanState {
   /** Replace the assembly plan wholesale (e.g. loaded from persistence). */
   setAssemblyPlan: (plan: {
     orderWorkers?: Record<string, string[]>;
+    orderCrewAssignments?: Record<string, CrewAssignment[]>;
     orderStarts?: Record<string, string>;
     orderActualStarts?: Record<string, ActualStartRecord>;
     orderOvertime?: Record<string, boolean>;
@@ -177,9 +195,51 @@ function withoutJob(containers: Containers, jobId: JobId): Containers {
   return next;
 }
 
+const MIN_DAY = '0000-00-00';
+
+const fullAssignments = (workers: string[]): CrewAssignment[] =>
+  workers.slice(0, MAX_WORKERS_PER_ORDER).map((workerId) => ({
+    workerId,
+    fromDay: null,
+    toDayExclusive: null,
+  }));
+
+const startsAt = (assignment: CrewAssignment): string =>
+  assignment.fromDay ?? MIN_DAY;
+
+const activeAt = (assignment: CrewAssignment, day: string): boolean =>
+  startsAt(assignment) <= day &&
+  (assignment.toDayExclusive === null || day < assignment.toDayExclusive);
+
+const windowsOverlap = (
+  a: CrewAssignment,
+  b: CrewAssignment,
+): boolean =>
+  (a.toDayExclusive === null || startsAt(b) < a.toDayExclusive) &&
+  (b.toDayExclusive === null || startsAt(a) < b.toDayExclusive);
+
+/** Maximum people active together, evaluated at every window start. */
+const withinCrewLimit = (assignments: CrewAssignment[]): boolean => {
+  const starts = new Set(assignments.map(startsAt));
+  return [...starts].every(
+    (day) =>
+      assignments.filter((assignment) => activeAt(assignment, day)).length <=
+      MAX_WORKERS_PER_ORDER,
+  );
+};
+
+const legacyWorkers = (assignments: CrewAssignment[]): string[] =>
+  assignments
+    .filter(
+      (assignment) =>
+        assignment.fromDay === null && assignment.toDayExclusive === null,
+    )
+    .map((assignment) => assignment.workerId);
+
 export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
   orderWorkers: {},
+  orderCrewAssignments: {},
   orderStarts: {},
   orderActualStarts: {},
   orderOvertime: {},
@@ -230,16 +290,21 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       // Crew is the supervisor's to set, but a brand-new order starts with
       // whatever allocation the source system already has on it.
       const orderWorkers = keep(state.orderWorkers);
+      const orderCrewAssignments = keep(state.orderCrewAssignments);
       for (const job of jobs) {
         const key = String(job.id);
         if (!orderWorkers[key] && job.assignedWorkers.length > 0) {
           orderWorkers[key] = job.assignedWorkers.map(String);
+        }
+        if (!orderCrewAssignments[key] && (orderWorkers[key] ?? []).length > 0) {
+          orderCrewAssignments[key] = fullAssignments(orderWorkers[key]);
         }
       }
 
       return {
         containers: next,
         orderWorkers,
+        orderCrewAssignments,
         orderStarts: keep(state.orderStarts),
         orderActualStarts: keep(state.orderActualStarts),
         orderOvertime: keep(state.orderOvertime),
@@ -256,16 +321,56 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ containers, initialized: true });
   },
 
-
   assignWorker(jobId, workerId) {
+    get().assignWorkerWindow(jobId, workerId, null, null);
+  },
+
+  assignWorkerWindow(jobId, workerId, fromDay, toDayExclusive) {
     set((state) => {
       const key = String(jobId);
-      const current = state.orderWorkers[key] ?? [];
-      if (current.includes(workerId) || current.length >= MAX_WORKERS_PER_ORDER) {
-        return state;
-      }
+      if (fromDay && toDayExclusive && fromDay >= toDayExclusive) return state;
+      const current =
+        state.orderCrewAssignments[key] ??
+        fullAssignments(state.orderWorkers[key] ?? []);
+      const proposed: CrewAssignment = { workerId, fromDay, toDayExclusive };
+      if (
+        current.some(
+          (assignment) =>
+            assignment.workerId === workerId &&
+            windowsOverlap(assignment, proposed),
+        )
+      ) return state;
+      const next = [...current, proposed];
+      if (!withinCrewLimit(next)) return state;
       return {
-        orderWorkers: { ...state.orderWorkers, [key]: [...current, workerId] },
+        orderCrewAssignments: {
+          ...state.orderCrewAssignments,
+          [key]: next,
+        },
+        orderWorkers: {
+          ...state.orderWorkers,
+          [key]: legacyWorkers(next),
+        },
+      };
+    });
+  },
+
+  updateWorkerWindow(jobId, workerId, fromDay, toDayExclusive) {
+    set((state) => {
+      const key = String(jobId);
+      if (fromDay && toDayExclusive && fromDay >= toDayExclusive) return state;
+      const current =
+        state.orderCrewAssignments[key] ??
+        fullAssignments(state.orderWorkers[key] ?? []);
+      const proposed: CrewAssignment = { workerId, fromDay, toDayExclusive };
+      const next = [
+        ...current.filter((assignment) => assignment.workerId !== workerId),
+        proposed,
+      ];
+      if (!withinCrewLimit(next)) return state;
+      return {
+        orderCrewAssignments: { ...state.orderCrewAssignments, [key]: next },
+        orderWorkers: { ...state.orderWorkers, [key]: legacyWorkers(next) },
       };
     });
   },
@@ -274,6 +379,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set((state) => {
       const key = String(jobId);
       const current = state.orderWorkers[key] ?? [];
+      const assignments =
+        state.orderCrewAssignments[key] ??
+        fullAssignments(current);
       // Any approval to double-book them here goes with them: put the same
       // person back later and the overlap is a fresh decision, not an old one.
       const approved = (state.orderDoubleBooked[key] ?? []).filter(
@@ -286,7 +394,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       return {
         orderWorkers: {
           ...state.orderWorkers,
-          [key]: current.filter((w) => w !== workerId),
+          [key]: legacyWorkers(
+            assignments.filter((assignment) => assignment.workerId !== workerId),
+          ),
+        },
+        orderCrewAssignments: {
+          ...state.orderCrewAssignments,
+          [key]: assignments.filter(
+            (assignment) => assignment.workerId !== workerId,
+          ),
         },
         orderDoubleBooked,
       };
@@ -310,13 +426,19 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   assignCrews(allocations) {
     set((state) => {
       const orderWorkers = { ...state.orderWorkers };
+      const orderCrewAssignments = { ...state.orderCrewAssignments };
       let changed = false;
       for (const [jobId, crew] of Object.entries(allocations)) {
-        if ((orderWorkers[jobId] ?? []).length > 0 || crew.length === 0) continue;
+        if (
+          (orderCrewAssignments[jobId] ?? []).length > 0 ||
+          (orderWorkers[jobId] ?? []).length > 0 ||
+          crew.length === 0
+        ) continue;
         orderWorkers[jobId] = crew.slice(0, MAX_WORKERS_PER_ORDER);
+        orderCrewAssignments[jobId] = fullAssignments(orderWorkers[jobId]);
         changed = true;
       }
-      return changed ? { orderWorkers } : state;
+      return changed ? { orderWorkers, orderCrewAssignments } : state;
     });
   },
 
@@ -407,9 +529,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         (existing) => existing.date !== savedEntry.date,
       );
       const orderWorkers = { ...state.orderWorkers };
+      const orderCrewAssignments = { ...state.orderCrewAssignments };
       const orderDoubleBooked = { ...state.orderDoubleBooked };
       if (savedEntry.jobCompleted) {
         delete orderWorkers[key];
+        delete orderCrewAssignments[key];
         delete orderDoubleBooked[key];
       }
       return {
@@ -429,22 +553,36 @@ export const usePlanStore = create<PlanState>((set, get) => ({
           ? state.progressBaselines
           : { ...state.progressBaselines, [key]: source },
         orderWorkers,
+        orderCrewAssignments,
         orderDoubleBooked,
       };
     });
   },
 
   setAssemblyPlan(plan) {
-    set((state) => ({
-      orderWorkers: plan.orderWorkers ?? state.orderWorkers,
-      orderStarts: plan.orderStarts ?? state.orderStarts,
-      orderActualStarts: plan.orderActualStarts ?? state.orderActualStarts,
-      orderOvertime: plan.orderOvertime ?? state.orderOvertime,
-      orderDoubleBooked: plan.orderDoubleBooked ?? state.orderDoubleBooked,
-      progress: plan.progress ?? state.progress,
-      progressBaselines: plan.progressBaselines ?? state.progressBaselines,
-      production: plan.production ?? state.production,
-    }));
+    set((state) => {
+      const orderWorkers = plan.orderWorkers ?? state.orderWorkers;
+      const orderCrewAssignments =
+        plan.orderCrewAssignments ??
+        Object.fromEntries(
+          Object.entries(orderWorkers).map(([jobId, workers]) => [
+            jobId,
+            fullAssignments(workers),
+          ]),
+        );
+      return {
+        orderWorkers,
+        orderCrewAssignments,
+        orderStarts: plan.orderStarts ?? state.orderStarts,
+        orderActualStarts: plan.orderActualStarts ?? state.orderActualStarts,
+        orderOvertime: plan.orderOvertime ?? state.orderOvertime,
+        orderDoubleBooked: plan.orderDoubleBooked ?? state.orderDoubleBooked,
+        progress: plan.progress ?? state.progress,
+        progressBaselines:
+          plan.progressBaselines ?? state.progressBaselines,
+        production: plan.production ?? state.production,
+      };
+    });
   },
 
   moveJob(jobId, toContainer, toIndex) {
@@ -465,6 +603,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({
       containers: seed(workCenters, jobs),
       orderWorkers: {},
+      orderCrewAssignments: {},
       orderStarts: {},
       orderActualStarts: {},
       orderOvertime: {},

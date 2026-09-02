@@ -38,7 +38,7 @@ import type { Job, MaterialStatus, PlanningDataset } from '@/domain/types';
 import {
   DEFAULT_HORIZON_DAYS,
   LINES,
-  MAX_WORKERS_PER_ORDER,
+  type CrewAssignment,
   type LineDef,
   type Worker,
 } from '@/domain/assembly';
@@ -50,13 +50,11 @@ import { buildDependencies, type Dependency } from './dependencies';
 import {
   crewNeededFor,
   dailyTargetQty,
-  durationDays,
   hoursPerUnit,
   remainingHours,
 } from './duration';
 import {
   addDays,
-  addWorkingDays,
   nextWorkingDay,
   prevWorkingDay,
   scheduleStatus,
@@ -64,6 +62,11 @@ import {
   wholeDaysBetween,
   type ScheduleStatus,
 } from './dates';
+import {
+  planVariableCrew,
+  type CrewDayPlan,
+  type VariableCrewPlan,
+} from './crewSchedule';
 import { lineLoad, type LineLoad } from './workload';
 import type {
   ActualStartRecord,
@@ -88,6 +91,14 @@ export interface OrderRow {
   line: LineDef;
   /** Crew allocated to this order (already capped at the maximum). */
   workers: Worker[];
+  /** Date-bounded crew membership; null bounds mean the whole order. */
+  crewAssignments?: CrewAssignment[];
+  /** Exact future shift capacity used to derive Expect Date and workload. */
+  crewDays?: CrewDayPlan[];
+  /** End of the last covered shift when a bounded crew leaves work unfinished. */
+  planThrough?: Date | null;
+  /** Remaining standard hours with no crew currently assigned to cover them. */
+  uncoveredHours?: number;
   /** Confirmed production start, separate from the planned bar date. */
   actualStart?: ActualStartRecord | null;
   completedAt?: string | null;
@@ -176,6 +187,8 @@ export interface AssemblyInputs {
   containers: Record<string, unknown[]>;
   /** Job id → allocated worker ids. */
   orderWorkers: Record<string, string[]>;
+  /** Job id → date-bounded allocation windows. */
+  orderCrewAssignments?: Record<string, CrewAssignment[]>;
   /** Job id → ISO day the planner dragged the bar to. */
   orderStarts: Record<string, string>;
   orderActualStarts?: Record<string, ActualStartRecord>;
@@ -245,6 +258,10 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
     sourceCompletedQty: job.completedQty,
     line,
     workers: [],
+    crewAssignments: [],
+    crewDays: [],
+    planThrough: addDays(start, days),
+    uncoveredHours: 0,
     actualStart: null,
     completedAt: null,
     start,
@@ -307,6 +324,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const progressBaselines = input.progressBaselines ?? {};
   const production = input.production ?? {};
   const orderActualStarts = input.orderActualStarts ?? {};
+  const orderCrewAssignments = input.orderCrewAssignments ?? {};
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const completionDate = (job: Job): string | null =>
     (production[String(job.id)] ?? [])
@@ -467,16 +485,30 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       .filter((entry) => (entry.operatorIds ?? []).length > 0)
       .sort((a, b) => a.date.localeCompare(b.date))
       .at(-1)?.operatorIds;
-    const workerIds = (orderWorkers[id] ?? []).length > 0
+    const completedToday = completionDate(job) === todayKey;
+    const legacyWorkerIds = (orderWorkers[id] ?? []).length > 0
       ? orderWorkers[id]
       : actualStart?.operatorIds ?? latestCrew ?? [];
-    const workers = workerIds
-      .slice(0, MAX_WORKERS_PER_ORDER)
+    const configuredAssignments = orderCrewAssignments[id];
+    const crewAssignments: CrewAssignment[] = configuredAssignments
+      ? configuredAssignments
+      : completedToday
+        ? []
+        : legacyWorkerIds.map((workerId) => ({
+            workerId,
+            fromDay: null,
+            toDayExclusive: null,
+          }));
+    // A completed row keeps the last shift's names for confirmation even
+    // though Save Entry has already released every future assignment.
+    const displayWorkerIds = crewAssignments.length > 0
+      ? [...new Set(crewAssignments.map((assignment) => assignment.workerId))]
+      : completedToday
+        ? legacyWorkerIds
+        : [];
+    const workers = displayWorkerIds
       .map((w) => workersById.get(String(w)))
       .filter((w): w is Worker => Boolean(w));
-
-    const days = durationDays(job, workers.length);
-    const completedToday = completionDate(job) === todayKey;
     // Weekend work is a cost decision, so it is approved per order rather than
     // assumed. Without it the bar steps over Saturday and Sunday.
     const overtime = Boolean(orderOvertime[id]);
@@ -489,11 +521,22 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     // one, so it is resolved first; a moulding predecessor keeps its own dates.
     const predecessors = dependsOn.get(id) ?? [];
     let waitingOn: Dependency | null = null;
+    let predecessorBlocked = false;
     for (const dep of predecessors) {
       const predId = String(dep.onJobId);
       const pred = resolve(predId, seen) ?? mouldingRows.get(predId) ?? null;
       if (!actualStart && pred?.expectDate && pred.expectDate > want) {
         want = pred.expectDate;
+        waitingOn = dep;
+      } else if (
+        !actualStart &&
+        pred &&
+        !pred.expectDate &&
+        remainingHours(pred.job) > 0
+      ) {
+        // A component with uncovered work has no honest finish date. Do not
+        // let its successor slip through merely because that date is null.
+        predecessorBlocked = true;
         waitingOn = dep;
       }
     }
@@ -514,17 +557,39 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     // unless the planner dragged it there by hand.
     const slots = slotsFor(line);
     const claim = claimSlot(slots, want, Boolean(orderStarts[id] || actualStart));
-    const start = overtime || actualStart
+    const claimedDay = startOfDay(claim.start);
+    // Capacity is planned by complete shifts. If a predecessor or line slot
+    // frees part-way through a day, the next order begins on the next shift,
+    // never retroactively at that day's midnight.
+    const shiftStart = claim.start > claimedDay
+      ? startOfDay(addDays(claimedDay, 1))
+      : claimedDay;
+    const start = actualStart
       ? claim.start
-      : nextWorkingDay(claim.start);
-
-    const expectDate = completedToday
-      ? planStart
-      : days === null
-        ? null
-        : overtime
-          ? addDays(start, days)
-          : addWorkingDays(start, days);
+      : overtime
+        ? shiftStart
+        : nextWorkingDay(shiftStart);
+    // Only the remaining work is planned, so a job that started yesterday
+    // consumes today's capacity from today onward; its confirmed historical
+    // start is still retained as the left edge of the bar.
+    const capacityStart = start < planStart ? planStart : start;
+    const crewPlan: VariableCrewPlan = predecessorBlocked
+      ? {
+          start: null,
+          expectDate: null,
+          coveredUntil: null,
+          days: null,
+          crewDays: [],
+          uncoveredHours: remainingHours(job),
+        }
+      : planVariableCrew(
+          capacityStart,
+          remainingHours(job),
+          crewAssignments,
+          overtime,
+        );
+    const expectDate = completedToday ? planStart : crewPlan.expectDate;
+    const days = completedToday ? 0 : crewPlan.days;
     const status = completedToday
       ? {
           color: 'grey' as const,
@@ -540,15 +605,26 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       sourceCompletedQty: sourceJobsById.get(id)?.completedQty ?? job.completedQty,
       line,
       workers,
+      crewAssignments,
+      crewDays: completedToday ? [] : crewPlan.crewDays,
+      planThrough: completedToday ? planStart : crewPlan.coveredUntil,
+      uncoveredHours: completedToday ? 0 : crewPlan.uncoveredHours,
       actualStart,
       completedAt: completionInstant(job),
-      start: completedToday ? planStart : days === null ? null : start,
+      start: completedToday
+        ? planStart
+        : actualStart
+          ? start
+          : crewPlan.start,
       plannedStart: start,
       expectDate,
-      days: completedToday ? 0 : days,
+      days,
       slot: claim.slot,
       overtime,
-      dailyTarget: dailyTargetQty(job, workers.length),
+      dailyTarget: dailyTargetQty(
+        job,
+        crewPlan.crewDays[0]?.workerIds.length ?? 0,
+      ),
       status,
       material,
       release: releaseCheck(material, job.materialPrep),
@@ -571,8 +647,9 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     // The position stays taken until this order finishes on it. A closed order
     // gives it straight back. An order pinned over the top of a busy position
     // must not free it early, so the later of the two wins.
-    if (expectDate && !completedToday && expectDate > slots[claim.slot]) {
-      slots[claim.slot] = expectDate;
+    const heldUntil = expectDate ?? crewPlan.coveredUntil;
+    if (heldUntil && !completedToday && heldUntil > slots[claim.slot]) {
+      slots[claim.slot] = heldUntil;
     }
     return row;
   };
@@ -616,9 +693,11 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const horizonDays = Math.max(
     DEFAULT_HORIZON_DAYS + leadDays,
     ...scheduled.map((r) =>
-      r.expectDate
+      (r.expectDate ?? r.planThrough)
         ? Math.ceil(
-            (r.expectDate.getTime() - horizonStart.getTime()) / 86_400_000,
+            ((r.expectDate ?? r.planThrough)!.getTime() -
+              horizonStart.getTime()) /
+              86_400_000,
           ) + 1
         : 0,
     ),
@@ -639,7 +718,9 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       green: scheduled.filter((r) => r.status.color === 'green').length,
       orange: scheduled.filter((r) => r.status.color === 'orange').length,
       red: scheduled.filter((r) => r.status.color === 'red').length,
-      needsCrew: scheduled.filter((r) => r.days === null).length,
+      needsCrew: scheduled.filter(
+        (r) => (r.uncoveredHours ?? (r.days === null ? 1 : 0)) > 0,
+      ).length,
       remainingHours: totalRemainingHours(scheduled),
     },
   };

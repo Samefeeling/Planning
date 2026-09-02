@@ -9,6 +9,7 @@ import type {
   ProductionEntry,
   ProgressBaseline,
 } from '@/store/planStore';
+import type { CrewAssignment } from '@/domain/assembly';
 
 export interface PersistedPlan {
   id: string;
@@ -19,6 +20,8 @@ export interface PersistedPlan {
   /** Assembly plan: crew per order, pinned starts, booked output. */
   assembly?: {
     orderWorkers?: Record<string, string[]>;
+    /** Date-bounded crew plan; supersedes static `orderWorkers`. */
+    orderCrewAssignments?: Record<string, CrewAssignment[]>;
     orderStarts?: Record<string, string>;
     /** Exact, immutable production start confirmation. */
     orderActualStarts?: Record<string, ActualStartRecord>;

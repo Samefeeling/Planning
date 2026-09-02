@@ -11,11 +11,12 @@
  * a chip for someone on two orders at the same time is marked either way.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
 import type { Worker } from '@/domain/assembly';
 import { MAX_WORKERS_PER_ORDER } from '@/domain/assembly';
-import { clashesFor } from '@/engine/assembly/crew';
+import { clashesFor, freeCrewWindow } from '@/engine/assembly/crew';
+import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
 import { useUiStore } from '@/store/uiStore';
@@ -26,6 +27,26 @@ const describe = (row: OrderRow): string =>
   `${String(row.job.id)} · ${row.line.name} · ` +
   `${row.start ? formatDay(row.start) : '—'} – ` +
   `${row.expectDate ? formatDay(row.expectDate) : '—'}`;
+
+const parseDay = (day: string): Date => {
+  const [year, month, date] = day.split('-').map(Number);
+  return new Date(year, month - 1, date);
+};
+
+const moveDay = (day: string, amount: number): string => {
+  const date = parseDay(day);
+  date.setDate(date.getDate() + amount);
+  return crewDayKey(date);
+};
+
+const shortDay = (day: string): string => formatDay(parseDay(day));
+
+interface WindowDraft {
+  worker: Worker;
+  fromDay: string;
+  /** Inclusive last day in the form; blank means until completion. */
+  throughDay: string;
+}
 
 export function TeamChips({
   row,
@@ -44,14 +65,19 @@ export function TeamChips({
   const setCrewPicker = useUiStore((s) => s.setCrewPicker);
   const picking = pickerJobId === jobId;
   const root = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState<WindowDraft | null>(null);
   const assign = usePlanStore((s) => s.assignWorker);
+  const assignWindow = usePlanStore((s) => s.assignWorkerWindow);
   const unassign = usePlanStore((s) => s.unassignWorker);
   const approved = usePlanStore((s) => s.orderDoubleBooked);
   const askClash = useUiStore((s) => s.askClash);
   const unlocked = useSupervisorStore((s) => s.unlocked);
 
   useEffect(() => {
-    if (!picking) return;
+    if (!picking) {
+      setDraft(null);
+      return;
+    }
     const closeOutside = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) setCrewPicker(null);
     };
@@ -67,7 +93,11 @@ export function TeamChips({
   }, [picking, setCrewPicker]);
 
   const onIt = new Set(row.workers.map((w) => String(w.id)));
-  const full = row.workers.length >= MAX_WORKERS_PER_ORDER;
+  const full =
+    (row.crewDays?.length ?? 0) > 0 &&
+    row.crewDays!.every(
+      (day) => day.workerIds.length >= MAX_WORKERS_PER_ORDER,
+    );
   const LOCKED = 'Unlock Supervisor in the header to change the crew';
 
   const clashes = (workerId: string): OrderRow[] =>
@@ -92,15 +122,32 @@ export function TeamChips({
       (w) =>
         w.onShift && w.skills.includes(row.line.key) && !onIt.has(String(w.id)),
     )
-    .map((w) => ({ worker: w, busy: clashes(String(w.id)) }))
+    .map((w) => ({
+      worker: w,
+      busy: clashes(String(w.id)),
+      free: freeCrewWindow(rows, row, String(w.id)),
+    }))
     .sort((a, b) => a.busy.length - b.busy.length);
 
-  const add = (worker: Worker, busy: OrderRow[]) => {
-    setCrewPicker(null);
+  const add = (
+    worker: Worker,
+    busy: OrderRow[],
+    free: ReturnType<typeof freeCrewWindow>,
+  ) => {
     if (busy.length === 0) {
+      setCrewPicker(null);
       assign(row.job.id, String(worker.id));
       return;
     }
+    if (free?.toDayExclusive) {
+      setDraft({
+        worker,
+        fromDay: free.fromDay,
+        throughDay: moveDay(free.toDayExclusive, -1),
+      });
+      return;
+    }
+    setCrewPicker(null);
     // Two jobs at once is the supervisor's call, not ours. Nothing is written
     // until they answer — see ClashPrompt.
     askClash({
@@ -110,6 +157,63 @@ export function TeamChips({
       withJobIds: busy.map((r) => String(r.job.id)),
       withLabels: busy.map(describe),
     });
+  };
+
+  const saveWindow = () => {
+    const window = draft;
+    if (!window?.fromDay) return;
+    const toDayExclusive = window.throughDay
+      ? moveDay(window.throughDay, 1)
+      : null;
+    if (toDayExclusive && window.fromDay >= toDayExclusive) return;
+    const workerId = String(window.worker.id);
+    const busy = rows.filter(
+      (other) =>
+        String(other.job.id) !== jobId &&
+        !other.completedToday &&
+        (other.crewDays ?? []).some(
+          (day) =>
+            day.workerIds.includes(workerId) &&
+            window.fromDay <= day.day &&
+            (toDayExclusive === null || day.day < toDayExclusive),
+        ),
+    );
+    setCrewPicker(null);
+    if (busy.length === 0) {
+      assignWindow(row.job.id, workerId, window.fromDay, toDayExclusive);
+      return;
+    }
+    askClash({
+      jobId,
+      workerId,
+      workerName: window.worker.name,
+      withJobIds: busy.map((other) => String(other.job.id)),
+      withLabels: busy.map(describe),
+      fromDay: window.fromDay,
+      toDayExclusive,
+    });
+  };
+
+  const assignmentLabel = (workerId: string): string => {
+    const windows = (row.crewAssignments ?? []).filter(
+      (assignment) => assignment.workerId === workerId,
+    );
+    if (
+      windows.length === 0 ||
+      windows.some(
+        (assignment) =>
+          assignment.fromDay === null && assignment.toDayExclusive === null,
+      )
+    ) return 'whole order';
+    return windows
+      .map((assignment) => {
+        const from = assignment.fromDay ?? crewDayKey(row.plannedStart);
+        const through = assignment.toDayExclusive
+          ? shortDay(moveDay(assignment.toDayExclusive, -1))
+          : 'completion';
+        return `${shortDay(from)}–${through}`;
+      })
+      .join(', ');
   };
 
   return (
@@ -129,6 +233,7 @@ export function TeamChips({
                 ? `${w.name} — click to remove`
                 : `${w.name} — ${disabled ? 'completed order' : LOCKED}`,
               detail(w),
+              `Allocated: ${assignmentLabel(String(w.id))}`,
               busy.length > 0 &&
                 `${ok ? 'Splitting their day with' : 'Also on'}: ${busy
                   .map(describe)
@@ -170,12 +275,46 @@ export function TeamChips({
           </button>
           {picking && (
             <div className="picker" onClick={(e) => e.stopPropagation()}>
-              {candidates.length === 0 ? (
+              {draft ? (
+                <div className="crew-window-editor">
+                  <strong>{draft.worker.name}</strong>
+                  <span className="picker-skills">
+                    Set when they join and leave this order
+                  </span>
+                  <label>
+                    Join
+                    <input
+                      type="date"
+                      value={draft.fromDay}
+                      onChange={(event) =>
+                        setDraft({ ...draft, fromDay: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Last day
+                    <input
+                      type="date"
+                      value={draft.throughDay}
+                      onChange={(event) =>
+                        setDraft({ ...draft, throughDay: event.target.value })
+                      }
+                    />
+                  </label>
+                  <span className="picker-skills">
+                    They leave automatically after the last day.
+                  </span>
+                  <div className="crew-window-actions">
+                    <button onClick={saveWindow}>Allocate gap</button>
+                    <button onClick={() => setDraft(null)}>Back</button>
+                  </div>
+                </div>
+              ) : candidates.length === 0 ? (
                 <div className="picker-empty">
                   Nobody qualified for {row.line.name} is free
                 </div>
               ) : (
-                candidates.map(({ worker: w, busy }) => (
+                candidates.map(({ worker: w, busy, free }) => (
                   <button
                     key={String(w.id)}
                     className={`picker-item ${busy.length > 0 ? 'busy' : ''}`}
@@ -186,12 +325,14 @@ export function TeamChips({
                     ]
                       .filter(Boolean)
                       .join('\n')}
-                    onClick={() => add(w, busy)}
+                    onClick={() => add(w, busy, free)}
                   >
                     {w.name}
                     <span className="picker-skills">
-                      {busy.length > 0
-                        ? `on ${busy.map((r) => String(r.job.id)).join(', ')}`
+                      {free?.toDayExclusive
+                        ? `free ${shortDay(free.fromDay)}–${shortDay(moveDay(free.toDayExclusive, -1))}, then ${free.nextJobIds.join(', ')}`
+                        : busy.length > 0
+                          ? `on ${busy.map((r) => String(r.job.id)).join(', ')}`
                         : (w.position ?? w.skills.join(' · '))}
                     </span>
                   </button>
