@@ -43,9 +43,25 @@ const PAUSE_REASONS: { value: PauseReason; label: string }[] = [
 
 /** Space between the pointer and the panel, and from the window's edges. */
 const PANEL_GAP = 12;
+/**
+ * Widths to try, narrowest first: three sections side by side at 680, then
+ * wider if this order will not fit the window's height at that. Wider sections
+ * wrap less — a description, a badge row and a dependency list each come back
+ * off a second line — so the panel gets shorter as it gets broader.
+ */
+const PANEL_WIDTHS = [680, 900, 1120, 1360];
 
 const clamp = (n: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(n, Math.max(lo, hi)));
+
+/** Where and how big the panel is, once measured against the window. */
+interface Place {
+  left: number;
+  top: number;
+  width: number;
+  /** `auto` whenever the order fits the window — which is nearly all of them. */
+  height: number | 'auto';
+}
 
 const isoDay = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
@@ -58,20 +74,45 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const select = useUiStore((s) => s.select);
   const row = findOrderRow(board, selectedJobId);
   const panel = useRef<HTMLDivElement>(null);
-  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  const [place, setPlace] = useState<Place | null>(null);
 
-  // Put the panel beside the click and keep it on screen. Measured rather than
-  // assumed: the detail is much taller for an order with a dependency list
-  // than for one without, and a fixed guess would hang either off the bottom
-  // or a long way above the row it belongs to.
+  // Size the panel to this order and put it beside the click. Measured rather
+  // than assumed: an order with a dependency list and short components is much
+  // taller than one with neither, and a fixed height either hangs off the
+  // bottom or hides half of what the supervisor opened the panel to read. So
+  // it takes the height it needs; if that is more than the window can show it
+  // widens instead, and only a window too small for even the widest scrolls.
   useLayoutEffect(() => {
     const el = panel.current;
     if (!el || !selectedAt) return setPlace(null);
-    const { width, height } = el.getBoundingClientRect();
-    const room = { w: window.innerWidth, h: window.innerHeight };
+
+    const roomW = window.innerWidth - PANEL_GAP * 2;
+    const roomH = window.innerHeight - PANEL_GAP * 2;
+
+    // Try each width in turn, measuring free of the fit worked out for the
+    // last order — the panel is still wearing that until React renders.
+    el.style.height = 'auto';
+    let width = Math.min(PANEL_WIDTHS[0], roomW);
+    el.style.width = `${width}px`;
+    for (const wider of PANEL_WIDTHS) {
+      if (el.offsetHeight <= roomH) break;
+      if (wider <= width || wider > roomW) continue;
+      width = wider;
+      el.style.width = `${width}px`;
+    }
+
+    // Settle the winning fit on the node as well as in state: two orders that
+    // measure alike give React nothing to diff, and it would then leave
+    // whatever the trials above wrote here in place.
+    const height: number | 'auto' = el.offsetHeight > roomH ? roomH : 'auto';
+    el.style.height = height === 'auto' ? 'auto' : `${height}px`;
+
+    const boxH = el.offsetHeight;
     setPlace({
-      left: clamp(selectedAt.x + PANEL_GAP, PANEL_GAP, room.w - width - PANEL_GAP),
-      top: clamp(selectedAt.y - PANEL_GAP * 3, PANEL_GAP, room.h - height - PANEL_GAP),
+      width,
+      height,
+      left: clamp(selectedAt.x + PANEL_GAP, PANEL_GAP, roomW + PANEL_GAP - width),
+      top: clamp(selectedAt.y - PANEL_GAP * 3, PANEL_GAP, roomH + PANEL_GAP - boxH),
     });
   }, [selectedAt, selectedJobId, row]);
 
@@ -246,10 +287,23 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       aria-label={`Order ${String(job.id)}`}
       // Hidden for the first paint, while it is measured against the window —
       // otherwise it flashes at the top-left corner on the way to the click.
+      // Every property is written on every render: the measuring pass sets
+      // these on the node directly, and React only clears what it knows it set.
       style={
         place
-          ? { left: place.left, top: place.top }
-          : { left: 0, top: 0, visibility: 'hidden' }
+          ? {
+              left: place.left,
+              top: place.top,
+              width: place.width,
+              height: place.height,
+            }
+          : {
+              left: 0,
+              top: 0,
+              width: PANEL_WIDTHS[0],
+              height: 'auto',
+              visibility: 'hidden',
+            }
       }
     >
       <div className="inspector-head">

@@ -273,14 +273,19 @@ button {
 }
 /*
  * The order detail, opened beside the pointer. Fixed to the window rather than
- * to the board so scrolling the schedule underneath cannot drag it off screen,
- * and capped at the viewport so a long dependency list scrolls inside it.
+ * to the board so scrolling the schedule underneath cannot drag it off screen.
+ *
+ * Height follows the content — the panel is exactly as tall as this order
+ * needs, so nothing it has to say sits below a fold. An order with a
+ * dependency list and short components is taller than one without, and past
+ * what the window can show the panel widens instead: three sections in more
+ * room wrap less and come out shorter. Width and height are measured on open,
+ * see AssemblyInspector; `overflow` is the last resort for a window too small
+ * for any of it.
  */
 .inspector.floating {
   position: fixed;
   z-index: 50;
-  width: min(680px, calc(100vw - 24px));
-  max-height: min(300px, calc(100vh - 24px));
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
