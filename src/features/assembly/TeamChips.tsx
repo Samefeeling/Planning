@@ -18,6 +18,7 @@ import { MAX_WORKERS_PER_ORDER, SHIFT_END_HOUR } from '@/domain/assembly';
 import {
   clashesFor,
   freeCrewWindow,
+  preferredCrewOrder,
   type FreeCrewWindow,
 } from '@/engine/assembly/crew';
 import { crewDayKey } from '@/engine/assembly/crewSchedule';
@@ -171,7 +172,10 @@ export function TeamChips({
 
   // Only people who are in today and qualified for this line. Those already
   // busy across these days come last — still offered, because a supervisor
-  // may know something the schedule does not, but not offered first.
+  // may know something the schedule does not, but not offered first. Among
+  // those free, the same order the board fills a crew in: best skill for this
+  // line, then straight down the roster, which is written as a priority list.
+  const prefer = preferredCrewOrder(roster, row.line.key);
   const candidates = roster
     .filter(
       (w) =>
@@ -182,7 +186,10 @@ export function TeamChips({
       busy: clashes(String(w.id)),
       free: freeCrewWindow(rows, row, String(w.id)),
     }))
-    .sort((a, b) => a.busy.length - b.busy.length);
+    .sort(
+      (a, b) =>
+        a.busy.length - b.busy.length || prefer(a.worker, b.worker),
+    );
 
   const add = (
     worker: Worker,

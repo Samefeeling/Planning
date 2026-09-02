@@ -10,9 +10,14 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { MockSource } from '@/data/mock/MockSource';
 import { buildIndexes } from '@/engine/indexes';
 import { computeAssemblyGantt, type OrderRow } from '@/engine/assembly/board';
-import { clashesFor, suggestCrew } from '@/engine/assembly/crew';
+import {
+  clashesFor,
+  preferredCrewOrder,
+  suggestCrew,
+} from '@/engine/assembly/crew';
 import { usePlanStore } from '@/store/planStore';
-import { MAX_WORKERS_PER_ORDER } from '@/domain/assembly';
+import { MAX_WORKERS_PER_ORDER, type Worker } from '@/domain/assembly';
+import { WorkerId } from '@/domain/ids';
 import type { PlanningDataset } from '@/domain/types';
 
 let dataset: PlanningDataset;
@@ -266,5 +271,64 @@ describe('nobody does two jobs at once', () => {
       (r) => r.line.key === 'UPL' && String(r.job.id) !== first,
     )!;
     expect(clashesFor(closed, other, 'W01')).toEqual([]);
+  });
+});
+
+/**
+ * Who gets reached for first. `ASSY_Operator` is a priority list — the row at
+ * the top is the first name the supervisor wants — and the Skills column is
+ * written in order, so a line someone has first is one they lead on.
+ */
+describe('preferredCrewOrder', () => {
+  const person = (id: string, skills: Worker['skills']): Worker => ({
+    id: WorkerId(id),
+    name: id,
+    skills,
+    onShift: true,
+  });
+
+  it('takes whoever leads on the line before anyone helping out', () => {
+    // Second in the list, but UPL is what they do; the first name is an ASSY
+    // hand who can cover UPL.
+    const roster = [person('cover', ['ASSY', 'UPL']), person('lead', ['UPL'])];
+    const sorted = [...roster].sort(preferredCrewOrder(roster, 'UPL'));
+    expect(sorted.map((w) => String(w.id))).toEqual(['lead', 'cover']);
+  });
+
+  it('reads the roster in the order it is written', () => {
+    const roster = ['first', 'second', 'third'].map((id) => person(id, ['UPL']));
+    const shuffled = [roster[2], roster[0], roster[1]];
+    const sorted = shuffled.sort(preferredCrewOrder(roster, 'UPL'));
+    expect(sorted.map((w) => String(w.id))).toEqual([
+      'first',
+      'second',
+      'third',
+    ]);
+  });
+
+  it('puts the top of the list on the first order it crews', () => {
+    const b = board();
+    const { allocations } = suggestCrew(b, settle);
+
+    // The earliest order on each line should hold the highest-priority people
+    // free to take it — which, with nothing booked yet, is the top of the list.
+    for (const group of b.groups) {
+      if (!group.line.schedulable) continue;
+      const qualified = b.workers.filter(
+        (w) => w.onShift && w.skills.includes(group.line.key),
+      );
+      if (qualified.length === 0) continue;
+      const first = [...group.rows]
+        .filter((row) => allocations[String(row.job.id)])
+        .sort((a, c) => a.plannedStart.getTime() - c.plannedStart.getTime())[0];
+      if (!first) continue;
+
+      const crew = allocations[String(first.job.id)];
+      const best = [...qualified]
+        .sort(preferredCrewOrder(b.workers, group.line.key))
+        .slice(0, crew.length)
+        .map((w) => String(w.id));
+      expect(crew).toEqual(best);
+    }
   });
 });

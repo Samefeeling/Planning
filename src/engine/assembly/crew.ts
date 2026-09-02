@@ -18,6 +18,7 @@
 import {
   MAX_WORKERS_PER_ORDER,
   type CrewAssignment,
+  type LineKey,
   type Worker,
 } from '@/domain/assembly';
 import { durationDays, remainingHours, remainingQty } from './duration';
@@ -213,6 +214,33 @@ interface Span {
 const clashesWith = (booked: Span[] | undefined, want: Span): boolean =>
   (booked ?? []).some((s) => s.from < want.to && want.from < s.to);
 
+/**
+ * Who to reach for first on a line.
+ *
+ * Skill leads. `ASSY_Operator.Skills` is written in order, so whoever has this
+ * line first is trained on it before their other lines, and comes before
+ * somebody helping out from a line they know better.
+ *
+ * Then the roster order. The list itself is the priority list — the row at the
+ * top is the first name the supervisor wants on the job — so it is read as
+ * written rather than reordered into whoever happens to be carrying least.
+ * Anyone already busy across the order's days has been filtered out before
+ * this runs, so the top of the list is the top of *those free to take it*.
+ */
+export function preferredCrewOrder(
+  roster: Worker[],
+  line: LineKey,
+): (a: Worker, b: Worker) => number {
+  const listed = new Map(roster.map((w, i) => [String(w.id), i]));
+  const skill = (w: Worker): number => {
+    const at = w.skills.indexOf(line);
+    return at < 0 ? w.skills.length : at;
+  };
+  return (a, b) =>
+    skill(a) - skill(b) ||
+    (listed.get(String(a.id)) ?? 0) - (listed.get(String(b.id)) ?? 0);
+}
+
 /** Orders on a schedulable line with nobody on them and work left to do. */
 const waitingRows = (board: AssemblyGanttView): OrderRow[] =>
   board.groups
@@ -266,6 +294,7 @@ function staffOneWave(
       (w) => w.onShift && w.skills.includes(group.line.key),
     );
     if (pool.length === 0) continue;
+    const prefer = preferredCrewOrder(board.workers, group.line.key);
 
     const waiting = group.rows
       .filter(
@@ -296,12 +325,8 @@ function staffOneWave(
               !crew.includes(String(w.id)) &&
               !clashesWith(booked.get(String(w.id)), want),
           )
-          // Spread the work: whoever is carrying least goes first.
-          .sort(
-            (a, b) =>
-              (booked.get(String(a.id))?.length ?? 0) -
-              (booked.get(String(b.id))?.length ?? 0),
-          );
+          // Best skill first, then straight down the roster.
+          .sort(prefer);
         if (free.length === 0) break;
         crew.push(String(free[0].id));
       }

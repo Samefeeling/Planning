@@ -192,6 +192,7 @@ function OrderRowView({
           row={row}
           horizonStart={board.horizonStart}
           dayWidth={dayWidth}
+          gridWidth={gridWidth}
           showWeekends={showWeekends}
           readOnly={isContext}
           selected={selected}

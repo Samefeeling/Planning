@@ -5,16 +5,25 @@
  * The bar spans start to Expect Date and is drawn as one block per stretch of
  * open days. Weekend gaps appear only while weekend columns are enabled; with
  * them hidden, Friday and Monday meet on the compact working-day axis.
+ *
+ * ## Short orders
+ *
+ * A couple of hours of work is a few pixels wide, and a label crammed into
+ * those pixels came out as a single clipped character — which named nothing
+ * and read as a graphical glitch. So the label lives *outside* a bar too
+ * narrow to hold it, in the empty grid to its right, and a bar under half a
+ * day says how long it is in hours as well: the block itself is down to its
+ * minimum width by then and no longer means anything to the eye.
  */
 
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { OrderRow } from '@/engine/assembly/board';
 import { addDays, workingSpans } from '@/engine/assembly/dates';
-import { completedFraction } from '@/engine/assembly/duration';
+import { completedFraction, remainingHours } from '@/engine/assembly/duration';
 import { PRODUCTIVE_HOURS_PER_PERSON } from '@/domain/assembly';
 import { MS_PER_DAY } from '@/lib/time';
-import { timelineDayOffset } from './boardView';
+import { barTag, timelineDayOffset } from './boardView';
 
 export const DRAG_TYPE_BAR = 'order-bar';
 
@@ -25,6 +34,7 @@ export function OrderBar({
   row,
   horizonStart,
   dayWidth,
+  gridWidth,
   showWeekends,
   readOnly = false,
   selected,
@@ -33,6 +43,8 @@ export function OrderBar({
   row: OrderRow;
   horizonStart: Date;
   dayWidth: number;
+  /** Full width of the day grid, so a tag near the end flips to the left. */
+  gridWidth: number;
   showWeekends: boolean;
   /** PMD rows mirror the moulding plan — shown, never scheduled here. */
   readOnly?: boolean;
@@ -155,6 +167,19 @@ export function OrderBar({
   // A weekend-only overtime piece disappears with the weekend columns.
   if (pieces.length === 0) return null;
 
+  // A couple of hours of work is a few pixels of bar; where the label cannot
+  // fit inside it, the tag goes in the empty grid beside the block.
+  const tag = barTag({
+    jobId: id,
+    hours: remainingHours(row.job),
+    spanDays: span,
+    width,
+    left,
+    gridWidth,
+    overtime: row.overtime,
+    waiting: Boolean(row.waitingOn),
+  });
+
   return (
     <div
       ref={setNodeRef}
@@ -162,6 +187,8 @@ export function OrderBar({
         isDragging ? 'dragging' : ''
       } ${readOnly ? 'readonly' : ''} ${row.overtime ? 'overtime' : ''} ${
         pieces.length > 1 ? 'split' : ''
+      } ${tag.stub ? 'stub' : ''} ${tag.outside ? 'tagged' : ''} ${
+        tag.flip ? 'tag-left' : ''
       }`}
       style={{
         left,
@@ -197,23 +224,28 @@ export function OrderBar({
           )}
         </div>
       ))}
-      <span className="bar-label">{String(row.job.id)}</span>
-      {row.overtime && (
-        <span className="bar-ot" title="Weekend overtime approved">
-          OT
-        </span>
-      )}
-      {row.waitingOn && (
-        <span
-          className="bar-wait"
-          title={
-            `Held until ${String(row.waitingOn.onJobId)} is finished` +
-            (row.waitingOn.part ? ` — it makes ${String(row.waitingOn.part)}` : '')
-          }
-        >
-          ⇠
-        </span>
-      )}
+      {/* One tag, so that outside the bar the three parts stay together. */}
+      <span className="bar-tag">
+        <span className="bar-label">{tag.text}</span>
+        {row.overtime && (
+          <span className="bar-ot" title="Weekend overtime approved">
+            OT
+          </span>
+        )}
+        {row.waitingOn && (
+          <span
+            className="bar-wait"
+            title={
+              `Held until ${String(row.waitingOn.onJobId)} is finished` +
+              (row.waitingOn.part
+                ? ` — it makes ${String(row.waitingOn.part)}`
+                : '')
+            }
+          >
+            ⇠
+          </span>
+        )}
+      </span>
     </div>
   );
 }

@@ -142,3 +142,70 @@ export function activeWorkerIdsOnDay(
   }
   return active;
 }
+
+/**
+ * Width of one character of a bar label, measured in Chromium at the 11px
+ * 650-weight the bar uses. It only ever answers "does this fit?", so erring a
+ * shade wide is right: a borderline label goes outside rather than being cut.
+ */
+const LABEL_CHAR_PX = 6.9;
+/** The bar's own padding, and room for the overtime and waiting markers. */
+const LABEL_PADDING_PX = 14;
+const OT_MARKER_PX = 22;
+const WAIT_MARKER_PX = 15;
+/**
+ * Under half a day the block has bottomed out at its minimum width, so its
+ * length tells you nothing and the tag carries the hours instead.
+ */
+const STUB_DAYS = 0.5;
+
+export interface BarTag {
+  /** What the tag reads — the job number, plus hours on a very short bar. */
+  text: string;
+  /** Too narrow to hold the tag, so it sits in the grid beside the block. */
+  outside: boolean;
+  /** No room to the right, so it sits to the left instead. */
+  flip: boolean;
+  /** A few hours of work: a marker rather than a length. */
+  stub: boolean;
+}
+
+/**
+ * Where an order's label goes.
+ *
+ * A couple of hours of work is a few pixels of bar, and a label crammed into
+ * those pixels came out as one clipped character — naming nothing and reading
+ * as a graphical glitch. So a label that will not fit goes in the empty grid
+ * beside the block, where there is room for all of it.
+ */
+export function barTag(bar: {
+  jobId: string;
+  /** Standard hours still to run, shown when the bar is too short to read. */
+  hours: number;
+  /** Length of the bar in day columns. */
+  spanDays: number;
+  /** Drawn width and offset of the bar, and the width of the whole grid. */
+  width: number;
+  left: number;
+  gridWidth: number;
+  overtime: boolean;
+  waiting: boolean;
+}): BarTag {
+  const stub = bar.spanDays < STUB_DAYS;
+  const text =
+    stub && bar.hours > 0
+      ? `${bar.jobId} · ${bar.hours.toFixed(1)} h`
+      : bar.jobId;
+  const needed =
+    text.length * LABEL_CHAR_PX +
+    LABEL_PADDING_PX +
+    (bar.overtime ? OT_MARKER_PX : 0) +
+    (bar.waiting ? WAIT_MARKER_PX : 0);
+  const outside = bar.width < needed;
+  return {
+    text,
+    outside,
+    stub,
+    flip: outside && bar.left + bar.width + needed > bar.gridWidth,
+  };
+}

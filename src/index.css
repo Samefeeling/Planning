@@ -1094,16 +1094,44 @@ body.col-resizing {
 .bar.grey .bar-progress { background: #94a3b8; }
 /* Over the blocks, not inside one, so the label survives a narrow first
    stretch — a bar starting on a Friday is one column wide before the break. */
-.bar-label,
-.bar-wait {
+.bar-tag {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   white-space: nowrap;
   pointer-events: none;
 }
 .bar-label {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/*
+ * A couple of hours of work is a few pixels wide, and no label fits in that.
+ * Rather than clip one down to a single letter, it sits in the empty grid
+ * beside the block — to the right, or to the left where the bar is near the
+ * end of the timeline and there is no room the other way.
+ */
+.bar.tagged {
+  padding: 0;
+}
+.bar.tagged .bar-tag {
+  position: absolute;
+  left: 100%;
+  margin-left: 6px;
+  font-weight: 600;
+}
+.bar.tagged.tag-left .bar-tag {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 6px;
+}
+/* Down to its minimum width, so the block is a marker rather than a length. */
+.bar.stub .bar-piece {
+  border-radius: 3px;
 }
 .bar-missing {
   position: absolute;

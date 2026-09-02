@@ -55,6 +55,13 @@ plan goes back the other way, into the `ASSY_Production` list.
   marked `OT`, and the weekend column then shows what it is carrying. PMD rows
   are continuous too: the presses keep their own calendar and that lane only
   mirrors it.
+- **A short order is a marker with its name beside it** — a couple of hours of
+  work is a few pixels of bar, and a label crammed into those pixels came out
+  as one clipped character, naming nothing. Any label too wide for its bar sits
+  in the empty grid beside the block instead (to the left where the bar is near
+  the end of the timeline), and a bar under half a day carries **its hours** as
+  well — `018321-1-1 · 0.8 h` — because by then the block is at its minimum
+  width and its length is no longer telling anyone anything.
 - **Work load, in standard hours** — the remaining hours of an order
   (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
   its bar covers. Shown three ways: per line on the group header, for the whole
@@ -273,7 +280,7 @@ shortage view matters.
 | List column | Becomes |
 | --- | --- |
 | `Operator` | name |
-| `Skills` | which lines the person may be allocated to |
+| `Skills` | which lines the person may be allocated to, best first |
 | `Position`, `Supervisor` | shown on the crew chip / picker |
 | `PlannedAnnualLeave` | ISO dates excluded from future daily load-rate capacity |
 
@@ -282,6 +289,11 @@ actually type work: *Cutting/Sewing* and *Upholstery* → `UPL`, *Final Assembly
 → `ASSY`, *Table* → `TABLE`. A multi-choice column (array) and a delimited text
 column both parse. Anyone with no recognised skill is reported in the warning
 banner, because they can never be allocated.
+
+**Order matters, twice.** Within `Skills`, the first line listed is the one
+that person leads on. And the order of the list itself is a priority order: the
+row at the top is the first name reached for. Both are read as written — see
+*Crewing a fresh import*.
 
 Attendance is **not** in the list — the supervisor confirms who is in each
 morning — so everyone counts as on shift unless an `OnShift` column is added.
@@ -303,7 +315,15 @@ with nobody on it. **Crew N orders** in the header staffs them all at once from
 the qualified people on shift, behind the same supervisor lock as allocating by
 hand. It only ever *adds*: an order that already has a crew is left exactly as
 it is, and the button disappears once nothing is unstaffed. It is a starting
-point to argue with, not an answer: it knows nothing about who is good at what.
+point to argue with, not an answer.
+
+**Who it reaches for first** is the roster's own order. `Skills` is read as
+written, so whoever has this line *first* leads on it and comes before someone
+helping out from a line they know better; among equals, the `ASSY_Operator`
+list is a priority list and is read top down. Anyone already busy across the
+order's days is out of the running before either rule applies, so the pick is
+the top of the list *of those free to take it*. The crew picker offers people
+in that same order, which is what makes the two agree.
 
 It respects the same one-order-at-a-time rule as the picker, and that is why it
 works the way it does: it crews the earliest waiting order on each line, **asks

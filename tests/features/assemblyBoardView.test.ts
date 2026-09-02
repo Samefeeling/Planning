@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { OrderRow } from '@/engine/assembly/board';
 import {
   activeWorkerIdsOnDay,
+  barTag,
   isInNextWorkingDays,
   nextWorkingDaysWindow,
   shiftTimelineDays,
@@ -82,5 +83,62 @@ describe('assembly board view controls', () => {
     expect([...activeWorkerIdsOnDay([planned], new Date('2026-09-02'))]).toEqual([
       'Bill',
     ]);
+  });
+});
+
+/**
+ * Where an order's label goes. A couple of hours of work is a few pixels of
+ * bar, and a label crammed into those came out as one clipped character.
+ */
+describe('barTag', () => {
+  const bar = (over: Partial<Parameters<typeof barTag>[0]> = {}) =>
+    barTag({
+      jobId: 'ASM80013',
+      hours: 12,
+      spanDays: 2,
+      width: 184,
+      left: 0,
+      gridWidth: 1400,
+      overtime: false,
+      waiting: false,
+      ...over,
+    });
+
+  it('keeps the label inside a bar with room for it', () => {
+    const tag = bar();
+    expect(tag.text).toBe('ASM80013');
+    expect(tag.outside).toBe(false);
+    expect(tag.stub).toBe(false);
+  });
+
+  it('puts it outside when the bar is narrower than the name', () => {
+    // Eight characters need about 69px with the padding; 63 is not enough.
+    expect(bar({ width: 63 }).outside).toBe(true);
+    expect(bar({ width: 80 }).outside).toBe(false);
+  });
+
+  it('says how long a few hours of work is', () => {
+    // The block has bottomed out at its minimum width, so its length is not
+    // telling anyone anything — the hours have to.
+    const tag = bar({ spanDays: 0.11, width: 20, hours: 0.8 });
+    expect(tag.stub).toBe(true);
+    expect(tag.text).toBe('ASM80013 · 0.8 h');
+    expect(tag.outside).toBe(true);
+  });
+
+  it('leaves the hours off an order with none left to run', () => {
+    expect(bar({ spanDays: 0.1, width: 20, hours: 0 }).text).toBe('ASM80013');
+  });
+
+  it('flips to the left where the grid runs out to the right', () => {
+    expect(bar({ width: 20, left: 100 }).flip).toBe(false);
+    expect(bar({ width: 20, left: 1340 }).flip).toBe(true);
+  });
+
+  it('makes room for the overtime and waiting markers', () => {
+    // Wide enough for the name alone, not once a marker sits beside it.
+    expect(bar({ width: 76 }).outside).toBe(false);
+    expect(bar({ width: 76, overtime: true }).outside).toBe(true);
+    expect(bar({ width: 76, waiting: true }).outside).toBe(true);
   });
 });
