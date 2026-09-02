@@ -14,8 +14,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
 import type { Worker } from '@/domain/assembly';
-import { MAX_WORKERS_PER_ORDER } from '@/domain/assembly';
-import { clashesFor, freeCrewWindow } from '@/engine/assembly/crew';
+import { MAX_WORKERS_PER_ORDER, SHIFT_END_HOUR } from '@/domain/assembly';
+import {
+  clashesFor,
+  freeCrewWindow,
+  type FreeCrewWindow,
+} from '@/engine/assembly/crew';
 import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
@@ -40,6 +44,57 @@ const moveDay = (day: string, amount: number): string => {
 };
 
 const shortDay = (day: string): string => formatDay(parseDay(day));
+
+const compactDay = (day: string): string => {
+  const date = parseDay(day);
+  return `${date.getDate()}/${date.getMonth() + 1}`;
+};
+
+const clockTime = (hour: number): string =>
+  `${String(Math.floor(hour)).padStart(2, '0')}:${String(
+    Math.round((hour % 1) * 60),
+  ).padStart(2, '0')}`;
+
+export interface CrewPickerStatus {
+  primary: string;
+  secondary: string | null;
+  tone: 'free' | 'busy' | 'neutral';
+}
+
+/** Compact, operational wording for the employee picker. */
+export function crewPickerStatus(
+  free: FreeCrewWindow | null,
+  busyJobIds: string[],
+  fallback: string,
+): CrewPickerStatus {
+  if (free?.toDayExclusive) {
+    return {
+      primary: `Free to ${clockTime(SHIFT_END_HOUR)} ${compactDay(
+        moveDay(free.toDayExclusive, -1),
+      )}`,
+      secondary:
+        free.nextJobIds.length > 0
+          ? `Then ${free.nextJobIds.join(', ')}`
+          : null,
+      tone: 'free',
+    };
+  }
+  if (busyJobIds.length > 0) {
+    return {
+      primary: `On ${busyJobIds.join(', ')}`,
+      secondary: null,
+      tone: 'busy',
+    };
+  }
+  if (free) {
+    return {
+      primary: 'Free for full order',
+      secondary: fallback || null,
+      tone: 'free',
+    };
+  }
+  return { primary: fallback, secondary: null, tone: 'neutral' };
+}
 
 interface WindowDraft {
   worker: Worker;
@@ -314,29 +369,35 @@ export function TeamChips({
                   Nobody qualified for {row.line.name} is free
                 </div>
               ) : (
-                candidates.map(({ worker: w, busy, free }) => (
-                  <button
-                    key={String(w.id)}
-                    className={`picker-item ${busy.length > 0 ? 'busy' : ''}`}
-                    title={[
-                      detail(w),
-                      busy.length > 0 &&
-                        `Already on: ${busy.map(describe).join('\n  ')}`,
-                    ]
-                      .filter(Boolean)
-                      .join('\n')}
-                    onClick={() => add(w, busy, free)}
-                  >
-                    {w.name}
-                    <span className="picker-skills">
-                      {free?.toDayExclusive
-                        ? `free ${shortDay(free.fromDay)}–${shortDay(moveDay(free.toDayExclusive, -1))}, then ${free.nextJobIds.join(', ')}`
-                        : busy.length > 0
-                          ? `on ${busy.map((r) => String(r.job.id)).join(', ')}`
-                        : (w.position ?? w.skills.join(' · '))}
-                    </span>
-                  </button>
-                ))
+                candidates.map(({ worker: w, busy, free }) => {
+                  const status = crewPickerStatus(
+                    free,
+                    busy.map((other) => String(other.job.id)),
+                    w.position ?? w.skills.join(' · '),
+                  );
+                  return (
+                    <button
+                      key={String(w.id)}
+                      className={`picker-item ${busy.length > 0 ? 'busy' : ''}`}
+                      title={[
+                        detail(w),
+                        busy.length > 0 &&
+                          `Already on: ${busy.map(describe).join('\n  ')}`,
+                      ]
+                        .filter(Boolean)
+                        .join('\n')}
+                      onClick={() => add(w, busy, free)}
+                    >
+                      <span className="picker-name">{w.name}</span>
+                      <span className={`picker-status ${status.tone}`}>
+                        <span>{status.primary}</span>
+                        {status.secondary && (
+                          <span className="picker-next">{status.secondary}</span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })
               )}
             </div>
           )}
