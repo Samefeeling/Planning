@@ -505,8 +505,10 @@ button {
 }
 .assy-head {
   background: var(--surface);
-  /* Tall enough for the date, the load bar and its percentage. */
-  height: 74px;
+  /* Tall enough for the date, the load bar and its percentage — and it grows
+     rather than clipping when a whole shift is free and the Team column has
+     that many names to list. */
+  min-height: 74px;
   font-size: 11px;
   color: var(--muted);
   font-weight: 650;
@@ -969,21 +971,63 @@ body.col-resizing {
 }
 
 /* line group */
+/*
+ * The summary row: the line's totals on the left, and its own people on the
+ * right. It is a row rather than one big button because the load chips inside
+ * it open their own popup, and a button cannot hold another button.
+ */
+.agroup-head {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  width: max-content;
+  min-width: 100%;
+}
+/*
+ * The part that stays put. A sticky box cannot slide inside a containing block
+ * it already fills, so the row spans the whole grid to carry the background
+ * and this inner block — only as wide as its own content — is what pins to the
+ * left edge, the same way the Order and Team columns do.
+ */
+.agroup-head-in {
+  position: sticky;
+  left: 0;
+  /* Above the now line (6): it marks where the shift has reached on the bars,
+     and there are none here — drawn through a name it only obscures it. */
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: 100%;
+  padding: 4px 10px;
+  background: var(--surface-2);
+}
 .agroup-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 10px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  left: 0;
-  z-index: 4;
-  width: 100%;
+  padding: 1px 0;
+  background: transparent;
   border: 0;
   color: var(--text);
   cursor: pointer;
   text-align: left;
+  flex: 0 0 auto;
+}
+/*
+ * Everyone in today who is trained on this line, in the order the board picks
+ * them. Wraps rather than scrolls: on a busy line the second row of names is
+ * still the same line's roster, and a horizontal scrollbar here would fight
+ * the board's own.
+ */
+.agroup-roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 4px;
+  align-items: center;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
 }
 .agroup-name {
   font-weight: 700;
@@ -1276,6 +1320,15 @@ body.col-resizing {
   color: #fff;
 }
 .attendance-row {
+  min-height: 38px;
+  border-bottom: 1px solid var(--border);
+  background: #eff6ff;
+  color: #1e3a8a;
+  overflow: visible;
+}
+/* The counts pin to the left edge; the row spans the grid to carry the
+   colour. Same shape as `.agroup-head-in`, and for the same reason. */
+.attendance-in {
   position: sticky;
   left: 0;
   /* Above the frozen head cells below it, or a person's week opens behind
@@ -1284,12 +1337,11 @@ body.col-resizing {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: max-content;
+  max-width: 100%;
   min-height: 38px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
   background: #eff6ff;
-  color: #1e3a8a;
-  overflow: visible;
 }
 .attendance-count { padding: 2px 8px; border-radius: 999px; background: #dbeafe; font-weight: 700; }
 /* No `margin-left: auto` — the board is far wider than the viewport, so that
@@ -1313,12 +1365,6 @@ body.col-resizing {
 }
 
 /* ---- per-person week load ---------------------------------------------- */
-.attendance-names {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
 .worker-load-anchor {
   position: relative;
 }
@@ -1602,17 +1648,42 @@ body.col-resizing {
   justify-content: center;
   gap: 3px;
 }
+/*
+ * Everyone in today with nothing allocated — the people still to reach for.
+ * Wrapped and named in full: a list cut off at the column's edge ends in the
+ * one name you were looking for.
+ */
 .team-free {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 3px;
   max-width: 100%;
-  overflow: hidden;
+  /* Grows to fit the names; past a shift's worth it scrolls rather than
+     pushing the day columns off the top of the board. */
+  max-height: 96px;
+  overflow-y: auto;
   color: #b45309;
   font-size: 9.5px;
   font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+}
+.team-free-count {
+  background: var(--warn-dim);
+  border-radius: 999px;
+  padding: 0 5px;
+  font-weight: 700;
+}
+.team-free-name {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  color: var(--muted);
+  font-weight: 600;
 }
 .team-free.none {
+  display: block;
   color: var(--ok);
 }
 .production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 6px; }

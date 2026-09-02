@@ -28,7 +28,9 @@ import {
   boardDayLoads,
   lineLoad,
   rosterLoad,
+  type WorkerLoad,
 } from '@/engine/assembly/workload';
+import { preferredCrewOrder } from '@/engine/assembly/crew';
 import {
   MAX_ORDER_WIDTH,
   MIN_ORDER_WIDTH,
@@ -206,12 +208,20 @@ function OrderRowView({
 /**
  * A line and its orders. Schedulable lines are drop targets, so an order can be
  * dragged here from the pool, from another line, or by its own bar.
+ *
+ * The summary row carries the line's own people — everyone in today who is
+ * qualified for it, in the order the board reaches for them, each with their
+ * week of load. One roster across the top of the board could not say which of
+ * those names mattered to the line you were reading; here it is the same row.
+ * Somebody trained on two lines appears on both, because they are available to
+ * both.
  */
 function LineGroupView({
   group,
   board,
   allRows,
   gridWidth,
+  rosterLoads,
   selectedJobId,
   onSelect,
   dayWidth,
@@ -226,6 +236,8 @@ function LineGroupView({
   board: AssemblyGanttView;
   allRows: OrderRow[];
   gridWidth: number;
+  /** Every person's week, worked out once for the whole board. */
+  rosterLoads: Map<string, WorkerLoad>;
   selectedJobId: string | null;
   onSelect: (id: string, at?: ClickPoint) => void;
   dayWidth: number;
@@ -242,39 +254,81 @@ function LineGroupView({
     disabled: !group.line.schedulable,
   });
   const load = group.load;
+  const crew = useMemo(
+    () =>
+      board.workers
+        .filter(
+          (worker) =>
+            worker.onShift && worker.skills.includes(group.line.key),
+        )
+        .sort(preferredCrewOrder(board.workers, group.line.key)),
+    [board.workers, group.line.key],
+  );
 
   return (
     <section
       ref={setNodeRef}
       className={`agroup ${isOver ? 'drop-active' : ''}`}
     >
-      <button type="button" className="agroup-label" onClick={onToggle} aria-expanded={!collapsed}>
-        <span className="agroup-chevron">{collapsed ? '▸' : '▾'}</span>
-        <span className="agroup-name">{group.line.name}</span>
-        {!group.line.schedulable && (
-          <span className="agroup-note">plan only</span>
-        )}
-        <span className="agroup-count">{group.rows.length}</span>
-
-        {/* The line's own work load: remaining standard hours, and how long
-            the crew on it needs to clear them. */}
-        <span
-          className="agroup-load"
-          title="Work load — standard hours still to run on this line"
+      {/* A row, not one big button: the load chips inside it open their own
+          popup, and a button cannot hold another button. The inner block is
+          what sticks to the left edge, so the line's totals and its people
+          stay readable however far right the grid is scrolled — the row
+          itself has to span the whole grid to carry the background. */}
+      <div className="agroup-head">
+       <div className="agroup-head-in">
+        <button
+          type="button"
+          className="agroup-label"
+          onClick={onToggle}
+          aria-expanded={!collapsed}
         >
-          {load.hours.toFixed(1)} h
-        </span>
-        {group.line.schedulable && (
-          <span className="agroup-crew">
-            {load.crew === 0
-              ? 'nobody allocated'
-              : `${load.crew} on line · ${load.daysOfWork!.toFixed(1)} d at ${load.capacityPerDay.toFixed(1)} h/day`}
+          <span className="agroup-chevron">{collapsed ? '▸' : '▾'}</span>
+          <span className="agroup-name">{group.line.name}</span>
+          {!group.line.schedulable && (
+            <span className="agroup-note">plan only</span>
+          )}
+          <span className="agroup-count">{group.rows.length}</span>
+
+          {/* The line's own work load: remaining standard hours, and how long
+              the crew on it needs to clear them. */}
+          <span
+            className="agroup-load"
+            title="Work load — standard hours still to run on this line"
+          >
+            {load.hours.toFixed(1)} h
+          </span>
+          {group.line.schedulable && (
+            <span className="agroup-crew">
+              {load.crew === 0
+                ? 'nobody allocated'
+                : `${load.crew} on line · ${load.daysOfWork!.toFixed(1)} d at ${load.capacityPerDay.toFixed(1)} h/day`}
+            </span>
+          )}
+          {load.needsCrew > 0 && (
+            <span className="agroup-gap">{load.needsCrew} need crew</span>
+          )}
+        </button>
+
+        {crew.length > 0 && (
+          <span
+            className="agroup-roster"
+            title={`In today and trained on ${group.line.name}, in the order the board picks them`}
+          >
+            {crew.map((worker) => {
+              const week = rosterLoads.get(String(worker.id));
+              return week ? (
+                <WorkerLoadChip
+                  key={String(worker.id)}
+                  worker={worker}
+                  load={week}
+                />
+              ) : null;
+            })}
           </span>
         )}
-        {load.needsCrew > 0 && (
-          <span className="agroup-gap">{load.needsCrew} need crew</span>
-        )}
-      </button>
+       </div>
+      </div>
 
       {!collapsed && (group.rows.length === 0 ? (
         <div className="arow empty">
@@ -505,29 +559,17 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       )}
 
       <div className="assy-sticky">
-        {/* Five squares per name, one per working day; click for the detail —
-            see WorkerLoadChip. Frozen with the header, because who has room is
-            the question being asked all the way down the board. */}
+        {/* Who is in, and how much of them is spoken for. The names themselves
+            sit on the line they work — see LineGroupView — because one roster
+            across the top could not say which of them mattered to the line
+            being read. */}
         <div className="attendance-row">
-          <strong>Today on site</strong>
-          <span className="attendance-count">{attendance.length} / {board.workers.length}</span>
-          <span className="attendance-count">{allocatedOnSite} allocated · {allocationCoverage}% coverage</span>
-          {attendance.length === 0 ? (
-            <span>Attendance awaiting API</span>
-          ) : (
-            <span className="attendance-names">
-              {attendance.map((worker) => {
-                const load = rosterLoads.get(String(worker.id));
-                return load ? (
-                  <WorkerLoadChip
-                    key={String(worker.id)}
-                    worker={worker}
-                    load={load}
-                  />
-                ) : null;
-              })}
-            </span>
-          )}
+          <div className="attendance-in">
+            <strong>Today on site</strong>
+            <span className="attendance-count">{attendance.length} / {board.workers.length}</span>
+            <span className="attendance-count">{allocatedOnSite} allocated · {allocationCoverage}% coverage</span>
+            {attendance.length === 0 && <span>Attendance awaiting API</span>}
+          </div>
         </div>
 
         <div className="assy-head">
@@ -569,18 +611,32 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
             style={{ left: headerOffset }}
           >
             <span>Team</span>
-            <span
-              className={`team-free ${unallocated.length === 0 ? 'none' : ''}`}
-              title={
-                unallocated.length > 0
-                  ? `Unallocated today: ${unallocated.map((worker) => worker.name).join(', ')}`
-                  : 'Everyone on site is allocated today'
-              }
-            >
-              {unallocated.length > 0
-                ? `Free: ${unallocated.map((worker) => worker.name).join(', ')}`
-                : 'All allocated'}
-            </span>
+            {/* Everyone in today with no work on them — the people a
+                supervisor can still reach for. Named in full and wrapped
+                rather than cut off at the column's edge: a list ending in
+                "Pet…" is the one name you needed. */}
+            {unallocated.length > 0 ? (
+              <span
+                className="team-free"
+                title={`Nothing allocated today: ${unallocated
+                  .map((worker) => worker.name)
+                  .join(', ')}`}
+              >
+                <b className="team-free-count">Free {unallocated.length}</b>
+                {unallocated.map((worker) => (
+                  <span key={String(worker.id)} className="team-free-name">
+                    {worker.name}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              <span
+                className="team-free none"
+                title="Everyone on site is allocated today"
+              >
+                All allocated
+              </span>
+            )}
           </div>
           {/* Load histogram: one column per day, coloured by band. */}
           <div className="acell track" style={{ width: gridWidth }}>
@@ -626,6 +682,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           board={board}
           allRows={allRows}
           gridWidth={gridWidth}
+          rosterLoads={rosterLoads}
           selectedJobId={selectedJobId}
           onSelect={select}
           dayWidth={dayWidth}

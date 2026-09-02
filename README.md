@@ -36,10 +36,19 @@ plan goes back the other way, into the `ASSY_Production` list.
 - **A line down today's column** — assembly works **07:00–15:30**, and the
   marker sits where the shift has got to, nudged on every five minutes. Before
   07:00 and after 15:30 it rests against the edge of the column.
-- **The head stays put** — the roster's load squares and the day columns are
-  frozen at the top, so "who has room?" is answerable from anywhere down the
-  board. The **Order column can be dragged wider** by its right-hand edge when
-  descriptions need the room.
+- **The head stays put** — the day columns are frozen at the top, and the line
+  summaries and their people pin to the left edge, so the board can be scrolled
+  in either direction without losing what a row means. The **Order column can
+  be dragged wider** by its right-hand edge when descriptions need the room.
+- **Each line carries its own people** — the summary row for UPL, ASSY and
+  TABLE lists everyone in today who is trained on *that* line, in the order the
+  board reaches for them, each with five squares for the week ahead (click one
+  for the day-by-day detail). Somebody trained on two lines appears on both,
+  because they are available to both. One roster across the top of the board
+  could not say which of those names mattered to the line being read.
+- **Who is still free** — the Team column's header names everyone in today with
+  nothing allocated, in full and wrapped rather than cut off at the column's
+  edge. It answers "who can I still put on this?" beside the crews themselves.
 - **Three orders at a time per line** — a line is a length of floor with
   several build positions, not one station, so three orders run side by side
   and a fourth waits for the first to clear (`parallelOrders` on each line in
