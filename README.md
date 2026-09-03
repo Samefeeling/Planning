@@ -106,17 +106,30 @@ plan goes back the other way, into the `ASSY_Production` list.
   the crew on the order. That is where Epicor's own `JobHead_StartDate` comes
   from, so the order detail shows both — a gap between them means the crew size
   or the hours differ from whatever Epicor assumed, which is worth knowing
-  before the week is planned around it.
-- **A crew rolls from one order straight on to the next** — the schedule chains
-  on people as well as on parts. An order whose crew is still on something else
-  begins when the last of them is free, and begins *exactly* then rather than
-  on whatever day Epicor pencilled in: no two bars sharing a person overlap,
-  and no crew sits idle between them. So dragging a bar takes everything
-  downstream with it — the orders waiting on its parts *and* the orders waiting
-  on its people — and dragging it back brings them in again. An order whose
-  crew has nothing else on keeps its own start date; only a hand-over moves it.
-  Because the board plans in whole shifts, a bar that finishes part-way through
-  a day hands over on the next one.
+  before the week is planned around it. It is the *latest* day, not the
+  planned one: the schedule works forward from today and says so when it has
+  had to start later than this.
+- **Everything starts as early as it can** — an order asks for today and is
+  pushed out only by something real: a component another order is still making,
+  material that has not landed, a crew still on something else, or a line with
+  no build position free. Nothing waits for the day Epicor pencilled in; that
+  date is worked back from the due date and is a *deadline*, carried as **Must
+  start** rather than as an instruction to stand idle. What decides who gets
+  the position and the people when everything wants today is how much slack an
+  order has left — whoever runs out first goes first.
+- **One order picks up where the last left off** — to the hour, not to the day.
+  A component finished 46% of the way through Wednesday hands over at 46% of
+  Wednesday, and the order taking it gets the other 54% of that shift; the two
+  bars meet exactly instead of spending a day at the link. The same holds for a
+  crew: what is left of the day they came free is what their next order gets,
+  so nobody works two shifts in one and nobody stands about. So dragging a bar
+  takes everything downstream with it — the orders waiting on its parts *and*
+  the orders waiting on its people — and dragging it back brings them in again.
+- **A team does not wait for its slowest member** — an order begins the moment
+  the *first* of its crew is free, and the rest join on the day they come off
+  what they are on. The bar runs at one person's pace until they arrive, which
+  is both what the floor does and what stops a fortnight of idle time appearing
+  behind whoever happens to be busiest.
 - **Nobody is on two orders at once** — putting someone on an order that runs
   across one they are already on **asks the supervisor first**, and nothing is
   written until they answer. *Queue it* puts them on and lets the order wait for

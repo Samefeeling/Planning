@@ -22,6 +22,7 @@ import {
 } from '@/domain/assembly';
 import {
   clashesFor,
+  clashesOnBoard,
   freeCrewWindow,
   preferredCrewOrder,
   type FreeCrewWindow,
@@ -169,7 +170,15 @@ export function TeamChips({
     );
   const LOCKED = 'Unlock Supervisor in the header to change the crew';
 
-  const clashes = (workerId: string): OrderRow[] =>
+  // What the schedule actually planned — a chip marks a real overlap, not one
+  // that would only happen if this person worked the whole order. Somebody
+  // still busy elsewhere joins on the day they come free, which is no clash.
+  const marked = (workerId: string): OrderRow[] =>
+    clashesOnBoard(rows, row, workerId);
+  // The other question: would adding somebody put them in two places? That one
+  // has to imagine them on the whole order, because it is asked before the
+  // schedule has had a chance to place them.
+  const wouldClash = (workerId: string): OrderRow[] =>
     clashesFor(rows, row, workerId);
 
   /** Was this overlap put there on purpose? Either order may hold the note. */
@@ -201,7 +210,7 @@ export function TeamChips({
     )
     .map((w) => ({
       worker: w,
-      busy: clashes(String(w.id)),
+      busy: wouldClash(String(w.id)),
       free: freeCrewWindow(rows, row, String(w.id)),
     }))
     .sort(
@@ -299,7 +308,7 @@ export function TeamChips({
   return (
     <div className="team" ref={root}>
       {row.workers.map((w) => {
-        const busy = clashes(String(w.id));
+        const busy = marked(String(w.id));
         const ok = busy.every((other) => isApproved(String(w.id), other));
         return (
           <button

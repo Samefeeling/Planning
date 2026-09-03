@@ -13,10 +13,21 @@ import {
   type CrewAssignment,
 } from '@/domain/assembly';
 import { addDays, isWeekend, startOfDay } from './dates';
+import { MS_PER_DAY } from '@/lib/time';
 
 export interface CrewDayPlan {
   day: string;
   date: Date;
+  /**
+   * How much of the day's shift was already gone when this order picked it up,
+   * as a fraction — 0 on every day but the first, and on that one whatever the
+   * order it is following left behind. This is what lets a chain of steps meet
+   * exactly instead of spending a day at each link: cutting finishes 46% of
+   * the way through Wednesday, upholstery has the other 54% of it.
+   */
+  from: number;
+  /** Fraction of a full shift this order takes out of the day. */
+  used: number;
   workerIds: string[];
   /** Total standard hours removed from the order on this day. */
   hours: number;
@@ -67,6 +78,10 @@ export function crewIdsOnDay(
   return [...new Set(ids)].slice(0, MAX_WORKERS_PER_ORDER);
 }
 
+/** The moment one of these day plans hands the day on. */
+export const endOfCrewDay = (day: CrewDayPlan): Date =>
+  addDays(day.date, day.from + day.used);
+
 export function planVariableCrew(
   from: Date,
   requiredHours: number,
@@ -75,6 +90,13 @@ export function planVariableCrew(
 ): VariableCrewPlan {
   const orderStart = startOfDay(from);
   const orderStartDay = crewDayKey(orderStart);
+  // What is left of the opening day. An order picking up where another left
+  // off starts part-way through a shift and gets only the rest of it, which is
+  // what makes a hand-over exact rather than a day of waiting.
+  const opening = Math.min(
+    1,
+    Math.max(0, (from.getTime() - orderStart.getTime()) / MS_PER_DAY),
+  );
   let remaining = Math.max(0, requiredHours);
   let cursor = orderStart;
   let first: Date | null = null;
@@ -83,9 +105,9 @@ export function planVariableCrew(
 
   if (remaining <= EPSILON) {
     return {
-      start: orderStart,
-      expectDate: orderStart,
-      coveredUntil: orderStart,
+      start: from,
+      expectDate: from,
+      coveredUntil: from,
       days: 0,
       crewDays,
       uncoveredHours: 0,
@@ -104,25 +126,37 @@ export function planVariableCrew(
       continue;
     }
 
-    first ??= cursor;
-    const capacity = workerIds.length * PRODUCTIVE_HOURS_PER_PERSON;
+    // Only the order's own opening day is short; a weekend or an unstaffed day
+    // in between is skipped whole, and the next one starts fresh.
+    const gone = day === orderStartDay ? opening : 0;
+    const shift = workerIds.length * PRODUCTIVE_HOURS_PER_PERSON;
+    const capacity = shift * (1 - gone);
+    if (capacity <= EPSILON) {
+      cursor = addDays(cursor, 1);
+      continue;
+    }
+
+    first ??= addDays(cursor, gone);
     const hours = Math.min(remaining, capacity);
-    const fraction = hours / capacity;
+    const used = hours / shift;
     crewDays.push({
       day,
       date: cursor,
+      from: gone,
+      used,
       workerIds,
       hours,
       perWorkerHours: hours / workerIds.length,
     });
-    workedDays += fraction;
+    workedDays += used;
     remaining -= hours;
 
     if (remaining <= EPSILON) {
+      const end = addDays(cursor, gone + used);
       return {
         start: first,
-        expectDate: addDays(cursor, fraction),
-        coveredUntil: addDays(cursor, fraction),
+        expectDate: end,
+        coveredUntil: end,
         days: workedDays,
         crewDays,
         uncoveredHours: 0,
@@ -134,13 +168,8 @@ export function planVariableCrew(
   return {
     start: first,
     expectDate: null,
-    coveredUntil: crewDays.length > 0
-      ? addDays(
-          crewDays.at(-1)!.date,
-          crewDays.at(-1)!.hours /
-            (crewDays.at(-1)!.workerIds.length * PRODUCTIVE_HOURS_PER_PERSON),
-        )
-      : null,
+    coveredUntil:
+      crewDays.length > 0 ? endOfCrewDay(crewDays.at(-1)!) : null,
     days: first ? workedDays : null,
     crewDays,
     uncoveredHours: remaining,

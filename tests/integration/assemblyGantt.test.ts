@@ -12,7 +12,7 @@ import { workerLoad } from '@/engine/assembly/workload';
 import { remainingHours } from '@/engine/assembly/duration';
 import { usePlanStore } from '@/store/planStore';
 import { DEFAULT_HORIZON_DAYS, LINES, canWorkKind } from '@/domain/assembly';
-import { suggestCrew } from '@/engine/assembly/crew';
+import { overlapsOnBoard, suggestCrew } from '@/engine/assembly/crew';
 import type { PlanningDataset } from '@/domain/types';
 import type {
   ActualStartRecord,
@@ -113,30 +113,21 @@ describe('assembly Gantt (mock data)', () => {
     expect(span(after)).toBeLessThan(span(row!));
   });
 
-  it('never has anyone on two orders at the same time', () => {
+  it('never has anyone working two orders in the same hours', () => {
+    // Day by day and person by person, on what the schedule actually planned.
+    // Two bars can overlap without anyone being in two places: somebody still
+    // busy elsewhere joins the second one on the day they come free, and an
+    // order picking up where another left off takes only the rest of the shift.
     const b = build();
     const rows = b.groups
       .filter((g) => g.line.schedulable)
       .flatMap((g) => g.rows)
-      .filter((r) => r.start && r.expectDate && !r.completedToday);
+      .filter((r) => !r.completedToday);
     expect(rows.length).toBeGreaterThan(10);
 
-    const clashes: string[] = [];
-    for (const a of rows) {
-      for (const c of rows) {
-        if (String(a.job.id) >= String(c.job.id)) continue;
-        const shared = a.workers.filter((w) =>
-          c.workers.some((other) => String(other.id) === String(w.id)),
-        );
-        if (!shared.length) continue;
-        if (a.start! < c.expectDate! && c.start! < a.expectDate!) {
-          clashes.push(
-            `${String(a.job.id)} and ${String(c.job.id)} both have ` +
-              shared.map((w) => w.name).join(', '),
-          );
-        }
-      }
-    }
+    const clashes = rows
+      .filter((row) => overlapsOnBoard(rows, row))
+      .map((row) => String(row.job.id));
     expect(clashes).toEqual([]);
   });
 

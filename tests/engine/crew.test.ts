@@ -12,6 +12,7 @@ import { buildIndexes } from '@/engine/indexes';
 import { computeAssemblyGantt, type OrderRow } from '@/engine/assembly/board';
 import {
   clashesFor,
+  overlapsOnBoard,
   preferredCrewOrder,
   suggestCrew,
 } from '@/engine/assembly/crew';
@@ -110,23 +111,20 @@ describe('suggestCrew', () => {
 
   it('does not double-book anyone, measured on the board it produces', () => {
     // The suggestion is made against spans it works out itself; this checks
-    // them against the schedule that actually comes back.
+    // them against the schedule that actually comes back — day by day and
+    // person by person, which is the only place the answer really lives.
+    // Sharing a *day* is not a clash: an order picking up where another left
+    // off takes only what is left of the shift.
     const before = board();
     const after = board(suggestCrew(before, settle).allocations);
     const rows = [...after.rowsByJob.values()].filter(
-      (r) => r.start && r.expectDate && !r.completedToday,
+      (r) => r.line.schedulable && !r.completedToday,
     );
+    expect(rows.length).toBeGreaterThan(10);
 
-    const clashes: string[] = [];
-    for (const row of rows) {
-      for (const w of row.workers) {
-        for (const other of clashesFor(rows, row, String(w.id))) {
-          clashes.push(
-            `${w.name}: ${String(row.job.id)} vs ${String(other.job.id)}`,
-          );
-        }
-      }
-    }
+    const clashes = rows
+      .filter((row) => overlapsOnBoard(rows, row))
+      .map((row) => String(row.job.id));
     expect(clashes).toEqual([]);
   });
 

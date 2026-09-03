@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { OrderRow } from '@/engine/assembly/board';
 import { WorkerId } from '@/domain/ids';
-import type { LineKey, Worker } from '@/domain/assembly';
+import {
+  PRODUCTIVE_HOURS_PER_PERSON,
+  type LineKey,
+  type Worker,
+} from '@/domain/assembly';
 import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import {
   activeWorkerIdsOnDay,
@@ -72,16 +76,20 @@ describe('assembly board view controls', () => {
       {
         day: '2026-09-02',
         date: new Date('2026-09-02'),
+        from: 0,
+        used: 1,
         workerIds: ['Bill'],
-        hours: 7.25,
-        perWorkerHours: 7.25,
+        hours: PRODUCTIVE_HOURS_PER_PERSON,
+        perWorkerHours: PRODUCTIVE_HOURS_PER_PERSON,
       },
       {
         day: '2026-09-04',
         date: new Date('2026-09-04'),
+        from: 0,
+        used: 1,
         workerIds: ['Jones'],
-        hours: 7.25,
-        perWorkerHours: 7.25,
+        hours: PRODUCTIVE_HOURS_PER_PERSON,
+        perWorkerHours: PRODUCTIVE_HOURS_PER_PERSON,
       },
     ];
     expect([...activeWorkerIdsOnDay([planned], new Date('2026-09-02'))]).toEqual([
@@ -170,7 +178,9 @@ describe('lineOfWorkerToday', () => {
       line: { key: line, schedulable: true },
       completedToday: false,
       workers: workerIds.map((id) => ({ id })),
-      crewDays: [{ day: crewDayKey(day), date: day, workerIds }],
+      crewDays: [
+        { day: crewDayKey(day), date: day, from: 0, used: 1, workerIds },
+      ],
     }) as unknown as OrderRow;
 
   it('puts them on the line their work today is on', () => {

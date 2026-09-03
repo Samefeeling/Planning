@@ -21,7 +21,6 @@ import { CSS } from '@dnd-kit/utilities';
 import type { OrderRow } from '@/engine/assembly/board';
 import { addDays, workingSpans } from '@/engine/assembly/dates';
 import { completedFraction, remainingHours } from '@/engine/assembly/duration';
-import { PRODUCTIVE_HOURS_PER_PERSON } from '@/domain/assembly';
 import { MS_PER_DAY } from '@/lib/time';
 import { barTag, timelineDayOffset } from './boardView';
 
@@ -103,11 +102,8 @@ export function OrderBar({
   // and this lane mirrors their plan rather than restating it in our hours.
   const continuous = row.overtime || readOnly;
   const plannedSpans = row.crewDays?.map((day) => ({
-    from: day.date,
-    to: addDays(
-      day.date,
-      day.perWorkerHours / PRODUCTIVE_HOURS_PER_PERSON,
-    ),
+    from: addDays(day.date, day.from),
+    to: addDays(day.date, day.from + day.used),
   }));
   const merged = (plannedSpans ?? []).reduce<{ from: Date; to: Date }[]>(
     (out, next) => {

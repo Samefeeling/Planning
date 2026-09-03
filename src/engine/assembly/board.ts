@@ -3,16 +3,19 @@
  *
  * ## Where a bar starts
  *
- * A line is not a single station: it has several build positions, so up to
- * `line.parallelOrders` orders run side by side. Each order asks to start on
- * the day the planner dragged it to — failing that, the day Epicor scheduled it
- * — and gets that day whenever the line still has a position free. Only when
- * every position is busy does the order queue behind whichever frees first.
- * That is what makes any bar draggable, not just the first on the line: there
- * is no single queue pinning the rest of the line behind it.
+ * As early as it can. Every order asks for today and is pushed out only by
+ * something real: a component another order is still making, material that has
+ * not landed, a crew still on something else, or a line with no build position
+ * free. Nothing waits for the day Epicor pencilled in — that date is worked
+ * back from the due date and is a *deadline*, which the board carries as `Must
+ * start` rather than as an instruction to stand idle until then.
  *
- * Two hard constraints still push a bar later: a component another order is
- * still making, and material that has not landed.
+ * A line is not a single station: it has several build positions, so up to
+ * `line.parallelOrders` orders run side by side, and only when every position
+ * is busy does an order queue behind whichever frees first. What decides who
+ * gets the position, and the people, is how much slack an order has left —
+ * `urgency`, the day it must start to still make its due date. A bar the
+ * planner dragged keeps its day regardless: a drag is an instruction.
  *
  * ## What waits for what
  *
@@ -29,8 +32,14 @@
  * free — and begins *exactly* then, not on whatever day Epicor pencilled in.
  * That is how the floor actually runs: a team finishes one order and picks up
  * the next the same shift, so the board shows neither the overlap of two bars
- * sharing a person nor the idle days between them. An order whose crew has
- * nothing else on keeps its own start date; only a hand-over moves it.
+ * sharing a person nor the idle days between them.
+ *
+ * A crew coming free is the one constraint that rounds to the next shift: a
+ * day is charged as a whole shift, and one person cannot work two of them.
+ * Everything else lands on the day it happens — a component finished at eleven
+ * in the morning is finished at eleven in the morning, and the order waiting on
+ * it starts that day, which is what keeps a chain of steps tight rather than
+ * spending a day at each link.
  *
  * ## Where a bar ends
  *
@@ -48,7 +57,6 @@ import type { Job, MaterialStatus, PlanningDataset } from '@/domain/types';
 import {
   DEFAULT_HORIZON_DAYS,
   LINES,
-  PRODUCTIVE_HOURS_PER_PERSON,
   workKind,
   type CrewAssignment,
   type LineDef,
@@ -77,6 +85,8 @@ import {
   type ScheduleStatus,
 } from './dates';
 import {
+  crewDayKey,
+  endOfCrewDay,
   planVariableCrew,
   type CrewDayPlan,
   type VariableCrewPlan,
@@ -459,12 +469,31 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     const actual = orderActualStarts[id];
     if (actual) return startOfDay(new Date(actual.startedAt));
     const pinned = orderStarts[id];
-    const wanted = pinned
-      ? startOfDay(new Date(pinned))
-      : jobsById.get(id)?.startDate
-        ? startOfDay(jobsById.get(id)!.startDate!)
-        : planStart;
+    if (!pinned) return planStart;
+    const wanted = startOfDay(new Date(pinned));
     return wanted > planStart ? wanted : planStart;
+  };
+
+  /**
+   * How much of a hurry an order is in — the day it has to start to still make
+   * its due date, at the crew currently on it. That is the same arithmetic
+   * Epicor used to fill in its own Start Date.
+   *
+   * With everything asking to start today, this is what decides who gets the
+   * build position and the people: the order that runs out of slack first.
+   * Orders with no due date go last, because nothing says they are urgent.
+   */
+  const crewSizeOf = (id: string): number => {
+    const bounded = orderCrewAssignments[id];
+    if (bounded) return new Set(bounded.map((a) => a.workerId)).size;
+    return (orderWorkers[id] ?? []).length;
+  };
+  const urgency = (id: string): number => {
+    const job = jobsById.get(id);
+    if (!job?.dueDate) return Number.MAX_SAFE_INTEGER;
+    return (
+      latestStart(job, crewSizeOf(id), job.dueDate) ?? job.dueDate
+    ).getTime();
   };
 
   // Two passes over the schedulable lines: build rows, then resolve the
@@ -483,9 +512,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       .map(String)
       .filter((id) => jobsById.has(id) && !placed.has(id));
     ids.forEach((id) => placed.add(id));
-    const claiming = [...ids].sort(
-      (a, b) => wantedStart(a).getTime() - wantedStart(b).getTime(),
-    );
+    const claiming = [...ids].sort((a, b) => urgency(a) - urgency(b));
     pending.push({ line, ids, claiming });
   }
 
@@ -499,20 +526,38 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const freeAt = new Map<string, Date>();
 
   /**
-   * When the last of a crew finishes what they are already on, or null when
-   * none of them has anything else. The order then begins exactly there —
-   * later if they are still busy, earlier if they come free before the day
-   * Epicor pencilled in, which is the hand-over the floor actually works to.
+   * The moment the *first* of a crew can pick this order up.
+   *
+   * Not the last: a team whose second member is tied up for another week does
+   * not stand around waiting for them. Whoever is free starts, and the rest
+   * join as they come off what they are on — `readyDay` below turns that into
+   * the date-bounded assignments the day planner already understands, so the
+   * order gets one person's capacity until the others arrive.
+   *
+   * `null` only when there is nobody on the order at all.
    */
-  const handover = (crewIds: string[], approved: string[]): Date | null => {
-    let latest: Date | null = null;
+  const readyAt = (crewIds: string[], approved: string[]): Date | null => {
+    let earliest: Date | null = null;
     for (const workerId of crewIds) {
       if (approved.includes(workerId)) continue;
-      const free = freeAt.get(String(workerId));
-      if (free && (!latest || free > latest)) latest = free;
+      const free = freeAt.get(String(workerId)) ?? planStart;
+      if (!earliest || free < earliest) earliest = free;
     }
-    return latest;
+    return earliest;
   };
+
+  /**
+   * The first whole day a person can give to a new order.
+   *
+   * Capacity is charged per person per day, so somebody coming free at twenty
+   * to ten at night joins tomorrow — the sliver left of today cannot be split
+   * between the two orders without over-booking them. Only the person the
+   * order actually starts with gets a part-day, and that one is exact.
+   */
+  const readyDay = (free: Date): Date =>
+    free.getTime() === startOfDay(free).getTime()
+      ? free
+      : startOfDay(addDays(free, 1));
 
   // Line id → when each of its build positions next frees up.
   const slotsByLine = new Map<string, Date[]>();
@@ -576,20 +621,21 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     // Where the order asks to be, before the line's capacity has its say.
     let want = wantedStart(id);
 
-    // A team rolls straight from one order on to the next. If any of these
-    // people are still on something else, this order begins when the last of
-    // them is free — no overlap, and no idle days in between either, because
-    // the hand-over replaces the wanted day rather than merely capping it.
+    // A team rolls straight from one order on to the next: this one begins the
+    // moment the first of its people is free, and the rest join as they come
+    // off what they are on. No overlap, and no idle days either — the crew's
+    // availability replaces the wanted day rather than merely capping it.
     // A confirmed start and a bar the planner dragged both stand as they are:
     // those are records of a decision, and the clash markers say the rest.
     const pinned = Boolean(orderStarts[id] || actualStart);
-    const freed =
-      pinned || completedToday
-        ? null
-        : handover(
-            crewAssignments.map((a) => String(a.workerId)),
-            orderDoubleBooked[id] ?? [],
-          );
+    const approved = orderDoubleBooked[id] ?? [];
+    const sequenced = !pinned && !completedToday;
+    const freed = sequenced
+      ? readyAt(
+          crewAssignments.map((a) => String(a.workerId)),
+          approved,
+        )
+      : null;
     if (freed) want = freed > planStart ? freed : planStart;
 
     // Nothing can start before the last of its components is finished. A
@@ -633,22 +679,37 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     // unless the planner dragged it there by hand.
     const slots = slotsFor(line);
     const claim = claimSlot(slots, want, pinned);
-    const claimedDay = startOfDay(claim.start);
-    // Capacity is planned by complete shifts. If a predecessor or line slot
-    // frees part-way through a day, the next order begins on the next shift,
-    // never retroactively at that day's midnight.
-    const shiftStart = claim.start > claimedDay
-      ? startOfDay(addDays(claimedDay, 1))
-      : claimedDay;
+    // To the moment, not to the day — `nextWorkingDay` keeps the hour and only
+    // moves a weekend on. A component finished at eleven in the
+    // morning is finished at eleven in the morning, and the order waiting on it
+    // starts then — `planVariableCrew` gives that first day only the rest of
+    // its shift, so the two bars meet exactly instead of one of them spending a
+    // day at the link. The same is true of a crew: what is left of the day they
+    // came free is what the next order gets, so nobody works two shifts in one.
     const start = actualStart
       ? claim.start
       : overtime
-        ? shiftStart
-        : nextWorkingDay(shiftStart);
+        ? claim.start
+        : nextWorkingDay(claim.start);
     // Only the remaining work is planned, so a job that started yesterday
     // consumes today's capacity from today onward; its confirmed historical
     // start is still retained as the left edge of the bar.
     const capacityStart = start < planStart ? planStart : start;
+    // Whoever is still on something else joins this order the day they finish
+    // it. The bounds the planner set by hand always win — those are a decision.
+    const joining: CrewAssignment[] = sequenced
+      ? crewAssignments.map((assignment) => {
+          const workerId = String(assignment.workerId);
+          if (approved.includes(workerId)) return assignment;
+          const free = freeAt.get(workerId);
+          if (!free || free <= capacityStart) return assignment;
+          const from = crewDayKey(readyDay(free));
+          return assignment.fromDay && assignment.fromDay >= from
+            ? assignment
+            : { ...assignment, fromDay: from };
+        })
+      : crewAssignments;
+
     const crewPlan: VariableCrewPlan = predecessorBlocked
       ? {
           start: null,
@@ -661,7 +722,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       : planVariableCrew(
           capacityStart,
           remainingHours(job),
-          crewAssignments,
+          joining,
           overtime,
         );
     const expectDate = completedToday ? planStart : crewPlan.expectDate;
@@ -747,9 +808,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     // first half of an order is free again from the middle of it.
     if (!completedToday) {
       for (const day of crewPlan.crewDays) {
-        const shift =
-          day.hours / (day.workerIds.length * PRODUCTIVE_HOURS_PER_PERSON);
-        const until = addDays(day.date, shift);
+        const until = endOfCrewDay(day);
         for (const workerId of day.workerIds) {
           const held = freeAt.get(String(workerId));
           if (!held || until > held) freeAt.set(String(workerId), until);
@@ -781,11 +840,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     orderActualStarts[id] ? 0 : orderStarts[id] ? 1 : 2;
   const claimOrder = pending
     .flatMap((p) => p.claiming)
-    .sort(
-      (a, b) =>
-        claimRank(a) - claimRank(b) ||
-        wantedStart(a).getTime() - wantedStart(b).getTime(),
-    );
+    .sort((a, b) => claimRank(a) - claimRank(b) || urgency(a) - urgency(b));
   for (const id of claimOrder) resolve(id, new Set());
   for (const { line, ids } of pending) {
     const rows = ids

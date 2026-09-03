@@ -24,7 +24,7 @@ import {
 } from '@/domain/assembly';
 import { durationDays, remainingHours, remainingQty } from './duration';
 import { addDays, addWorkingDays } from './dates';
-import { planVariableCrew } from './crewSchedule';
+import { planVariableCrew, type CrewDayPlan } from './crewSchedule';
 import type { AssemblyGanttView, OrderRow } from './board';
 
 export interface CrewSuggestion {
@@ -67,6 +67,69 @@ function span(row: OrderRow, crew: number): { from: Date; to: Date } | null {
   };
 }
 
+/** Two hours of one shift apart, in day-fractions — anything less is nothing. */
+const SHIFT_EPSILON = 0.02;
+
+/**
+ * Do these two day plans want the same hours of the same shift?
+ *
+ * Sharing a *day* is not a clash any more: an order picking up where another
+ * left off starts part-way through the shift and takes only what is left of
+ * it, so a hand-over puts both on the day and neither is over-booked. What
+ * counts is the two stretches actually overlapping.
+ */
+const sharesShift = (a: CrewDayPlan, b: CrewDayPlan): boolean =>
+  a.day === b.day &&
+  a.from < b.from + b.used - SHIFT_EPSILON &&
+  b.from < a.from + a.used - SHIFT_EPSILON;
+
+/**
+ * Anyone this row shares hours of a shift with somewhere else on the board.
+ *
+ * Measured on what the schedule actually planned — `crewDays` — rather than by
+ * re-planning the order. `clashesFor` below answers a different question ("if
+ * I put this person on, would they clash?") and has to imagine them working
+ * the whole order to answer it, which is not what the board did: somebody
+ * still busy elsewhere joins on the day they come free.
+ */
+export function clashesOnBoard(
+  rows: Iterable<OrderRow>,
+  row: OrderRow,
+  workerId: string,
+): OrderRow[] {
+  const mine = (row.crewDays ?? []).filter((day) =>
+    day.workerIds.includes(workerId),
+  );
+  if (mine.length === 0) return [];
+  const id = String(row.job.id);
+  const out: OrderRow[] = [];
+  for (const other of rows) {
+    if (String(other.job.id) === id) continue;
+    if (!other.line.schedulable || other.completedToday) continue;
+    const clashes = (other.crewDays ?? []).some(
+      (theirs) =>
+        theirs.workerIds.includes(workerId) &&
+        mine.some((day) => sharesShift(day, theirs)),
+    );
+    if (clashes) out.push(other);
+  }
+  return out;
+}
+
+/** Anyone at all on this row working two orders in the same hours. */
+export function overlapsOnBoard(
+  rows: Iterable<OrderRow>,
+  row: OrderRow,
+): boolean {
+  const all = [...rows];
+  const onIt = new Set(
+    (row.crewDays ?? []).flatMap((day) => day.workerIds),
+  );
+  return [...onIt].some(
+    (workerId) => clashesOnBoard(all, row, workerId).length > 0,
+  );
+}
+
 /**
  * The orders `workerId` is already on that would run at the same time as
  * `target` — the work they cannot be in two places for.
@@ -103,12 +166,10 @@ export function clashesFor(
     proposed,
     target.overtime,
   );
-  const mineDays = new Set(
-    mine.crewDays
-      .filter((day) => day.workerIds.includes(workerId))
-      .map((day) => day.day),
+  const mineDays = mine.crewDays.filter((day) =>
+    day.workerIds.includes(workerId),
   );
-  if (mineDays.size === 0) return [];
+  if (mineDays.length === 0) return [];
   const id = String(target.job.id);
   return rows.filter(
     (r) =>
@@ -119,7 +180,8 @@ export function clashesFor(
       (r.crewDays
         ? r.crewDays.some(
             (day) =>
-              day.workerIds.includes(workerId) && mineDays.has(day.day),
+              day.workerIds.includes(workerId) &&
+              mineDays.some((mineDay) => sharesShift(mineDay, day)),
           )
         : (() => {
             const legacy = span(r, Math.max(1, r.workers.length));
@@ -178,17 +240,24 @@ export function freeCrewWindow(
     (row) =>
       String(row.job.id) !== String(target.job.id) && !row.completedToday,
   );
-  const busy = new Map<string, string[]>();
+  const busy = new Map<string, { plan: CrewDayPlan; jobId: string }[]>();
   for (const row of otherRows) {
     for (const day of row.crewDays ?? []) {
       if (!day.workerIds.includes(workerId)) continue;
-      const jobs = busy.get(day.day) ?? [];
-      jobs.push(String(row.job.id));
-      busy.set(day.day, jobs);
+      const held = busy.get(day.day) ?? [];
+      held.push({ plan: day, jobId: String(row.job.id) });
+      busy.set(day.day, held);
     }
   }
+  /** Only the hours of a shift this order would actually want back. */
+  const taken = (mine: CrewDayPlan) =>
+    (busy.get(mine.day) ?? []).filter((other) =>
+      sharesShift(mine, other.plan),
+    );
 
-  const firstConflict = candidateDays.findIndex((day) => busy.has(day.day));
+  const firstConflict = candidateDays.findIndex(
+    (day) => taken(day).length > 0,
+  );
   if (firstConflict < 0) {
     return {
       fromDay: candidateDays[0].day,
@@ -199,11 +268,11 @@ export function freeCrewWindow(
   // A gap after an immediate conflict needs an explicit user choice; the
   // default offered here is deliberately only the safe leading gap.
   if (firstConflict === 0) return null;
-  const boundary = candidateDays[firstConflict].day;
+  const boundary = candidateDays[firstConflict];
   return {
     fromDay: candidateDays[0].day,
-    toDayExclusive: boundary,
-    nextJobIds: busy.get(boundary) ?? [],
+    toDayExclusive: boundary.day,
+    nextJobIds: taken(boundary).map((other) => other.jobId),
   };
 }
 
@@ -322,22 +391,31 @@ function staffOneWave(
       if (pool.length === 0) continue;
 
       // Build the team one at a time. Each person added shortens the bar, so
-      // the window the next has to be free across only ever narrows — nobody
-      // vetted against the longer window becomes a clash later.
+      // the window the next has to be free across only ever narrows.
       const crew: string[] = [];
       for (let i = 0; i < size; i++) {
         const want = span(next, crew.length + 1);
         if (!want) break;
-        const free = pool
-          .filter(
-            (w) =>
-              !crew.includes(String(w.id)) &&
-              !clashesWith(booked.get(String(w.id)), want),
-          )
-          // Best skill first, then straight down the roster.
-          .sort(prefer);
-        if (free.length === 0) break;
-        crew.push(String(free[0].id));
+        const rest = pool.filter((w) => !crew.includes(String(w.id)));
+        if (rest.length === 0) break;
+        const free = rest.filter(
+          (w) => !clashesWith(booked.get(String(w.id)), want),
+        );
+        // Somebody free across these days if there is one — that fills the
+        // line's other build positions rather than queueing everything behind
+        // one team. Failing that, whoever is carrying least: putting them on
+        // does not double-book them, it queues this order behind what they are
+        // already doing, which is what the schedule does with a crew anyway.
+        const pick = (
+          free.length > 0
+            ? [...free].sort(prefer)
+            : [...rest].sort(
+                (a, b) =>
+                  (booked.get(String(a.id))?.length ?? 0) -
+                    (booked.get(String(b.id))?.length ?? 0) || prefer(a, b),
+              )
+        )[0];
+        crew.push(String(pick.id));
       }
       if (crew.length === 0) continue;
 
@@ -390,14 +468,9 @@ export function suggestCrew(
       const jobIds = Object.keys(allocations).reverse();
       const bad = jobIds.find((jobId) => {
         const row = view.rowsByJob.get(jobId);
-        return row?.workers.some(
-          (worker) =>
-            clashesFor(
-              [...view.rowsByJob.values()],
-              row,
-              String(worker.id),
-            ).length > 0,
-        );
+        return row
+          ? overlapsOnBoard(view.rowsByJob.values(), row)
+          : false;
       });
       if (!bad) break;
       delete allocations[bad];
