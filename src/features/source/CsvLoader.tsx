@@ -6,9 +6,13 @@
  * same parsers, so an export can be checked against the board before any auth
  * is wired up.
  *
- * Both files can be selected at once. Which is which is decided by the header
- * row rather than the file name, because an export saved from Excel rarely
- * keeps the name the BAQ gave it.
+ * Two buttons, because the two files answer different questions and are
+ * checked separately: `Planning1.csv` is what to build, `JobMaterialReq.csv`
+ * is what each order consumes — and therefore which order has to finish before
+ * which. Either can still be dropped into the other picker; which is which is
+ * decided by the header row rather than the file name, because an export saved
+ * from Excel rarely keeps the name the BAQ gave it. Picking the wrong one says
+ * so instead of quietly loading it as the other.
  */
 
 import { useRef, useState } from 'react';
@@ -36,48 +40,91 @@ function isMaterialExport(text: string): boolean {
   );
 }
 
+type Kind = 'orders' | 'links';
+
 export function CsvLoader() {
   const setSource = useDataStore((s) => s.setSource);
   const load = useDataStore((s) => s.load);
   const setLastRefresh = useUiStore((s) => s.setLastRefresh);
-  const input = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
+  const orders = useRef<HTMLInputElement>(null);
+  const links = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<Kind | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
 
-  const onPick = async (files: FileList | null) => {
+  const onPick = async (files: FileList | null, want: Kind) => {
     if (!files || files.length === 0) return;
-    setBusy(true);
+    setBusy(want);
+    setProblem(null);
     try {
+      let read = 0;
       for (const file of Array.from(files)) {
         const text = await file.text();
-        if (isMaterialExport(text)) setManualJobMaterialCsv(text);
+        const kind: Kind = isMaterialExport(text) ? 'links' : 'orders';
+        // Both pickers take either file, but say so when they differ — a
+        // silent swap is how you end up sure you loaded something you did not.
+        if (kind !== want) {
+          setProblem(
+            `${file.name} looks like the ${
+              kind === 'links' ? 'material' : 'order'
+            } export, not the ${want === 'links' ? 'material' : 'order'} ` +
+              'one — loaded as what it is.',
+          );
+        }
+        if (kind === 'links') setManualJobMaterialCsv(text);
         else setManualCsv(text);
+        read++;
       }
+      if (read === 0) return;
       setSource(new PlanningCsvSource());
       await load();
       setLastRefresh(new Date());
     } finally {
-      setBusy(false);
-      if (input.current) input.current.value = ''; // allow re-picking the same file
+      setBusy(null);
+      // Allow re-picking the same file.
+      if (orders.current) orders.current.value = '';
+      if (links.current) links.current.value = '';
     }
   };
 
   return (
     <>
       <input
-        ref={input}
+        ref={orders}
         type="file"
         accept=".csv,text/csv"
         multiple
         hidden
-        onChange={(e) => void onPick(e.target.files)}
+        onChange={(e) => void onPick(e.target.files, 'orders')}
+      />
+      <input
+        ref={links}
+        type="file"
+        accept=".csv,text/csv"
+        hidden
+        onChange={(e) => void onPick(e.target.files, 'links')}
       />
       <Button
-        onClick={() => input.current?.click()}
-        disabled={busy}
-        title="Parse Planning1.csv (and JobMaterialReq.csv) and rebuild the board"
+        onClick={() => orders.current?.click()}
+        disabled={busy !== null}
+        title="Parse Planning1.csv — the orders, their hours and their dates"
       >
-        Load CSV
+        {busy === 'orders' ? 'Loading…' : 'Load orders'}
       </Button>
+      <Button
+        onClick={() => links.current?.click()}
+        disabled={busy !== null}
+        title={
+          'Parse JobMaterialReq.csv — what each order consumes, which is ' +
+          'what tells the board that one order has to finish before another'
+        }
+      >
+        {busy === 'links' ? 'Loading…' : 'Load JobMaterialReq'}
+      </Button>
+      {problem && (
+        <span className="board-warn" title={problem}>
+          Check the file
+        </span>
+      )}
     </>
   );
 }

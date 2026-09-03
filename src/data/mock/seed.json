@@ -1958,7 +1958,7 @@
       "priority": 3,
       "materialPrep": "ready",
       "assignedWorkers": [
-        "W02",
+        "W03",
         "W04"
       ],
       "predecessor": null,
@@ -1986,8 +1986,8 @@
       "priority": 2,
       "materialPrep": "ready",
       "assignedWorkers": [
-        "W01",
-        "W03"
+        "W07",
+        "W14"
       ],
       "predecessor": "ASM8001",
       "die": null,
@@ -2042,9 +2042,8 @@
       "priority": 3,
       "materialPrep": "preparing",
       "assignedWorkers": [
-        "W01",
-        "W02",
-        "W04"
+        "W04",
+        "W14"
       ],
       "predecessor": "ASM8003",
       "die": null,
@@ -2071,7 +2070,6 @@
       "priority": 1,
       "materialPrep": "ready",
       "assignedWorkers": [
-        "W03",
         "W07"
       ],
       "predecessor": null,
@@ -2126,7 +2124,6 @@
       "priority": 3,
       "materialPrep": "ready",
       "assignedWorkers": [
-        "W12",
         "W07"
       ],
       "predecessor": null,
@@ -2406,6 +2403,145 @@
       "materialPrep": "ready",
       "assignedWorkers": [
         "W09"
+      ],
+      "predecessor": null,
+      "die": null,
+      "machine": null,
+      "productType": null,
+      "currentStage": null
+    },
+    {
+      "jobNum": "ASM8018",
+      "partNum": "SFA3S-STRM",
+      "description": "Lounge Sofa 3-Seat - Cut & Sew Storm",
+      "department": "assembly",
+      "line": "UPL",
+      "orderType": "cutting-sewing",
+      "remainingQty": 18,
+      "completedQty": 0,
+      "laborHrs": 21.0,
+      "qtyPerHr": 0.857,
+      "dueDate": "2026-06-24T00:00:00",
+      "startDate": "2026-06-17T07:30:00",
+      "shipDate": "2026-06-25T00:00:00",
+      "reqBy": "2026-06-24T00:00:00",
+      "released": true,
+      "priority": 3,
+      "materialPrep": "ready",
+      "assignedWorkers": [
+        "W03",
+        "W12"
+      ],
+      "predecessor": null,
+      "die": null,
+      "machine": null,
+      "productType": null,
+      "currentStage": null
+    },
+    {
+      "jobNum": "ASM8019",
+      "partNum": "SFA3S-STRM-SS",
+      "description": "Lounge Sofa 3-Seat Smart Softies Storm",
+      "department": "assembly",
+      "line": "UPL",
+      "orderType": "upholstery",
+      "remainingQty": 18,
+      "completedQty": 0,
+      "laborHrs": 16.0,
+      "qtyPerHr": 1.125,
+      "dueDate": "2026-06-26T00:00:00",
+      "startDate": "2026-06-19T07:30:00",
+      "shipDate": "2026-06-27T00:00:00",
+      "reqBy": "2026-06-26T00:00:00",
+      "released": true,
+      "priority": 3,
+      "materialPrep": "ready",
+      "assignedWorkers": [
+        "W01",
+        "W02"
+      ],
+      "predecessor": null,
+      "die": null,
+      "machine": null,
+      "productType": null,
+      "currentStage": null
+    },
+    {
+      "jobNum": "ASM8020",
+      "partNum": "SFA3S-STRMU",
+      "description": "Lounge Sofa 3-Seat Upholstery Storm",
+      "department": "assembly",
+      "line": "UPL",
+      "orderType": "upholstery",
+      "remainingQty": 18,
+      "completedQty": 0,
+      "laborHrs": 24.0,
+      "qtyPerHr": 0.75,
+      "dueDate": "2026-06-30T00:00:00",
+      "startDate": "2026-06-23T07:30:00",
+      "shipDate": "2026-07-01T00:00:00",
+      "reqBy": "2026-06-30T00:00:00",
+      "released": true,
+      "priority": 3,
+      "materialPrep": "ready",
+      "assignedWorkers": [
+        "W04",
+        "W07"
+      ],
+      "predecessor": null,
+      "die": null,
+      "machine": null,
+      "productType": null,
+      "currentStage": null
+    },
+    {
+      "jobNum": "ASM8021",
+      "partNum": "SFA-FA3S",
+      "description": "Lounge Sofa 3-Seat Final Assy",
+      "department": "assembly",
+      "line": "ASSY",
+      "orderType": "final-assembly",
+      "remainingQty": 18,
+      "completedQty": 0,
+      "laborHrs": 13.0,
+      "qtyPerHr": 1.385,
+      "dueDate": "2026-07-02T00:00:00",
+      "startDate": "2026-06-25T07:30:00",
+      "shipDate": "2026-07-03T00:00:00",
+      "reqBy": "2026-07-02T00:00:00",
+      "released": true,
+      "priority": 3,
+      "materialPrep": "ready",
+      "assignedWorkers": [
+        "W05",
+        "W11"
+      ],
+      "predecessor": null,
+      "die": null,
+      "machine": null,
+      "productType": null,
+      "currentStage": null
+    },
+    {
+      "jobNum": "ASM8022",
+      "partNum": "OTTO00311",
+      "description": "Ottoman 600 Smart Softies - Charcoal",
+      "department": "assembly",
+      "line": "UPL",
+      "orderType": "upholstery",
+      "remainingQty": 24,
+      "completedQty": 0,
+      "laborHrs": 9.5,
+      "qtyPerHr": 2.526,
+      "dueDate": "2026-06-23T00:00:00",
+      "startDate": "2026-06-18T07:30:00",
+      "shipDate": "2026-06-24T00:00:00",
+      "reqBy": "2026-06-23T00:00:00",
+      "released": true,
+      "priority": 3,
+      "materialPrep": "ready",
+      "assignedWorkers": [
+        "W01"
       ],
       "predecessor": null,
       "die": null,
@@ -13159,7 +13295,10 @@
         "UPL",
         "ASSY"
       ],
-      "onShift": true
+      "onShift": true,
+      "trades": [
+        "smart-softie"
+      ]
     },
     {
       "id": "W02",
@@ -13167,7 +13306,10 @@
       "skills": [
         "UPL"
       ],
-      "onShift": true
+      "onShift": true,
+      "trades": [
+        "smart-softie"
+      ]
     },
     {
       "id": "W03",
@@ -13177,7 +13319,10 @@
         "ASSY",
         "TABLE"
       ],
-      "onShift": true
+      "onShift": true,
+      "trades": [
+        "cut-sew"
+      ]
     },
     {
       "id": "W04",
@@ -13253,7 +13398,10 @@
         "UPL",
         "ASSY"
       ],
-      "onShift": true
+      "onShift": true,
+      "trades": [
+        "cut-sew"
+      ]
     },
     {
       "id": "W13",
@@ -13288,17 +13436,95 @@
     "TABLE"
   ],
   "jobLinks": [
-    { "jobNum": "ASM8002", "parentPart": "PDSC00747U", "childPart": "PDSC00747", "requiredQty": 30 },
-    { "jobNum": "ASM80010", "parentPart": "PDSC-FA747", "childPart": "PDSC00747U", "requiredQty": 30 },
-    { "jobNum": "ASM8004", "parentPart": "SFA2S-CHARU", "childPart": "SFA2S-CHAR", "requiredQty": 12 },
-    { "jobNum": "ASM80012", "parentPart": "SFA-FA2S", "childPart": "SFA2S-CHARU", "requiredQty": 12 },
-    { "jobNum": "ASM8008", "parentPart": "POPL-ASM460", "childPart": "G11881000", "requiredQty": 240 },
-    { "jobNum": "ASM8008", "parentPart": "POPL-ASM460", "childPart": "POPL00548", "requiredQty": 240 },
-    { "jobNum": "ASM80011", "parentPart": "POPL-ASM430", "childPart": "POPL00430", "requiredQty": 96 },
-    { "jobNum": "ASM8009", "parentPart": "BFF-ASM-L", "childPart": "FW40002", "requiredQty": 60 },
-    { "jobNum": "ASM8009", "parentPart": "BFF-ASM-L", "childPart": "FW40017", "requiredQty": 60 },
-    { "jobNum": "ASM80013", "parentPart": "NEDSTL-PK", "childPart": "V11694", "requiredQty": 88 },
-    { "jobNum": "ASM80014", "parentPart": "TBL1200-MDF", "childPart": "MDF-TOP-1200", "requiredQty": 40 },
-    { "jobNum": "ASM80014", "parentPart": "TBL1200-MDF", "childPart": "LEG-SET-4", "requiredQty": 40 }
+    {
+      "jobNum": "ASM8002",
+      "parentPart": "PDSC00747U",
+      "childPart": "PDSC00747",
+      "requiredQty": 30
+    },
+    {
+      "jobNum": "ASM80010",
+      "parentPart": "PDSC-FA747",
+      "childPart": "PDSC00747U",
+      "requiredQty": 30
+    },
+    {
+      "jobNum": "ASM8004",
+      "parentPart": "SFA2S-CHARU",
+      "childPart": "SFA2S-CHAR",
+      "requiredQty": 12
+    },
+    {
+      "jobNum": "ASM80012",
+      "parentPart": "SFA-FA2S",
+      "childPart": "SFA2S-CHARU",
+      "requiredQty": 12
+    },
+    {
+      "jobNum": "ASM8008",
+      "parentPart": "POPL-ASM460",
+      "childPart": "G11881000",
+      "requiredQty": 240
+    },
+    {
+      "jobNum": "ASM8008",
+      "parentPart": "POPL-ASM460",
+      "childPart": "POPL00548",
+      "requiredQty": 240
+    },
+    {
+      "jobNum": "ASM80011",
+      "parentPart": "POPL-ASM430",
+      "childPart": "POPL00430",
+      "requiredQty": 96
+    },
+    {
+      "jobNum": "ASM8009",
+      "parentPart": "BFF-ASM-L",
+      "childPart": "FW40002",
+      "requiredQty": 60
+    },
+    {
+      "jobNum": "ASM8009",
+      "parentPart": "BFF-ASM-L",
+      "childPart": "FW40017",
+      "requiredQty": 60
+    },
+    {
+      "jobNum": "ASM80013",
+      "parentPart": "NEDSTL-PK",
+      "childPart": "V11694",
+      "requiredQty": 88
+    },
+    {
+      "jobNum": "ASM80014",
+      "parentPart": "TBL1200-MDF",
+      "childPart": "MDF-TOP-1200",
+      "requiredQty": 40
+    },
+    {
+      "jobNum": "ASM80014",
+      "parentPart": "TBL1200-MDF",
+      "childPart": "LEG-SET-4",
+      "requiredQty": 40
+    },
+    {
+      "jobNum": "ASM8019",
+      "parentPart": "SFA3S-STRM-SS",
+      "childPart": "SFA3S-STRM",
+      "requiredQty": 18
+    },
+    {
+      "jobNum": "ASM8020",
+      "parentPart": "SFA3S-STRMU",
+      "childPart": "SFA3S-STRM-SS",
+      "requiredQty": 18
+    },
+    {
+      "jobNum": "ASM8021",
+      "parentPart": "SFA-FA3S",
+      "childPart": "SFA3S-STRMU",
+      "requiredQty": 18
+    }
   ]
 }

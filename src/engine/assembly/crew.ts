@@ -17,6 +17,7 @@
 
 import {
   MAX_WORKERS_PER_ORDER,
+  canWorkKind,
   type CrewAssignment,
   type LineKey,
   type Worker,
@@ -290,10 +291,12 @@ function staffOneWave(
     if (!group.line.schedulable) continue;
 
     // Same rule as the crew picker: in today, and qualified for this line.
-    const pool: Worker[] = board.workers.filter(
+    // The trade is per order, not per line — a cutter is no use on a softie —
+    // so it is applied inside the loop below.
+    const onLine: Worker[] = board.workers.filter(
       (w) => w.onShift && w.skills.includes(group.line.key),
     );
-    if (pool.length === 0) continue;
+    if (onLine.length === 0) continue;
     const prefer = preferredCrewOrder(board.workers, group.line.key);
 
     const waiting = group.rows
@@ -306,12 +309,18 @@ function staffOneWave(
       )
       .sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime());
 
-    const size = crewSize(pool.length, group.line.parallelOrders);
+    const size = crewSize(onLine.length, group.line.parallelOrders);
     // The earliest order the line can actually crew. One that nobody is free
     // for is skipped rather than stalling the line behind it — the schedule
     // will have moved it out by the next round, and if it never becomes
     // staffable it is left for the supervisor, which is the honest answer.
     for (const next of waiting) {
+      // Only the people who work this bench. Cutting, softies and upholstering
+      // are different trades on one line, and swapping them is not a matter of
+      // preference — see `canWorkKind`.
+      const pool = onLine.filter((w) => canWorkKind(w, next.kind));
+      if (pool.length === 0) continue;
+
       // Build the team one at a time. Each person added shortens the bar, so
       // the window the next has to be free across only ever narrows — nobody
       // vetted against the longer window becomes a clash later.

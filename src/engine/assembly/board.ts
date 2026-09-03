@@ -49,9 +49,11 @@ import {
   DEFAULT_HORIZON_DAYS,
   LINES,
   PRODUCTIVE_HOURS_PER_PERSON,
+  workKind,
   type CrewAssignment,
   type LineDef,
   type Worker,
+  type WorkKind,
 } from '@/domain/assembly';
 import type { DataIndexes } from '@/engine/indexes';
 import { explodeMaterials } from '@/engine/materialExplosion';
@@ -100,6 +102,11 @@ export interface OrderRow {
   sourceRemainingQty?: number;
   sourceCompletedQty?: number;
   line: LineDef;
+  /**
+   * The trade this order calls for, read off its description. UPL is not one
+   * bench — cutting, softies and upholstering are different people.
+   */
+  kind: WorkKind;
   /** Crew allocated to this order (already capped at the maximum). */
   workers: Worker[];
   /** Date-bounded crew membership; null bounds mean the whole order. */
@@ -274,6 +281,7 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
     sourceRemainingQty: job.remainingQty,
     sourceCompletedQty: job.completedQty,
     line,
+    kind: 'general',
     workers: [],
     crewAssignments: [],
     crewDays: [],
@@ -663,6 +671,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       sourceRemainingQty: sourceJobsById.get(id)?.remainingQty ?? job.remainingQty,
       sourceCompletedQty: sourceJobsById.get(id)?.completedQty ?? job.completedQty,
       line,
+      kind: workKind(job.description, line.key),
       workers,
       crewAssignments,
       crewDays: completedToday ? [] : crewPlan.crewDays,

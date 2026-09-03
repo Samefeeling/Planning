@@ -9,6 +9,7 @@ import {
   wholeDaysBetween,
 } from '@/engine/assembly/dates';
 import { crewDayKey } from '@/engine/assembly/crewSchedule';
+import type { LineKey, Worker } from '@/domain/assembly';
 import { MS_PER_DAY } from '@/lib/time';
 
 export type OrderSortKey = 'start' | 'due' | 'ship';
@@ -208,4 +209,40 @@ export function barTag(bar: {
     stub,
     flip: outside && bar.left + bar.width + needed > bar.gridWidth,
   };
+}
+
+/**
+ * Which line each person is on today.
+ *
+ * Somebody trained on two lines is qualified for both, but at any one moment
+ * they are standing at one of them — so the board shows them once, on the line
+ * their work today is on. With nothing on today they sit under the first line
+ * in their `skills`, the one they normally work; the Team header's free list
+ * is what says they could be pulled anywhere.
+ *
+ * Their week of squares still counts every order they are on, whichever line
+ * it belongs to: the question those answer is "how much room has this person
+ * got", not "what is this line doing".
+ */
+export function lineOfWorkerToday(
+  workers: Worker[],
+  rows: OrderRow[],
+  today: Date,
+): Map<string, LineKey> {
+  const key = crewDayKey(today);
+  const at = new Map<string, LineKey>();
+  for (const row of rows) {
+    if (!row.line.schedulable || row.completedToday) continue;
+    const onDay = row.crewDays
+      ? (row.crewDays.find((day) => day.day === key)?.workerIds ?? [])
+      : row.workers.map((worker) => String(worker.id));
+    // First order of the day wins. There should only be one — the schedule
+    // will not put anyone on two at once unless a supervisor said so.
+    for (const id of onDay) if (!at.has(id)) at.set(id, row.line.key);
+  }
+  for (const worker of workers) {
+    const id = String(worker.id);
+    if (!at.has(id) && worker.skills.length > 0) at.set(id, worker.skills[0]);
+  }
+  return at;
 }

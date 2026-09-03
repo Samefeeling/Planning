@@ -14,7 +14,7 @@
  */
 
 import { WorkerId } from '@/domain/ids';
-import type { LineKey, Worker } from '@/domain/assembly';
+import type { LineKey, Worker, WorkKind } from '@/domain/assembly';
 import type { ListItemFields } from './lists.client';
 import type { ParseOutcome } from '@/data/excel/parsers/types';
 
@@ -40,19 +40,49 @@ const SKILL_TO_LINE: [RegExp, LineKey][] = [
   [/^(pmd|mould|mold|press)/, 'PMD'],
 ];
 
-function readSkills(raw: unknown): LineKey[] {
-  const parts = Array.isArray(raw)
-    ? raw.map(String)
-    : String(raw ?? '').split(/[,;/|+]+/);
+/**
+ * Trades within a line, written in the same column as the lines. A roster that
+ * names none behaves exactly as it did before trades existed.
+ */
+const SKILL_TO_KIND: [RegExp, WorkKind][] = [
+  [/^(smartsoftie|softie|ottoman)/, 'smart-softie'],
+  [/^(cut|cutsew|cutandsew|sew|sewing)/, 'cut-sew'],
+  [/^(upholster)/, 'upholstery'],
+];
 
+const skillParts = (raw: unknown): string[] =>
+  Array.isArray(raw) ? raw.map(String) : String(raw ?? '').split(/[,;/|+]+/);
+
+function readSkills(raw: unknown): LineKey[] {
   const out: LineKey[] = [];
-  for (const part of parts) {
+  for (const part of skillParts(raw)) {
     const key = norm(part);
     if (!key) continue;
     const hit = SKILL_TO_LINE.find(([re]) => re.test(key));
     if (hit && !out.includes(hit[1])) out.push(hit[1]);
   }
   return out;
+}
+
+/**
+ * The trades named in `Skills`, if any. `UPL` alone says which line; `UPL,
+ * Cut & Sew` says which bench on it.
+ *
+ * Read after the lines, so a word that is both — "Upholstery" names the UPL
+ * line *and* the upholstering trade — only becomes a trade when the column
+ * says something narrower elsewhere; otherwise a roster written the old way
+ * would suddenly restrict everyone to one bench.
+ */
+function readTrades(raw: unknown): WorkKind[] {
+  const out: WorkKind[] = [];
+  for (const part of skillParts(raw)) {
+    const key = norm(part);
+    if (!key) continue;
+    const hit = SKILL_TO_KIND.find(([re]) => re.test(key));
+    if (hit && !out.includes(hit[1])) out.push(hit[1]);
+  }
+  // "Upholstery" on its own is how people have always written the UPL line.
+  return out.length === 1 && out[0] === 'upholstery' ? [] : out;
 }
 
 /** Pick a field by any of its accepted names. */
@@ -94,6 +124,7 @@ export function parseOperators(rows: ListItemFields[]): ParseOutcome<Worker> {
     seen.add(id);
 
     const skills = readSkills(field(row, 'skills'));
+    const trades = readTrades(field(row, 'skills'));
     if (skills.length === 0) {
       errors.push(
         `ASSY_Operator row ${i + 1} (${name}): no recognised skill — ` +
@@ -110,6 +141,7 @@ export function parseOperators(rows: ListItemFields[]): ParseOutcome<Worker> {
       id: WorkerId(id),
       name,
       skills,
+      ...(trades.length > 0 ? { trades } : {}),
       onShift:
         onShiftRaw === undefined
           ? true

@@ -675,6 +675,11 @@ body.col-resizing {
   font-weight: 700;
   flex: 0 0 auto;
 }
+/* Only two people do the softies, so the step is worth picking out. */
+.order-type.smart-softie {
+  background: #ede9fe;
+  color: #6d28d9;
+}
 .order-desc {
   color: var(--faint);
   font-size: 10.5px;

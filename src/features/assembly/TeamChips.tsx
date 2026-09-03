@@ -14,7 +14,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
 import type { Worker } from '@/domain/assembly';
-import { MAX_WORKERS_PER_ORDER, SHIFT_END_HOUR } from '@/domain/assembly';
+import {
+  MAX_WORKERS_PER_ORDER,
+  SHIFT_END_HOUR,
+  canWorkKind,
+  type WorkKind,
+} from '@/domain/assembly';
 import {
   clashesFor,
   freeCrewWindow,
@@ -55,6 +60,14 @@ const clockTime = (hour: number): string =>
   `${String(Math.floor(hour)).padStart(2, '0')}:${String(
     Math.round((hour % 1) * 60),
   ).padStart(2, '0')}`;
+
+/** How a bench reads in a sentence. */
+const KIND_LABEL: Record<WorkKind, string> = {
+  general: 'this line',
+  'cut-sew': 'cutting and sewing',
+  'smart-softie': 'smart softies',
+  upholstery: 'upholstery',
+};
 
 export interface CrewPickerStatus {
   primary: string;
@@ -179,7 +192,12 @@ export function TeamChips({
   const candidates = roster
     .filter(
       (w) =>
-        w.onShift && w.skills.includes(row.line.key) && !onIt.has(String(w.id)),
+        w.onShift &&
+        w.skills.includes(row.line.key) &&
+        // The line is not one bench: cutting, softies and upholstering are
+        // different trades, and only the people who work this one are offered.
+        canWorkKind(w, row.kind) &&
+        !onIt.has(String(w.id)),
     )
     .map((w) => ({
       worker: w,
@@ -373,7 +391,11 @@ export function TeamChips({
                 </div>
               ) : candidates.length === 0 ? (
                 <div className="picker-empty">
-                  Nobody qualified for {row.line.name} is free
+                  {/* Name the bench, not just the line: "nobody on UPL" reads
+                      as a staffing problem when the answer is that only two
+                      people do softies and both are already on this order. */}
+                  Nobody who works {KIND_LABEL[row.kind]} on {row.line.name} is
+                  free
                 </div>
               ) : (
                 candidates.map(({ worker: w, busy, free }) => {

@@ -16,7 +16,11 @@ import {
   suggestCrew,
 } from '@/engine/assembly/crew';
 import { usePlanStore } from '@/store/planStore';
-import { MAX_WORKERS_PER_ORDER, type Worker } from '@/domain/assembly';
+import {
+  MAX_WORKERS_PER_ORDER,
+  canWorkKind,
+  type Worker,
+} from '@/domain/assembly';
 import { WorkerId } from '@/domain/ids';
 import type { PlanningDataset } from '@/domain/types';
 
@@ -311,17 +315,23 @@ describe('preferredCrewOrder', () => {
     const { allocations } = suggestCrew(b, settle);
 
     // The earliest order on each line should hold the highest-priority people
-    // free to take it — which, with nothing booked yet, is the top of the list.
+    // free to take it — which, with nothing booked yet, is the top of the list
+    // *of those who work that bench*. A cutter is no use on a softie however
+    // near the top of the roster they sit.
     for (const group of b.groups) {
       if (!group.line.schedulable) continue;
-      const qualified = b.workers.filter(
-        (w) => w.onShift && w.skills.includes(group.line.key),
-      );
-      if (qualified.length === 0) continue;
       const first = [...group.rows]
         .filter((row) => allocations[String(row.job.id)])
         .sort((a, c) => a.plannedStart.getTime() - c.plannedStart.getTime())[0];
       if (!first) continue;
+
+      const qualified = b.workers.filter(
+        (w) =>
+          w.onShift &&
+          w.skills.includes(group.line.key) &&
+          canWorkKind(w, first.kind),
+      );
+      if (qualified.length === 0) continue;
 
       const crew = allocations[String(first.job.id)];
       const best = [...qualified]

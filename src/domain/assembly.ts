@@ -16,6 +16,56 @@ export type LineKey = 'PMD' | 'UPL' | 'ASSY' | 'TABLE';
 /** The only three kinds of assembly work order. */
 export type OrderType = 'cutting-sewing' | 'upholstery' | 'final-assembly';
 
+/**
+ * A kind of work within a line, finer than the line itself.
+ *
+ * UPL is not one bench: cutting and sewing, building the softies, and
+ * upholstering the frame are different trades, and the people are not
+ * interchangeable between them. The kind is read off the part description —
+ * that is where the floor reads it too, and it is the one field every export
+ * carries.
+ *
+ * `general` is every other line, where the line *is* the qualification.
+ */
+export type WorkKind = 'general' | 'cut-sew' | 'smart-softie' | 'upholstery';
+
+/**
+ * Work nobody may take without being named for it. Everything else is open to
+ * anyone on the line who is not restricted to something narrower.
+ */
+const RESTRICTED_KINDS: WorkKind[] = ['smart-softie'];
+
+/** What a description says the work is. Order matters — "Smart Softie Cut
+ * & Sew" is softie work, and the exclusive trade has to win. */
+const KIND_PATTERNS: [RegExp, WorkKind][] = [
+  [/smart\s*softie|ottoman/i, 'smart-softie'],
+  [/\bcut\b|cut\s*&\s*sew|cut\s*and\s*sew|sewing/i, 'cut-sew'],
+  [/upholster/i, 'upholstery'],
+];
+
+/** The trade an order calls for, from its part description. */
+export function workKind(description: string, line: LineKey): WorkKind {
+  if (line !== 'UPL') return 'general';
+  return KIND_PATTERNS.find(([re]) => re.test(description))?.[1] ?? 'upholstery';
+}
+
+/**
+ * May this person take that kind of work?
+ *
+ * Someone with trades listed does those and nothing else — that is what makes
+ * a cutter a cutter. Someone with none listed does anything on their line that
+ * is not restricted, so a roster that says nothing about trades behaves
+ * exactly as it did before there were any.
+ */
+export function canWorkKind(worker: Worker, kind: WorkKind): boolean {
+  // A trade list says which bench on a line that has benches. Every other line
+  // is qualified by the line itself, so a cutter is still a whole ASSY hand.
+  if (kind === 'general') return true;
+  const trades = worker.trades ?? [];
+  if (trades.length > 0) return trades.includes(kind);
+  return !RESTRICTED_KINDS.includes(kind);
+}
+
 /** Physical prep state of the material kit, set by the material handler. */
 export type MaterialPrepStatus =
   | 'unknown'
@@ -107,6 +157,18 @@ export const ORDER_TYPE_SHORT: Record<OrderType, string> = {
   'final-assembly': 'F/A',
 };
 
+/**
+ * The badge on a row. On UPL it names the bench rather than the order type,
+ * because Epicor calls both the softies and the upholstering "upholstery" and
+ * the whole point of the row is which of the three steps it is.
+ */
+export const WORK_KIND_SHORT: Record<WorkKind, string> = {
+  general: '',
+  'cut-sew': 'C/S',
+  'smart-softie': 'SOFTIE',
+  upholstery: 'UPH',
+};
+
 // ---------------------------------------------------------------------------
 // People
 // ---------------------------------------------------------------------------
@@ -117,6 +179,13 @@ export interface Worker {
   name: string;
   /** Lines this person is qualified to work — drives who can be allocated. */
   skills: LineKey[];
+  /**
+   * Trades within those lines, when the roster names any. A cutter listed as
+   * `cut-sew` does cutting and sewing and nothing else; someone listed for no
+   * trade does whatever their line runs that is not restricted. See
+   * `canWorkKind`.
+   */
+  trades?: WorkKind[];
   /** On shift today. Attendance is confirmed by the supervisor each morning. */
   onShift: boolean;
   /** Job title from the roster, e.g. "Upholsterer". */

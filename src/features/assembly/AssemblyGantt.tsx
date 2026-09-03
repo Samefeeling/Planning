@@ -21,6 +21,8 @@ import {
   ORDER_TYPE_SHORT,
   SHIFT_END_HOUR,
   SHIFT_START_HOUR,
+  WORK_KIND_SHORT,
+  type LineKey,
 } from '@/domain/assembly';
 import { addDays, isWeekend, shiftFraction } from '@/engine/assembly/dates';
 import { remainingHours } from '@/engine/assembly/duration';
@@ -45,6 +47,7 @@ import { WorkerLoadChip } from './WorkerLoadChip';
 import {
   activeWorkerIdsOnDay,
   isInNextWorkingDays,
+  lineOfWorkerToday,
   sortLineRows,
   type OrderSort,
   type OrderSortKey,
@@ -135,9 +138,14 @@ function OrderRowView({
     >
       <div className="acell order">
         <span className="order-id">{String(row.job.id)}</span>
-        {row.job.orderType && (
-          <span className="order-type">
-            {ORDER_TYPE_SHORT[row.job.orderType]}
+        {/* On UPL the badge names the bench: Epicor calls both the softies and
+            the upholstering "upholstery", and which of the three steps this is
+            is the thing worth reading. */}
+        {(row.kind !== 'general' || row.job.orderType) && (
+          <span className={`order-type ${row.kind}`}>
+            {row.kind === 'general'
+              ? ORDER_TYPE_SHORT[row.job.orderType!]
+              : WORK_KIND_SHORT[row.kind]}
           </span>
         )}
         <span className="order-desc">{row.job.description}</span>
@@ -209,12 +217,14 @@ function OrderRowView({
  * A line and its orders. Schedulable lines are drop targets, so an order can be
  * dragged here from the pool, from another line, or by its own bar.
  *
- * The summary row carries the line's own people — everyone in today who is
- * qualified for it, in the order the board reaches for them, each with their
- * week of load. One roster across the top of the board could not say which of
- * those names mattered to the line you were reading; here it is the same row.
- * Somebody trained on two lines appears on both, because they are available to
- * both.
+ * The summary row carries the line's own people — whoever is standing here
+ * today, in the order the board reaches for them, each with their week of
+ * load. One roster across the top of the board could not say which of those
+ * names mattered to the line you were reading; here it is the same row.
+ *
+ * Once each: somebody trained on two lines is qualified for both but is only
+ * ever at one of them, so they appear on the line their work today is on. See
+ * `lineOfWorkerToday`.
  */
 function LineGroupView({
   group,
@@ -222,6 +232,7 @@ function LineGroupView({
   allRows,
   gridWidth,
   rosterLoads,
+  todayLine,
   selectedJobId,
   onSelect,
   dayWidth,
@@ -238,6 +249,8 @@ function LineGroupView({
   gridWidth: number;
   /** Every person's week, worked out once for the whole board. */
   rosterLoads: Map<string, WorkerLoad>;
+  /** Which line each person is standing at today — one each. */
+  todayLine: Map<string, LineKey>;
   selectedJobId: string | null;
   onSelect: (id: string, at?: ClickPoint) => void;
   dayWidth: number;
@@ -259,10 +272,14 @@ function LineGroupView({
       board.workers
         .filter(
           (worker) =>
-            worker.onShift && worker.skills.includes(group.line.key),
+            worker.onShift &&
+            worker.skills.includes(group.line.key) &&
+            // One person, one line: whoever is standing here today, not
+            // everyone who could be.
+            todayLine.get(String(worker.id)) === group.line.key,
         )
         .sort(preferredCrewOrder(board.workers, group.line.key)),
-    [board.workers, group.line.key],
+    [board.workers, group.line.key, todayLine],
   );
 
   return (
@@ -428,6 +445,12 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     [board, allRows],
   );
   const allocated = activeWorkerIdsOnDay(allRows, board.today);
+  // One row per person: the line their work today is on, else the line they
+  // normally work. Somebody qualified for two is not in two places at once.
+  const todayLine = useMemo(
+    () => lineOfWorkerToday(board.workers, allRows, board.today),
+    [board.workers, allRows, board.today],
+  );
   const attendanceIds = new Set(attendance.map((worker) => String(worker.id)));
   const allocatedOnSite = [...allocated].filter((id) => attendanceIds.has(id)).length;
   const unallocated = attendance.filter(
@@ -683,6 +706,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           allRows={allRows}
           gridWidth={gridWidth}
           rosterLoads={rosterLoads}
+          todayLine={todayLine}
           selectedJobId={selectedJobId}
           onSelect={select}
           dayWidth={dayWidth}

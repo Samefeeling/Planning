@@ -9,15 +9,21 @@
  */
 
 import { WorkerId } from '@/domain/ids';
-import type { LineKey, Worker } from '@/domain/assembly';
+import type { LineKey, Worker, WorkKind } from '@/domain/assembly';
 import seed from './seed.json';
 
 export function demoWorkers(): Worker[] {
-  return (seed.workers ?? []).map((w) => ({
-    id: WorkerId(w.id),
-    name: w.name,
-    skills: (w.skills ?? []) as LineKey[],
-    onShift: Boolean(w.onShift),
-    synthetic: true,
-  }));
+  return (seed.workers ?? []).map((w) => {
+    // The bench within a line, where the seed names one: UPL is cutting,
+    // softies and upholstering, and those are not the same people.
+    const trades = ((w as { trades?: string[] }).trades ?? []) as WorkKind[];
+    return {
+      id: WorkerId(w.id),
+      name: w.name,
+      skills: (w.skills ?? []) as LineKey[],
+      ...(trades.length > 0 ? { trades } : {}),
+      onShift: Boolean(w.onShift),
+      synthetic: true,
+    };
+  });
 }

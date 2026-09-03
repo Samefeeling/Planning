@@ -75,6 +75,7 @@ const row = (
 ): OrderRow => ({
   job: j,
   line: UPL,
+  kind: 'general',
   workers,
   start: addDays(MON, startDay),
   plannedStart: addDays(MON, startDay),

@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { OrderRow } from '@/engine/assembly/board';
+import { WorkerId } from '@/domain/ids';
+import type { LineKey, Worker } from '@/domain/assembly';
+import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import {
   activeWorkerIdsOnDay,
   barTag,
+  lineOfWorkerToday,
   isInNextWorkingDays,
   nextWorkingDaysWindow,
   shiftTimelineDays,
@@ -140,5 +144,76 @@ describe('barTag', () => {
     expect(bar({ width: 76 }).outside).toBe(false);
     expect(bar({ width: 76, overtime: true }).outside).toBe(true);
     expect(bar({ width: 76, waiting: true }).outside).toBe(true);
+  });
+});
+
+/**
+ * One person, one line. Somebody trained on two is qualified for both, but at
+ * any one moment they are standing at one of them.
+ */
+describe('lineOfWorkerToday', () => {
+  const TODAY = new Date(2026, 8, 10);
+  const person = (id: string, skills: LineKey[]): Worker => ({
+    id: WorkerId(id),
+    name: id,
+    skills,
+    onShift: true,
+  });
+  const onLine = (
+    jobId: string,
+    line: LineKey,
+    day: Date,
+    workerIds: string[],
+  ): OrderRow =>
+    ({
+      job: { id: jobId },
+      line: { key: line, schedulable: true },
+      completedToday: false,
+      workers: workerIds.map((id) => ({ id })),
+      crewDays: [{ day: crewDayKey(day), date: day, workerIds }],
+    }) as unknown as OrderRow;
+
+  it('puts them on the line their work today is on', () => {
+    const bill = person('W1', ['UPL', 'ASSY']);
+    const at = lineOfWorkerToday(
+      [bill],
+      [onLine('J1', 'ASSY', TODAY, ['W1'])],
+      TODAY,
+    );
+    expect(at.get('W1')).toBe('ASSY');
+  });
+
+  it('falls back to the line they normally work', () => {
+    const bill = person('W1', ['UPL', 'ASSY']);
+    // Work, but not today — so today they are at their usual bench.
+    const at = lineOfWorkerToday(
+      [bill],
+      [onLine('J1', 'ASSY', new Date(2026, 8, 14), ['W1'])],
+      TODAY,
+    );
+    expect(at.get('W1')).toBe('UPL');
+  });
+
+  it('never lands anyone on two lines at once', () => {
+    const mary = person('W3', ['UPL', 'ASSY', 'TABLE']);
+    const at = lineOfWorkerToday(
+      [mary],
+      [
+        onLine('J1', 'UPL', TODAY, ['W3']),
+        onLine('J2', 'TABLE', TODAY, ['W3']),
+      ],
+      TODAY,
+    );
+    // An approved double-booking is still one row on the board; the chips on
+    // the orders themselves are what say they are on both.
+    expect([...at.values()]).toHaveLength(1);
+    expect(at.get('W3')).toBe('UPL');
+  });
+
+  it('ignores a line the board does not schedule', () => {
+    const ken = person('W9', ['TABLE']);
+    const pmd = onLine('SFM1', 'PMD', TODAY, ['W9']);
+    (pmd.line as { schedulable: boolean }).schedulable = false;
+    expect(lineOfWorkerToday([ken], [pmd], TODAY).get('W9')).toBe('TABLE');
   });
 });

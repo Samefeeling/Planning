@@ -110,6 +110,8 @@ export function WorkerLoadChip({
               {[
                 worker.position,
                 worker.skills.join(' · ') || 'no skill listed',
+                // Which bench, where the line has more than one.
+                worker.trades?.length ? worker.trades.join(' · ') : null,
                 worker.supervisor && `reports to ${worker.supervisor}`,
               ]
                 .filter(Boolean)

@@ -11,7 +11,8 @@ import { computeAssemblyGantt, type OrderRow } from '@/engine/assembly/board';
 import { workerLoad } from '@/engine/assembly/workload';
 import { remainingHours } from '@/engine/assembly/duration';
 import { usePlanStore } from '@/store/planStore';
-import { DEFAULT_HORIZON_DAYS, LINES } from '@/domain/assembly';
+import { DEFAULT_HORIZON_DAYS, LINES, canWorkKind } from '@/domain/assembly';
+import { suggestCrew } from '@/engine/assembly/crew';
 import type { PlanningDataset } from '@/domain/types';
 import type {
   ActualStartRecord,
@@ -451,5 +452,97 @@ describe('yesterday, still on the board', () => {
     // Two units of an order worth `laborHrs` over its whole quantity.
     const total = row.job.remainingQty + row.job.completedQty;
     expect(after.booked[0].hours).toBeCloseTo((row.job.laborHrs / total) * qty, 6);
+  });
+});
+
+/**
+ * UPL is three benches, and the chain through them. Cutting and sewing, the
+ * softies and the upholstering are different trades on one line, and the
+ * material links say which order has to finish before which.
+ */
+describe('the UPL benches and the chain through them', () => {
+  it('never puts anyone on a bench they do not work', () => {
+    const b = build();
+    for (const group of b.groups) {
+      for (const row of group.rows) {
+        for (const worker of row.workers) {
+          expect(
+            canWorkKind(worker, row.kind),
+            `${worker.name} is on ${String(row.job.id)} (${row.kind})`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('keeps the softies for the two people trained on them', () => {
+    const b = build();
+    const softie = [...b.rowsByJob.values()].filter(
+      (row) => row.kind === 'smart-softie',
+    );
+    expect(softie.length).toBeGreaterThan(1);
+    const named = b.workers
+      .filter((worker) => worker.trades?.includes('smart-softie'))
+      .map((worker) => worker.name);
+    expect(named).toEqual(['Bill', 'Gate']);
+    for (const row of softie) {
+      for (const worker of row.workers) expect(named).toContain(worker.name);
+    }
+  });
+
+  it('holds the cutters to cutting', () => {
+    const b = build();
+    const cutters = b.workers.filter((w) => w.trades?.includes('cut-sew'));
+    expect(cutters.map((w) => w.name)).toEqual(['Mary', 'Nina']);
+    for (const row of b.rowsByJob.values()) {
+      if (row.workers.some((w) => cutters.some((c) => c.id === w.id))) {
+        // Cutting on UPL, or any work at all on a line without benches.
+        expect(['cut-sew', 'general']).toContain(row.kind);
+      }
+    }
+  });
+
+  it('runs the three UPL steps one after another, then final assembly', () => {
+    const b = build();
+    const chain = ['ASM8018', 'ASM8019', 'ASM8020', 'ASM8021'].map(
+      (id) => b.rowsByJob.get(id)!,
+    );
+    for (const row of chain) expect(row).toBeDefined();
+    expect(chain.map((row) => row.kind)).toEqual([
+      'cut-sew',
+      'smart-softie',
+      'upholstery',
+      'general',
+    ]);
+    // Each waits on the one before it, and none of them starts early.
+    for (let i = 1; i < chain.length; i++) {
+      expect(
+        chain[i].predecessors.map((dep) => String(dep.onJobId)),
+      ).toContain(String(chain[i - 1].job.id));
+      expect(chain[i].start!.getTime()).toBeGreaterThanOrEqual(
+        chain[i - 1].expectDate!.getTime(),
+      );
+    }
+  });
+
+  it('offers the auto-fill nobody from the wrong bench', () => {
+    // Nothing crewed at all, so every order is filled from scratch.
+    const bare = build({ orderWorkers: {} });
+    const { allocations } = suggestCrew(bare, (soFar) =>
+      build({ orderWorkers: soFar }),
+    );
+    const byId = new Map(bare.workers.map((w) => [String(w.id), w]));
+    let checked = 0;
+    for (const [jobId, crew] of Object.entries(allocations)) {
+      const row = bare.rowsByJob.get(jobId)!;
+      for (const id of crew) {
+        expect(
+          canWorkKind(byId.get(id)!, row.kind),
+          `${byId.get(id)!.name} on ${jobId} (${row.kind})`,
+        ).toBe(true);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(10);
   });
 });

@@ -86,6 +86,7 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
           + {DATE_COL_LABEL[key]}
         </button>
       ))}
+      <MaterialLinks board={board} />
       {board.dependencyWarnings.length > 0 && (
         <span className="board-warn" title={board.dependencyWarnings.join('\n')}>
           {board.dependencyWarnings.length} material link
@@ -93,5 +94,55 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * What `JobMaterialReq.csv` actually did to the board.
+ *
+ * The file's whole job is to say which order has to finish before which, and
+ * that is invisible until something waits — so this counts the orders that
+ * ended up with a predecessor and spells every one of them out on hover.
+ * Loading the file and seeing nothing change is otherwise indistinguishable
+ * from loading the wrong file.
+ */
+function MaterialLinks({ board }: { board: AssemblyGanttView }) {
+  const rows = [...board.rowsByJob.values()].filter(
+    (row) => row.predecessors.length > 0,
+  );
+  if (rows.length === 0) {
+    return (
+      <span
+        className="board-load"
+        title={
+          'No order on this board waits for another. Load JobMaterialReq.csv ' +
+          'to bring the material links in — without them every order is free ' +
+          'to start on its own date.'
+        }
+      >
+        No order links
+      </span>
+    );
+  }
+
+  // "ASM8020 waits on ASM8019 · SFA3S-STRM-SS" — the whole chain, in the order
+  // it runs, so the three UPL steps read as three lines one after another.
+  const chain = rows
+    .sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime())
+    .map((row) =>
+      row.predecessors
+        .map(
+          (dep) =>
+            `${String(row.job.id)} (${row.line.name}) waits on ` +
+            `${String(dep.onJobId)}${dep.part ? ` · ${String(dep.part)}` : ''}`,
+        )
+        .join('\n'),
+    )
+    .join('\n');
+
+  return (
+    <span className="board-load" title={chain}>
+      {rows.length} order{rows.length === 1 ? '' : 's'} wait on another
+    </span>
   );
 }

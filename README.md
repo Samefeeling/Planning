@@ -41,14 +41,24 @@ plan goes back the other way, into the `ASSY_Production` list.
   in either direction without losing what a row means. The **Order column can
   be dragged wider** by its right-hand edge when descriptions need the room.
 - **Each line carries its own people** — the summary row for UPL, ASSY and
-  TABLE lists everyone in today who is trained on *that* line, in the order the
-  board reaches for them, each with five squares for the week ahead (click one
-  for the day-by-day detail). Somebody trained on two lines appears on both,
-  because they are available to both. One roster across the top of the board
-  could not say which of those names mattered to the line being read.
+  TABLE lists whoever is standing there today, in the order the board reaches
+  for them, each with five squares for the week ahead (click one for the
+  day-by-day detail). **Once each**: somebody trained on two lines is qualified
+  for both but is only ever at one of them, so they appear on the line their
+  work today is on, and on the line they normally work when they have nothing
+  on. Their squares still count every order they are on, whichever line it
+  belongs to — that question is "how much room has this person got".
 - **Who is still free** — the Team column's header names everyone in today with
   nothing allocated, in full and wrapped rather than cut off at the column's
   edge. It answers "who can I still put on this?" beside the crews themselves.
+- **UPL is three benches, not one** — cutting and sewing, building the smart
+  softies, and upholstering the frame are different trades, and the people are
+  not interchangeable between them. Which one an order is comes off its part
+  description (`Smart Softie`/`Ottoman` → softies, `Cut` → cutting), because
+  that is where the floor reads it and it is the one field every export
+  carries. The badge on the row says which of the three it is, so a chain reads
+  down the line in order. Softie work is **restricted**: only someone named for
+  it can be put on it, by hand or by *Crew N orders*.
 - **Three orders at a time per line** — a line is a length of floor with
   several build positions, not one station, so three orders run side by side
   and a fourth waits for the first to clear (`parallelOrders` on each line in
@@ -74,7 +84,7 @@ plan goes back the other way, into the `ASSY_Production` list.
 - **Work load, in standard hours** — the remaining hours of an order
   (`Calculated_RemainingLaborHrs`), shared by its crew and spread over the days
   its bar covers. Shown three ways: per line on the group header, for the whole
-  board in the title bar, and per person — every name in the "Today on site" row
+  board in the title bar, and per person — every name on a line's summary row
   carries **five 10px squares**, one per working day. Click a name for the same
   week in full, order by order, against a shift's capacity — a week holds five
   working days, so the squares and the popup cover exactly the same window.
@@ -201,11 +211,21 @@ Configure via `.env.local` (see `.env.example`):
 The Excel source (and the heavy `xlsx` dependency) is **lazy-loaded**, so
 neither the mock nor the CSV build ships the parser.
 
-Whichever is configured, **Load CSV** in the header parses files picked from
-disk through exactly the same code — the quickest way to check an export
-against the board without wiring up Graph auth. Select both `Planning1.csv` and
-`JobMaterialReq.csv` at once: which is which is decided by the header row, not
-the file name, so a copy saved out of Excel still lands in the right parser.
+Whichever is configured, **Load orders** and **Load JobMaterialReq** in the
+header parse files picked from disk through exactly the same code — the
+quickest way to check an export against the board without wiring up Graph auth.
+Two buttons because the two files answer different questions and are checked
+separately: what to build, and what has to finish first. Either picker still
+takes either file — which is which is decided by the header row, not the file
+name, so a copy saved out of Excel lands in the right parser — but picking the
+wrong one says so rather than loading it silently.
+
+**Did the links land?** The header carries the answer: *N orders wait on
+another*, and hovering it lists every one of them — `ASM8020 (UPL) waits on
+ASM8019 · SFA3S-STRM-SS`. It reads *No order links* when nothing waits, which
+is what an unloaded or mismatched `JobMaterialReq.csv` looks like. Without it
+every order is free to start on its own date, and that is indistinguishable
+from a file that loaded but matched nothing.
 
 ### `Planning1.csv` → domain
 
@@ -289,7 +309,7 @@ shortage view matters.
 | List column | Becomes |
 | --- | --- |
 | `Operator` | name |
-| `Skills` | which lines the person may be allocated to, best first |
+| `Skills` | which lines the person may be allocated to, best first — and which bench, where it names one |
 | `Position`, `Supervisor` | shown on the crew chip / picker |
 | `PlannedAnnualLeave` | ISO dates excluded from future daily load-rate capacity |
 
@@ -303,6 +323,13 @@ banner, because they can never be allocated.
 that person leads on. And the order of the list itself is a priority order: the
 row at the top is the first name reached for. Both are read as written — see
 *Crewing a fresh import*.
+
+**A bench, where `Skills` names one.** `UPL` alone says which line; `UPL, Cut &
+Sew` says which bench on it, and that person then does cutting and nothing
+else. *Smart Softie* and *Ottoman* are the same trade and are **restricted** —
+nobody works them without being named. A roster that names no bench behaves
+exactly as it did before benches existed: anyone on the line does anything on
+it that is not restricted.
 
 Attendance is **not** in the list — the supervisor confirms who is in each
 morning — so everyone counts as on shift unless an `OnShift` column is added.
