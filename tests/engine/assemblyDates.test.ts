@@ -8,6 +8,7 @@ import {
   shiftFraction,
   wholeDaysBetween,
   workingSpans,
+  subWorkingDays,
 } from '@/engine/assembly/dates';
 
 const d = (s: string) => new Date(`${s}T00:00:00`);
@@ -205,5 +206,48 @@ describe('drawing a bar across the closed days', () => {
     const spans = workingSpans(SAT, TUE);
     expect(spans).toHaveLength(1);
     expect(spans[0]).toMatchObject({ from: MON, to: TUE, worked: 1 });
+  });
+});
+
+/** The same arithmetic run backwards — how a start date comes off a due date. */
+describe('counting back over open days', () => {
+  const d = (n: number, h = 0) => new Date(2026, 8, n, h);
+
+  it('steps over the weekend', () => {
+    // Tuesday 8 Sep, three days of work back: Monday, Friday, Thursday.
+    expect(subWorkingDays(d(8), 3)).toEqual(d(3));
+    expect(subWorkingDays(d(7), 1)).toEqual(d(4));
+    expect(subWorkingDays(d(11), 5)).toEqual(d(4));
+  });
+
+  it('keeps a part-day inside the day it belongs to', () => {
+    expect(subWorkingDays(d(7), 0.5)).toEqual(d(4, 12));
+    expect(subWorkingDays(d(9, 12), 1)).toEqual(d(8, 12));
+  });
+
+  it('is the inverse of adding, on every open day of a month', () => {
+    const off: string[] = [];
+    for (let day = 1; day <= 30; day++) {
+      if (isWeekend(d(day))) continue;
+      for (const hour of [0, 9, 15]) {
+        for (const n of [0.25, 0.5, 1, 1.5, 2, 3, 5, 7.25, 10]) {
+          const from = d(day, hour);
+          const there = addWorkingDays(subWorkingDays(from, n), n);
+          // The end of a Friday and the start of the Monday are the same point
+          // in the work calendar, so both are normalised to an open day.
+          if (
+            nextWorkingDay(there).getTime() !== nextWorkingDay(from).getTime()
+          ) {
+            off.push(`${from.toISOString()} −${n}`);
+          }
+        }
+      }
+    }
+    expect(off).toEqual([]);
+  });
+
+  it('treats a zero or negative distance as no time at all', () => {
+    expect(subWorkingDays(d(8), 0)).toEqual(d(8));
+    expect(subWorkingDays(d(8), -3)).toEqual(d(8));
   });
 });

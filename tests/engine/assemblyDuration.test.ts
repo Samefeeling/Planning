@@ -4,6 +4,7 @@ import {
   crewNeededFor,
   dailyTargetQty,
   durationDays,
+  latestStart,
   remainingHours,
 } from '@/engine/assembly/duration';
 import {
@@ -83,5 +84,53 @@ describe('assembly duration', () => {
     expect(crewNeededFor(j, 1)).toBe(4);
     // Not reachable inside the cap.
     expect(crewNeededFor(job(200, 400), 1)).toBeNull();
+  });
+});
+
+/**
+ * Where Epicor's Start Date comes from: the due date less the work, counted
+ * back over open days at 7.5 productive hours a person a day.
+ */
+describe('latestStart', () => {
+  const due = (n: number) => new Date(2026, 8, n);
+  /** Ten units carrying `hours` of work, none of it done. */
+  const order = (hours: number) => job(hours, 10);
+
+  it('counts back a whole number of days', () => {
+    // Three days of work for one person, due Thursday 10 Sep.
+    const j = order(3 * PRODUCTIVE_HOURS_PER_PERSON);
+    expect(latestStart(j, 1, due(10))).toEqual(due(7));
+  });
+
+  it('steps over the weekend on the way back', () => {
+    // Two days of work due Tuesday 8 Sep: Monday, then Friday before it.
+    const j = order(2 * PRODUCTIVE_HOURS_PER_PERSON);
+    expect(latestStart(j, 1, due(8))).toEqual(due(4));
+  });
+
+  it('halves the wait when a second person is on it', () => {
+    const j = order(4 * PRODUCTIVE_HOURS_PER_PERSON);
+    expect(latestStart(j, 1, due(11))).toEqual(due(7));
+    expect(latestStart(j, 2, due(11))).toEqual(due(9));
+  });
+
+  it('counts only the work still to do', () => {
+    // Half the units finished, so half the hours are behind us.
+    const half = {
+      ...order(4 * PRODUCTIVE_HOURS_PER_PERSON),
+      remainingQty: 5,
+      completedQty: 5,
+    };
+    expect(latestStart(half, 1, due(11))).toEqual(due(9));
+  });
+
+  it('has no answer with nobody on the order', () => {
+    // No crew, no rate to count back at.
+    expect(latestStart(order(20), 0, due(10))).toBeNull();
+  });
+
+  it('lands on the due date itself for an order with no work left', () => {
+    const done = { ...order(20), remainingQty: 0, completedQty: 10 };
+    expect(latestStart(done, 1, due(10))).toEqual(due(10));
   });
 });

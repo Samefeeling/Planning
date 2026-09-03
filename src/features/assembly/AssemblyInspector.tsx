@@ -14,6 +14,7 @@ import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
 import {
   MAX_WORKERS_PER_ORDER,
+  PRODUCTIVE_HOURS_PER_PERSON,
   type MaterialPrepStatus,
 } from '@/domain/assembly';
 import { remainingQty } from '@/engine/assembly/duration';
@@ -186,6 +187,11 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   if (!row) return null;
 
   const { job, status } = row;
+  // Started later than the last day that still hits Due — the same fact the
+  // red Expect Date carries, said as the day it needed to begin.
+  const late = Boolean(
+    row.mustStartBy && row.start && row.start > row.mustStartBy,
+  );
   const left = remainingQty(job);
   const existingToday = productionEntries.find((entry) => entry.date === today);
   const maxComplete = left + (existingToday?.complete ?? 0);
@@ -324,6 +330,28 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             <dd>{job.completedQty} / {job.completedQty + left}</dd>
             <dt>Due date</dt>
             <dd>{job.dueDate ? formatDay(job.dueDate) : '—'}</dd>
+            {/* Where Epicor's own Start Date comes from: the due date less the
+                work, at 7.5 productive hours a person a day. Derived here at
+                the crew actually on the order, so a gap against the export is
+                a difference in crew size or hours, not a mystery. */}
+            <dt>Must start</dt>
+            <dd
+              className={late ? 'expect red' : ''}
+              title={
+                row.mustStartBy
+                  ? `Last day work can begin and still finish by the due date, ` +
+                    `with ${row.workers.length} on it at ` +
+                    `${PRODUCTIVE_HOURS_PER_PERSON} productive hours a day ` +
+                    `(07:00–15:30 less morning tea and lunch)` +
+                    (job.startDate
+                      ? `. Epicor scheduled it to start ${formatDay(job.startDate)}.`
+                      : '.')
+                  : 'Nobody is on this order, so there is no rate to count back at'
+              }
+            >
+              {row.mustStartBy ? formatDay(row.mustStartBy) : '—'}
+              {late && ' — the plan starts later'}
+            </dd>
             <dt>Expect date</dt>
             <dd className={`expect ${status.color}`}>
               {row.expectDate ? formatDay(row.expectDate) : '—'}

@@ -15,6 +15,12 @@ import {
   preferredCrewOrder,
   suggestCrew,
 } from '@/engine/assembly/crew';
+import {
+  addDays,
+  nextWorkingDay,
+  prevWorkingDay,
+  startOfDay,
+} from '@/engine/assembly/dates';
 import { usePlanStore } from '@/store/planStore';
 import {
   MAX_WORKERS_PER_ORDER,
@@ -252,13 +258,21 @@ describe('nobody does two jobs at once', () => {
     const [first, second] = twoOrders('UPL');
     const b = board({ [first]: ['W01'] });
     const done = rowOf(b, first).expectDate!;
-    const after = { ...rowOf(b, second), plannedStart: done, workers: [] };
+    // The board plans in whole shifts, so the hand-over is the next shift
+    // going: a bar finishing mid-afternoon still owns the whole of that day,
+    // and anything starting on it would be a second full shift.
+    const handover = nextWorkingDay(
+      done.getTime() === startOfDay(done).getTime()
+        ? done
+        : startOfDay(addDays(done, 1)),
+    );
+    const after = { ...rowOf(b, second), plannedStart: handover, workers: [] };
 
     expect(clashesFor([rowOf(b, first), after], after, 'W01')).toEqual([]);
-    // …and a minute earlier is a clash.
+    // …and the shift before it is a clash.
     const overlapping = {
       ...after,
-      plannedStart: new Date(done.getTime() - 60_000),
+      plannedStart: prevWorkingDay(handover),
     };
     expect(
       clashesFor([rowOf(b, first), overlapping], overlapping, 'W01'),

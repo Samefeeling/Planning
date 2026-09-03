@@ -64,6 +64,7 @@ import {
   crewNeededFor,
   dailyTargetQty,
   hoursPerUnit,
+  latestStart,
   remainingHours,
 } from './duration';
 import {
@@ -154,6 +155,13 @@ export interface OrderRow {
   booked: BookedDay[];
   /** Smallest crew that would hit the ship date, when one exists. */
   crewToHitShip: number | null;
+  /**
+   * Last day work can begin and still be finished by the Due Date, at this
+   * crew — the due date less the work, over open days. Epicor's own Start Date
+   * is derived the same way, so the two disagreeing means the crew size or the
+   * hours differ from what it assumed. `null` with nobody on the order.
+   */
+  mustStartBy: Date | null;
   /** Explicitly closed during today's shift; retained until tomorrow for confirmation. */
   completedToday: boolean;
 }
@@ -313,6 +321,7 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
     waitingOn: null,
     booked: [],
     crewToHitShip: null,
+    mustStartBy: null,
     completedToday: false,
   };
 }
@@ -707,6 +716,9 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
               (job.shipDate.getTime() - start.getTime()) / 86_400_000,
             ),
           )
+        : null,
+      mustStartBy: job.dueDate
+        ? latestStart(job, workers.length, job.dueDate)
         : null,
       completedToday,
     };

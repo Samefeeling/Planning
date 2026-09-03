@@ -11,6 +11,7 @@ import {
   PRODUCTIVE_HOURS_PER_PERSON,
 } from '@/domain/assembly';
 import type { Job } from '@/domain/types';
+import { startOfDay, subWorkingDays } from './dates';
 
 /** Fraction of the order already finished, clamped to [0, 1]. */
 export function completedFraction(job: Job): number {
@@ -75,4 +76,28 @@ export function crewNeededFor(job: Job, days: number): number | null {
   if (hours <= 0) return 0;
   const needed = Math.ceil(hours / (days * PRODUCTIVE_HOURS_PER_PERSON));
   return needed > MAX_WORKERS_PER_ORDER ? null : needed;
+}
+
+/**
+ * The last day work can begin and still be finished by `due`.
+ *
+ * This is where Epicor's own `JobHead_StartDate` comes from: the due date less
+ * the work, counted back over open days only. The work is
+ * `Calculated_RemainingLaborHrs`, and a day is worth
+ * `PRODUCTIVE_HOURS_PER_PERSON` — 7.5, being 07:00 to 15:30 less morning tea
+ * and lunch — per person on the order.
+ *
+ * So it is also a check: derive it here, compare it with the date the export
+ * carries, and a gap means the crew size or the hours differ from whatever
+ * Epicor assumed. `null` when nobody is on the order, because then there is no
+ * rate to count back at.
+ */
+export function latestStart(
+  job: Job,
+  workerCount: number,
+  due: Date,
+): Date | null {
+  const days = durationDays(job, workerCount);
+  if (days === null) return null;
+  return startOfDay(subWorkingDays(due, days));
 }

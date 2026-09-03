@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PRODUCTIVE_HOURS_PER_PERSON } from '@/domain/assembly';
 import { planVariableCrew } from '@/engine/assembly/crewSchedule';
 
 describe('date-bounded crew capacity', () => {
@@ -55,7 +56,11 @@ describe('date-bounded crew capacity', () => {
       '2026-09-03',
     ]);
     expect(plan.expectDate).toBeNull();
-    expect(plan.uncoveredHours).toBeCloseTo(5.5, 6);
+    // Two covered days of the twenty hours; the rest has nobody on it.
+    expect(plan.uncoveredHours).toBeCloseTo(
+      20 - 2 * PRODUCTIVE_HOURS_PER_PERSON,
+      6,
+    );
     expect(plan.coveredUntil).toEqual(new Date('2026-09-04T00:00:00'));
   });
 });

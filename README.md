@@ -89,12 +89,24 @@ plan goes back the other way, into the `ASSY_Production` list.
   week in full, order by order, against a shift's capacity — a week holds five
   working days, so the squares and the popup cover exactly the same window.
 
+  A day is worth **7.5 hours per person**: 07:00 to 15:30 is 8.5 hours on the
+  floor, less half an hour of morning tea and half an hour of lunch. Every
+  duration on the board divides an order's remaining hours by that, so it is
+  the one number to change if the shift changes — `PRODUCTIVE_HOURS_PER_PERSON`
+  in `domain/assembly.ts`, derived from the clock so the two cannot drift.
+
   A **person** is banded differently from the department, deliberately: the
   board sizes every bar to exactly fill the crew on it, so anyone allocated is
   booked a whole shift, and the department's bands — where 90% is already red —
   would paint every working person red. So green has room, orange is full, and
   red is *over*: two orders at once, or work landing on leave or a closed day.
   An idle day is hollow rather than green, and planned leave is hatched.
+- **Must start** — the last day work can begin and still be finished by the Due
+  Date: the due date less the remaining hours, counted back over open days at
+  the crew on the order. That is where Epicor's own `JobHead_StartDate` comes
+  from, so the order detail shows both — a gap between them means the crew size
+  or the hours differ from whatever Epicor assumed, which is worth knowing
+  before the week is planned around it.
 - **A crew rolls from one order straight on to the next** — the schedule chains
   on people as well as on parts. An order whose crew is still on something else
   begins when the last of them is free, and begins *exactly* then rather than

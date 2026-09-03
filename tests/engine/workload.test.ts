@@ -9,6 +9,10 @@
 import { describe, it, expect } from 'vitest';
 import { JobId, PartId, WorkerId } from '@/domain/ids';
 import { LINES, PRODUCTIVE_HOURS_PER_PERSON, type Worker } from '@/domain/assembly';
+
+/** One person's productive day. Named, so the rate can move without stranding
+ *  every number below it. */
+const DAY = PRODUCTIVE_HOURS_PER_PERSON;
 import type { Job } from '@/domain/types';
 import type { OrderRow } from '@/engine/assembly/board';
 import { addDays, addWorkingDays } from '@/engine/assembly/dates';
@@ -76,6 +80,7 @@ const row = (
   job: j,
   line: UPL,
   kind: 'general',
+  mustStartBy: null,
   workers,
   start: addDays(MON, startDay),
   plannedStart: addDays(MON, startDay),
@@ -99,22 +104,22 @@ const row = (
 
 describe('workerLoad', () => {
   it('spreads an order’s hours over the days its bar covers', () => {
-    // 14.5 h with one person = exactly two days at 7.25 h.
+    // Two days' work for one person, so exactly two full days.
     const w = worker('W1');
-    const load = workerLoad(w, [row(job('A', 14.5), [w], 0, 2)], MON);
+    const load = workerLoad(w, [row(job('A', 2 * DAY), [w], 0, 2)], MON);
 
     expect(load.days).toHaveLength(7);
-    expect(load.days[0].hours).toBeCloseTo(7.25, 6);
-    expect(load.days[1].hours).toBeCloseTo(7.25, 6);
+    expect(load.days[0].hours).toBeCloseTo(DAY, 6);
+    expect(load.days[1].hours).toBeCloseTo(DAY, 6);
     expect(load.days[2].hours).toBe(0);
-    expect(load.totalHours).toBeCloseTo(14.5, 6);
+    expect(load.totalHours).toBeCloseTo(2 * DAY, 6);
   });
 
   it('splits the hours between the crew on the order', () => {
     const [a, b] = [worker('W1'), worker('W2')];
-    const r = row(job('A', 29), [a, b], 0, 2);
-    expect(workerLoad(a, [r], MON).totalHours).toBeCloseTo(14.5, 6);
-    expect(workerLoad(b, [r], MON).totalHours).toBeCloseTo(14.5, 6);
+    const r = row(job('A', 4 * DAY), [a, b], 0, 2);
+    expect(workerLoad(a, [r], MON).totalHours).toBeCloseTo(2 * DAY, 6);
+    expect(workerLoad(b, [r], MON).totalHours).toBeCloseTo(2 * DAY, 6);
   });
 
   it('keeps a sub-day order inside the one day it runs', () => {
@@ -129,8 +134,8 @@ describe('workerLoad', () => {
     const w = worker('W1');
     // Ten days of work starting Monday; the popup covers seven calendar days,
     // of which only the five weekdays are worked.
-    const load = workerLoad(w, [row(job('A', 72.5), [w], 0, 10)], MON);
-    expect(load.totalHours).toBeCloseTo(5 * 7.25, 6);
+    const load = workerLoad(w, [row(job('A', 10 * DAY), [w], 0, 10)], MON);
+    expect(load.totalHours).toBeCloseTo(5 * DAY, 6);
   });
 
   it('discounts the hours already booked as complete', () => {
@@ -142,11 +147,11 @@ describe('workerLoad', () => {
   });
 
   it('does not call a day sized to the crew overtime', () => {
-    // A bar fitted to its crew lands on 7.25 h through a chain of divisions;
-    // floating-point dust below a minute must not read as over-booked.
+    // A bar fitted to its crew lands on the day rate through a chain of
+    // divisions; floating-point dust must not read as over-booked.
     const w = worker('W1');
-    const load = workerLoad(w, [row(job('A', 7.25 * 3), [w], 0, 3)], MON);
-    expect(load.days[0].hours).toBeCloseTo(7.25, 6);
+    const load = workerLoad(w, [row(job('A', DAY * 3), [w], 0, 3)], MON);
+    expect(load.days[0].hours).toBeCloseTo(DAY, 6);
     expect(load.days.some((d) => d.over)).toBe(false);
     expect(load.overloadedDays).toBe(0);
   });
@@ -155,10 +160,10 @@ describe('workerLoad', () => {
     const w = worker('W1');
     const load = workerLoad(
       w,
-      [row(job('A', 7.25), [w], 0, 1), row(job('B', 7.25), [w], 0, 1)],
+      [row(job('A', DAY), [w], 0, 1), row(job('B', DAY), [w], 0, 1)],
       MON,
     );
-    expect(load.days[0].hours).toBeCloseTo(14.5, 6);
+    expect(load.days[0].hours).toBeCloseTo(2 * DAY, 6);
     expect(load.days[0].entries).toHaveLength(2);
     expect(load.overloadedDays).toBe(1);
     expect(load.orderCount).toBe(2);
@@ -166,7 +171,7 @@ describe('workerLoad', () => {
     // hide the fact that the rest of the week is free — `overloadedDays` is
     // what flags the clash. The window is seven days but only five of them
     // are worked, so that is what the person can deliver.
-    expect(load.utilisation).toBeCloseTo(14.5 / (5 * 7.25), 6);
+    expect(load.utilisation).toBeCloseTo(2 * DAY / (5 * DAY), 6);
   });
 
   it('gives a day of planned leave no capacity', () => {
@@ -182,33 +187,33 @@ describe('workerLoad', () => {
     const w = worker('W1');
     // Seven days of work from Monday runs into the following week; Saturday
     // and Sunday carry none of it.
-    const load = workerLoad(w, [row(job('A', 7.25 * 7), [w], 0, 7)], MON);
+    const load = workerLoad(w, [row(job('A', DAY * 7), [w], 0, 7)], MON);
 
     for (const i of [0, 1, 2, 3, 4]) {
-      expect(load.days[i].hours).toBeCloseTo(7.25, 6);
+      expect(load.days[i].hours).toBeCloseTo(DAY, 6);
     }
     expect(load.days[5].hours).toBe(0); // Sat 19 Sep
     expect(load.days[6].hours).toBe(0); // Sun 20 Sep
-    expect(load.totalHours).toBeCloseTo(5 * 7.25, 6);
+    expect(load.totalHours).toBeCloseTo(5 * DAY, 6);
   });
 
   it('books the weekend once the order is approved for overtime', () => {
     const w = worker('W1');
     const load = workerLoad(
       w,
-      [row(job('A', 7.25 * 7), [w], 0, 7, { overtime: true })],
+      [row(job('A', DAY * 7), [w], 0, 7, { overtime: true })],
       MON,
     );
 
-    expect(load.days[5].hours).toBeCloseTo(7.25, 6);
-    expect(load.days[6].hours).toBeCloseTo(7.25, 6);
-    expect(load.totalHours).toBeCloseTo(7 * 7.25, 6);
+    expect(load.days[5].hours).toBeCloseTo(DAY, 6);
+    expect(load.days[6].hours).toBeCloseTo(DAY, 6);
+    expect(load.totalHours).toBeCloseTo(7 * DAY, 6);
   });
 
   it('ignores orders the person is not on, and ones closed today', () => {
     const [a, b] = [worker('W1'), worker('W2')];
-    const closed = row(job('C', 7.25), [a], 0, 1, { completedToday: true });
-    const load = workerLoad(a, [row(job('A', 7.25), [b], 0, 1), closed], MON);
+    const closed = row(job('C', DAY), [a], 0, 1, { completedToday: true });
+    const load = workerLoad(a, [row(job('A', DAY), [b], 0, 1), closed], MON);
     expect(load.totalHours).toBe(0);
     expect(load.orderCount).toBe(0);
   });
@@ -231,14 +236,14 @@ describe('the squares beside a name', () => {
     const w = worker('W1');
     const load = workerLoad(
       w,
-      [row(job('A', 7.25), [w], 0, 1), row(job('B', 4.25), [w], 1, 1)],
+      [row(job('A', DAY), [w], 0, 1), row(job('B', 0.6 * DAY), [w], 1, 1)],
       MON,
     );
     const preview = loadPreview(load);
 
     expect(preview[0].dot).toBe('orange'); // Monday: a full shift, no room
-    expect(preview[1].dot).toBe('green'); // Tuesday: 59%, room for more
-    expect(Math.round(preview[1].pct)).toBe(59);
+    expect(preview[1].dot).toBe('green'); // Tuesday: 60%, room for more
+    expect(Math.round(preview[1].pct)).toBe(60);
     expect(loadBand(100)).toBe('red'); // …the day columns still say red
   });
 
@@ -247,7 +252,7 @@ describe('the squares beside a name', () => {
     const w = worker('W1');
     const load = workerLoad(
       w,
-      [row(job('A', 7.25), [w], 0, 1), row(job('B', 7.25), [w], 0, 1)],
+      [row(job('A', DAY), [w], 0, 1), row(job('B', DAY), [w], 0, 1)],
       MON,
     );
     expect(loadPreview(load)[0].dot).toBe('red');
@@ -266,7 +271,7 @@ describe('the squares beside a name', () => {
     const off = worker('W1', ['2026-09-15']);
     expect(loadPreview(workerLoad(off, [], MON))[1].dot).toBe('leave');
 
-    const booked = workerLoad(off, [row(job('A', 7.25), [off], 1, 1)], MON);
+    const booked = workerLoad(off, [row(job('A', DAY), [off], 1, 1)], MON);
     expect(loadPreview(booked)[1].dot).toBe('red');
   });
 
@@ -275,7 +280,7 @@ describe('the squares beside a name', () => {
     const w = worker('W1');
     const load = workerLoad(
       w,
-      [row(job('A', 7.25), [w], 0, 1), row(job('B', 4.25), [w], 1, 1)],
+      [row(job('A', DAY), [w], 0, 1), row(job('B', 4.25), [w], 1, 1)],
       MON,
     );
     const preview = loadPreview(load);
@@ -286,10 +291,10 @@ describe('the squares beside a name', () => {
 
   it('does the whole roster in one pass, keyed by id', () => {
     const [a, b] = [worker('W1'), worker('W2')];
-    const loads = rosterLoad([a, b], [row(job('A', 7.25), [a], 0, 1)], MON);
+    const loads = rosterLoad([a, b], [row(job('A', DAY), [a], 0, 1)], MON);
 
     expect([...loads.keys()]).toEqual(['W1', 'W2']);
-    expect(loads.get('W1')!.totalHours).toBeCloseTo(7.25, 6);
+    expect(loads.get('W1')!.totalHours).toBeCloseTo(DAY, 6);
     expect(loads.get('W2')!.totalHours).toBe(0);
   });
 });
@@ -309,11 +314,11 @@ describe('boardDayLoads', () => {
   const crew = [worker('W1'), worker('W2')];
 
   it('measures hours booked against the hours the shift can deliver', () => {
-    // 14.5 h of work on Monday; two people can deliver 14.5 h. That is 100%.
-    const loads = boardDayLoads([row(job('A', 14.5), crew, 0, 1)], crew, MON, 3);
+    // 2 * DAY h of work on Monday; two people can deliver 2 * DAY h. That is 100%.
+    const loads = boardDayLoads([row(job('A', 2 * DAY), crew, 0, 1)], crew, MON, 3);
     expect(loads).toHaveLength(3);
-    expect(loads[0].hours).toBeCloseTo(14.5, 6);
-    expect(loads[0].capacity).toBeCloseTo(14.5, 6);
+    expect(loads[0].hours).toBeCloseTo(2 * DAY, 6);
+    expect(loads[0].capacity).toBeCloseTo(2 * DAY, 6);
     expect(loads[0].pct).toBeCloseTo(100, 6);
     expect(loads[0].band).toBe('red');
     expect(loads[1].hours).toBe(0);
@@ -323,7 +328,7 @@ describe('boardDayLoads', () => {
   it('counts everyone available, not only the people on an order', () => {
     // One of the two is working; the other is idle but still capacity.
     const loads = boardDayLoads(
-      [row(job('A', 7.25), [crew[0]], 0, 1)],
+      [row(job('A', DAY), [crew[0]], 0, 1)],
       crew,
       MON,
       1,
@@ -335,7 +340,7 @@ describe('boardDayLoads', () => {
 
   it('drops a day’s capacity for planned leave', () => {
     const off = [worker('W1'), worker('W2', ['2026-09-14'])];
-    const loads = boardDayLoads([row(job('A', 7.25), [off[0]], 0, 1)], off, MON, 1);
+    const loads = boardDayLoads([row(job('A', DAY), [off[0]], 0, 1)], off, MON, 1);
     expect(loads[0].available).toBe(1);
     expect(loads[0].pct).toBeCloseTo(100, 6);
   });
@@ -348,7 +353,7 @@ describe('boardDayLoads', () => {
   });
 
   it('ignores the PMD context lane, which is not scheduled here', () => {
-    const pmd = row(job('A', 29), [], 0, 2, { line: PMD });
+    const pmd = row(job('A', 4 * DAY), [], 0, 2, { line: PMD });
     expect(boardDayLoads([pmd], crew, MON, 1)[0].hours).toBe(0);
   });
 
@@ -361,7 +366,7 @@ describe('boardDayLoads', () => {
   it('leaves the closed weekend empty, and marks it closed', () => {
     // A week of work from Monday spans the Saturday without loading it.
     const loads = boardDayLoads(
-      [row(job('A', 7.25 * 7), [crew[0]], 0, 7)],
+      [row(job('A', DAY * 7), [crew[0]], 0, 7)],
       crew,
       MON,
       7,
@@ -370,17 +375,17 @@ describe('boardDayLoads', () => {
     expect(loads[6].working).toBe(false); // Sun 20 Sep
     expect(loads[5].hours).toBe(0);
     expect(loads[5].pct).toBe(0);
-    expect(loads[0].hours).toBeCloseTo(7.25, 6);
+    expect(loads[0].hours).toBeCloseTo(DAY, 6);
   });
 
   it('shows the load an approved weekend actually carries', () => {
     // A Saturday bar the supervisor signed off: still a closed day, but the
     // column has to say what is being asked of the crew.
-    const saturday = row(job('A', 7.25), [crew[0]], 5, 1, { overtime: true });
+    const saturday = row(job('A', DAY), [crew[0]], 5, 1, { overtime: true });
     const loads = boardDayLoads([saturday], crew, MON, 7);
 
     expect(loads[5].working).toBe(false);
-    expect(loads[5].hours).toBeCloseTo(7.25, 6);
+    expect(loads[5].hours).toBeCloseTo(DAY, 6);
     expect(loads[5].pct).toBeCloseTo(50, 6);
   });
 });
@@ -399,14 +404,15 @@ describe('the columns behind today', () => {
   it('shows what the shift booked, not what was planned for it', () => {
     // 20 units of a 10-unit-a-day order were booked on the Friday. The plan
     // for that day is irrelevant now: it happened, or it did not.
-    const j = job('A', 29); // 29 h over 10 remaining + 0 done = 2.9 h a unit
+    // Four days of work over 10 units, so half the order is two days of it.
+    const j = job('A', 4 * DAY);
     const bar = row(j, crew, 0, 2, {
-      booked: [{ day: '2026-09-11', qty: 5, hours: 5 * 2.9 }],
+      booked: [{ day: '2026-09-11', qty: 5, hours: 2 * DAY }],
     });
     const loads = boardDayLoads([bar], crew, FRI, 4, MON);
 
     expect(loads[0].actual).toBe(true);
-    expect(loads[0].hours).toBeCloseTo(14.5, 6);
+    expect(loads[0].hours).toBeCloseTo(2 * DAY, 6);
     expect(loads[0].pct).toBeCloseTo(100, 6);
     // …while the days ahead still read as plan.
     expect(loads[3].actual).toBe(false);
@@ -414,7 +420,7 @@ describe('the columns behind today', () => {
 
   it('reads an unbooked day as nothing done, not as the plan', () => {
     // The bar covers the Friday, but nobody entered any output against it.
-    const loads = boardDayLoads([row(job('A', 29), crew, 0, 2)], crew, FRI, 4, MON);
+    const loads = boardDayLoads([row(job('A', 4 * DAY), crew, 0, 2)], crew, FRI, 4, MON);
     expect(loads[0].hours).toBe(0);
     expect(loads[0].pct).toBe(0);
   });
@@ -429,29 +435,29 @@ describe('the columns behind today', () => {
 describe('lineLoad', () => {
   it('totals the remaining hours and how long the crew needs', () => {
     const [a, b] = [worker('W1'), worker('W2')];
-    // 29 h + 14.5 h = 43.5 h; two distinct people = 14.5 h/day.
+    // Four days of work plus two, and two distinct people on the line.
     const load = lineLoad([
-      row(job('A', 29), [a, b], 0, 2),
-      row(job('B', 14.5), [a], 0, 2),
+      row(job('A', 4 * DAY), [a, b], 0, 2),
+      row(job('B', 2 * DAY), [a], 0, 2),
     ]);
-    expect(load.hours).toBeCloseTo(43.5, 6);
+    expect(load.hours).toBeCloseTo(6 * DAY, 6);
     expect(load.crew).toBe(2);
-    expect(load.capacityPerDay).toBeCloseTo(14.5, 6);
+    expect(load.capacityPerDay).toBeCloseTo(2 * DAY, 6);
     expect(load.daysOfWork).toBeCloseTo(3, 6);
     expect(load.needsCrew).toBe(0);
   });
 
   it('has no completion date and counts the orders with nobody on them', () => {
-    const load = lineLoad([row(job('A', 29), [], 0, 2)]);
-    expect(load.hours).toBeCloseTo(29, 6);
+    const load = lineLoad([row(job('A', 4 * DAY), [], 0, 2)]);
+    expect(load.hours).toBeCloseTo(4 * DAY, 6);
     expect(load.crew).toBe(0);
     expect(load.daysOfWork).toBeNull();
     expect(load.needsCrew).toBe(1);
   });
 
   it('does not ask the PMD context row for a crew it never has', () => {
-    const load = lineLoad([row(job('A', 29), [], 0, 2, { line: PMD })]);
-    expect(load.hours).toBeCloseTo(29, 6);
+    const load = lineLoad([row(job('A', 4 * DAY), [], 0, 2, { line: PMD })]);
+    expect(load.hours).toBeCloseTo(4 * DAY, 6);
     expect(load.needsCrew).toBe(0);
   });
 });

@@ -219,22 +219,32 @@ export const MAX_WORKERS_PER_ORDER = 4;
 // Shift / calendar
 // ---------------------------------------------------------------------------
 
-/** Single white shift. */
-export const SHIFT_HOURS = 8;
-/** Non-productive break time per person per day. */
-export const BREAK_HOURS = 0.75;
-/** Productive hours one person contributes in a day. */
-export const PRODUCTIVE_HOURS_PER_PERSON = SHIFT_HOURS - BREAK_HOURS;
-
 /**
  * Clock time assembly is on the floor, in hours past midnight: 07:00 to 15:30.
- *
- * The 8.5-hour span carries an unpaid half-hour lunch, which is what leaves
- * `SHIFT_HOURS` paid and `PRODUCTIVE_HOURS_PER_PERSON` productive. Only the
- * board's "now" marker reads these — the schedule itself works in whole days.
+ * The board's "now" marker reads these directly; everything below is derived
+ * from them, so the clock and the capacity can never drift apart again.
  */
 export const SHIFT_START_HOUR = 7;
 export const SHIFT_END_HOUR = 15.5;
+
+/** Single white shift, 07:00 to 15:30 — 8.5 hours on the floor. */
+export const SHIFT_HOURS = SHIFT_END_HOUR - SHIFT_START_HOUR;
+
+/** Morning tea and lunch, half an hour each. */
+export const MORNING_TEA_HOURS = 0.5;
+export const LUNCH_HOURS = 0.5;
+/** Non-productive break time per person per day. */
+export const BREAK_HOURS = MORNING_TEA_HOURS + LUNCH_HOURS;
+
+/**
+ * Productive hours one person contributes in a day: **7.5**.
+ *
+ * 07:00 to 15:30 is 8.5 hours on the floor, less half an hour of morning tea
+ * and half an hour of lunch. Every duration on the board divides the order's
+ * remaining standard hours by this, so it is also the rate Epicor's own Start
+ * Date was worked back from — see `latestStart`.
+ */
+export const PRODUCTIVE_HOURS_PER_PERSON = SHIFT_HOURS - BREAK_HOURS;
 
 /**
  * The schedule runs Monday to Friday: bars step over Saturday and Sunday, and
