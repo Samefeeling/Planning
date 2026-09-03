@@ -37,7 +37,9 @@ export function OrderBar({
   showWeekends,
   readOnly = false,
   selected,
+  dependencyRelated,
   onSelect,
+  onDependencyHover,
 }: {
   row: OrderRow;
   horizonStart: Date;
@@ -48,7 +50,9 @@ export function OrderBar({
   /** PMD rows mirror the moulding plan — shown, never scheduled here. */
   readOnly?: boolean;
   selected: boolean;
+  dependencyRelated: boolean;
   onSelect: (jobId: string, at?: { x: number; y: number }) => void;
+  onDependencyHover: (jobId: string | null) => void;
 }) {
   const id = String(row.job.id);
   const dragLocked = readOnly || Boolean(row.actualStart) || row.completedToday;
@@ -81,6 +85,8 @@ export function OrderBar({
           event.stopPropagation();
           onSelect(id, { x: event.clientX, y: event.clientY });
         }}
+        onMouseEnter={() => onDependencyHover(id)}
+        onMouseLeave={() => onDependencyHover(null)}
       >
         no crew
       </button>
@@ -181,7 +187,9 @@ export function OrderBar({
       data-job-id={id}
       className={`bar ${row.status.color} ${selected ? 'selected' : ''} ${
         isDragging ? 'dragging' : ''
-      } ${readOnly ? 'readonly' : ''} ${row.overtime ? 'overtime' : ''} ${
+      } ${dependencyRelated ? 'dependency-related' : ''} ${
+        readOnly ? 'readonly' : ''
+      } ${row.overtime ? 'overtime' : ''} ${
         pieces.length > 1 ? 'split' : ''
       } ${tag.stub ? 'stub' : ''} ${tag.outside ? 'tagged' : ''} ${
         tag.flip ? 'tag-left' : ''
@@ -195,6 +203,8 @@ export function OrderBar({
         e.stopPropagation();
         onSelect(id, { x: e.clientX, y: e.clientY });
       }}
+      onMouseEnter={() => onDependencyHover(id)}
+      onMouseLeave={() => onDependencyHover(null)}
       title={
         `${row.job.id} · ${row.days.toFixed(1)} d worked with ${row.workers.length}` +
         (readOnly ? '' : ` · position ${row.slot + 1} of ${row.line.parallelOrders}`) +
@@ -221,7 +231,7 @@ export function OrderBar({
         </div>
       ))}
       {/* One tag, so that outside the bar the three parts stay together. */}
-      <span className="bar-tag">
+      <span className="bar-tag" data-job-label={id}>
         <span className="bar-label">{tag.text}</span>
         {row.overtime && (
           <span className="bar-ot" title="Weekend overtime approved">

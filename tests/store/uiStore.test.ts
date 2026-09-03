@@ -29,8 +29,15 @@ describe('board display defaults', () => {
     const state = useUiStore.getState();
     expect(state.orderWindow).toBe('next-five');
     expect(state.showWeekends).toBe(false);
+    expect(state.dependencyMode).toBe('focus');
     state.toggleWeekends();
     expect(useUiStore.getState().showWeekends).toBe(true);
     useUiStore.getState().toggleWeekends();
+  });
+
+  it('switches dependency visibility without changing the plan', () => {
+    useUiStore.getState().setDependencyMode('all');
+    expect(useUiStore.getState().dependencyMode).toBe('all');
+    useUiStore.getState().setDependencyMode('focus');
   });
 });

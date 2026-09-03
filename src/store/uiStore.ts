@@ -38,6 +38,7 @@ export const DATE_COLS = ['start', 'due', 'expect', 'ship'] as const;
 export type DateCol = (typeof DATE_COLS)[number];
 export type DateCols = Record<DateCol, boolean>;
 export type OrderWindowFilter = 'all' | 'next-five';
+export type DependencyDisplayMode = 'focus' | 'all' | 'off';
 
 /** Column headings, shared by the board and the chip that brings one back. */
 export const DATE_COL_LABEL: Record<DateCol, string> = {
@@ -99,6 +100,8 @@ interface UiState {
   orderWindow: OrderWindowFilter;
   /** Weekend timeline columns; hidden by default to keep the working week compact. */
   showWeekends: boolean;
+  /** Dependency visibility; Focus keeps a dense production board readable. */
+  dependencyMode: DependencyDisplayMode;
 
   /** Show an order's detail; `at` moves the panel, omitting it leaves it. */
   select: (jobId: string | null, at?: ClickPoint) => void;
@@ -108,6 +111,7 @@ interface UiState {
   toggleDateCol: (key: DateCol) => void;
   setOrderWindow: (filter: OrderWindowFilter) => void;
   toggleWeekends: () => void;
+  setDependencyMode: (mode: DependencyDisplayMode) => void;
   askOvertime: (request: OvertimeRequest) => void;
   clearOvertime: () => void;
   askClash: (request: ClashRequest) => void;
@@ -127,6 +131,7 @@ export const useUiStore = create<UiState>((set) => ({
   dateCols: { start: true, due: true, expect: true, ship: true },
   orderWindow: 'next-five',
   showWeekends: false,
+  dependencyMode: 'focus',
 
   // A follow-on pick — a predecessor in the detail itself — comes with no
   // point, and leaves the panel where the reader is already looking.
@@ -147,6 +152,7 @@ export const useUiStore = create<UiState>((set) => ({
     })),
   setOrderWindow: (orderWindow) => set({ orderWindow }),
   toggleWeekends: () => set((state) => ({ showWeekends: !state.showWeekends })),
+  setDependencyMode: (dependencyMode) => set({ dependencyMode }),
   askOvertime: (overtimeRequest) => set({ overtimeRequest }),
   clearOvertime: () => set({ overtimeRequest: null }),
   askClash: (clashRequest) => set({ clashRequest }),

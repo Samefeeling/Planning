@@ -1,76 +1,114 @@
 import { useLayoutEffect, useState, type RefObject } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
+import type { DependencyDisplayMode } from '@/store/uiStore';
+import {
+  dependencyFocus,
+  routeDependencies,
+  type DependencyEdge,
+  type RouteRect,
+  type RoutedDependency,
+} from './dependencyRouter';
 
-interface Point {
-  x: number;
-  y: number;
+interface Drawing {
+  width: number;
+  height: number;
+  arrows: (RoutedDependency & { focused: boolean })[];
 }
 
-interface Arrow {
-  key: string;
-  path: string;
-}
+const EMPTY: Drawing = { width: 0, height: 0, arrows: [] };
 
-/** Orthogonal finish-to-start route, including the case where dates overlap. */
-export function dependencyPath(from: Point, to: Point): string {
-  const routeX =
-    to.x >= from.x + 24
-      ? from.x + (to.x - from.x) / 2
-      : Math.max(from.x, to.x) + 18;
-  return `M ${from.x} ${from.y} H ${routeX} V ${to.y} H ${to.x}`;
-}
+const boxOf = (
+  element: HTMLElement,
+  host: DOMRect,
+  id: string,
+): RouteRect => {
+  const box = element.getBoundingClientRect();
+  return {
+    id,
+    left: box.left - host.left,
+    top: box.top - host.top,
+    right: box.right - host.left,
+    bottom: box.bottom - host.top,
+  };
+};
 
 export function DependencyArrows({
   root,
   rows,
+  mode,
+  focusJobId,
 }: {
   root: RefObject<HTMLDivElement | null>;
   rows: OrderRow[];
+  mode: DependencyDisplayMode;
+  focusJobId: string | null;
 }) {
-  const [drawing, setDrawing] = useState({
-    width: 0,
-    height: 0,
-    arrows: [] as Arrow[],
-  });
+  const [drawing, setDrawing] = useState<Drawing>(EMPTY);
 
   useLayoutEffect(() => {
     const host = root.current;
-    if (!host) return;
+    if (!host || mode === 'off') {
+      setDrawing(EMPTY);
+      return;
+    }
     let frame = 0;
 
     const measure = () => {
       const hostRect = host.getBoundingClientRect();
-      const bars = new Map<string, HTMLElement>();
-      host.querySelectorAll<HTMLElement>('[data-job-id]').forEach((bar) => {
-        const jobId = bar.dataset.jobId;
-        if (jobId) bars.set(jobId, bar);
+      const bars = new Map<string, RouteRect>();
+      const obstacles: RouteRect[] = [];
+      host.querySelectorAll<HTMLElement>('[data-job-id]').forEach((element) => {
+        const id = element.dataset.jobId;
+        if (!id) return;
+        const box = boxOf(element, hostRect, id);
+        bars.set(id, box);
+        obstacles.push(box);
       });
-      const arrows: Arrow[] = [];
+      // Only outside labels need their own obstacle; an inside label is already
+      // protected by its bar rectangle.
+      host
+        .querySelectorAll<HTMLElement>('.bar.tagged [data-job-label]')
+        .forEach((element) => {
+          const id = element.dataset.jobLabel;
+          if (id) obstacles.push(boxOf(element, hostRect, `${id}:label`));
+        });
+
+      const edges: DependencyEdge[] = [];
       for (const row of rows) {
-        const childId = String(row.job.id);
-        const child = bars.get(childId);
-        if (!child) continue;
-        const childRect = child.getBoundingClientRect();
+        const targetId = String(row.job.id);
+        const target = bars.get(targetId);
+        if (!target) continue;
         for (const dependency of row.predecessors) {
-          const parentId = String(dependency.onJobId);
-          const parent = bars.get(parentId);
-          if (!parent) continue;
-          const parentRect = parent.getBoundingClientRect();
-          arrows.push({
-            key: `${parentId}->${childId}`,
-            path: dependencyPath(
-              {
-                x: parentRect.right - hostRect.left,
-                y: parentRect.top - hostRect.top + parentRect.height / 2,
-              },
-              {
-                x: childRect.left - hostRect.left,
-                y: childRect.top - hostRect.top + childRect.height / 2,
-              },
-            ),
+          const sourceId = String(dependency.onJobId);
+          const source = bars.get(sourceId);
+          if (!source) continue;
+          edges.push({
+            key: `${sourceId}->${targetId}`,
+            sourceId,
+            targetId,
+            source,
+            target,
           });
         }
       }
+
+      // Iterative traversal expands every ancestor and descendant, not just
+      // the first two levels visible around the selected job.
+      const focus = dependencyFocus(edges, focusJobId);
+      const visible =
+        mode === 'all'
+          ? edges
+          : edges.filter((edge) => focus.edgeKeys.has(edge.key));
+      const left = bars.size > 0
+        ? Math.min(...[...bars.values()].map((bar) => bar.left))
+        : 0;
+      const arrows = routeDependencies(visible, obstacles, {
+        minX: left + 2,
+        maxX: host.scrollWidth - 8,
+      }).map((arrow) => ({
+        ...arrow,
+        focused: mode === 'focus' || focus.edgeKeys.has(arrow.key),
+      }));
       setDrawing({
         width: host.scrollWidth,
         height: host.scrollHeight,
@@ -86,15 +124,15 @@ export function DependencyArrows({
     const observer = new ResizeObserver(queueMeasure);
     observer.observe(host);
     host
-      .querySelectorAll<HTMLElement>('[data-job-id]')
-      .forEach((bar) => observer.observe(bar));
+      .querySelectorAll<HTMLElement>('[data-job-id], [data-job-label]')
+      .forEach((element) => observer.observe(element));
     window.addEventListener('resize', queueMeasure);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener('resize', queueMeasure);
     };
-  }, [root, rows]);
+  }, [focusJobId, mode, root, rows]);
 
   if (drawing.arrows.length === 0) return null;
   return (
@@ -113,16 +151,35 @@ export function DependencyArrows({
           refY="3.5"
           orient="auto"
         >
-          <path d="M 0 0 L 7 3.5 L 0 7 z" />
+          <path className="dependency-marker" d="M 0 0 L 7 3.5 L 0 7 z" />
+        </marker>
+        <marker
+          id="dependency-arrowhead-focus"
+          markerWidth="7"
+          markerHeight="7"
+          refX="6"
+          refY="3.5"
+          orient="auto"
+        >
+          <path className="dependency-marker-focus" d="M 0 0 L 7 3.5 L 0 7 z" />
         </marker>
       </defs>
       {drawing.arrows.map((arrow) => (
-        <path
+        <g
           key={arrow.key}
-          className="dependency-arrow"
-          d={arrow.path}
-          markerEnd="url(#dependency-arrowhead)"
-        />
+          className={`dependency-link ${arrow.focused ? 'focused' : ''}`}
+        >
+          <path className="dependency-casing" d={arrow.path} />
+          <path
+            className="dependency-arrow"
+            d={arrow.path}
+            markerEnd={
+              arrow.focused
+                ? 'url(#dependency-arrowhead-focus)'
+                : 'url(#dependency-arrowhead)'
+            }
+          />
+        </g>
       ))}
     </svg>
   );

@@ -46,6 +46,7 @@ import { OrderBar } from './OrderBar';
 import { TeamChips } from './TeamChips';
 import { WorkerLoadChip } from './WorkerLoadChip';
 import { DependencyArrows } from './DependencyArrows';
+import { dependencyFocus } from './dependencyRouter';
 import {
   activeWorkerIdsOnDay,
   isInNextWorkingDays,
@@ -108,6 +109,8 @@ function OrderRowView({
   visibleDates,
   showWeekends,
   workerLines,
+  dependencyRelated,
+  onDependencyHover,
 }: {
   row: OrderRow;
   board: AssemblyGanttView;
@@ -121,6 +124,8 @@ function OrderRowView({
   visibleDates: DateCols;
   showWeekends: boolean;
   workerLines: ReadonlyMap<string, LineKey>;
+  dependencyRelated: boolean;
+  onDependencyHover: (id: string | null) => void;
 }) {
   const isContext = !row.line.schedulable;
   let dateOffset = orderWidth + QTY_W + HOURS_W;
@@ -211,7 +216,9 @@ function OrderRowView({
           showWeekends={showWeekends}
           readOnly={isContext}
           selected={selected}
+          dependencyRelated={dependencyRelated}
           onSelect={onSelect}
+          onDependencyHover={onDependencyHover}
         />
       </div>
     </div>
@@ -247,6 +254,8 @@ function LineGroupView({
   onToggle,
   filtered,
   unlocked,
+  relatedJobIds,
+  onDependencyHover,
 }: {
   group: LineGroup;
   board: AssemblyGanttView;
@@ -266,6 +275,8 @@ function LineGroupView({
   onToggle: () => void;
   filtered: boolean;
   unlocked: boolean;
+  relatedJobIds: ReadonlySet<string>;
+  onDependencyHover: (id: string | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: String(group.line.id),
@@ -390,6 +401,8 @@ function LineGroupView({
             visibleDates={visibleDates}
             showWeekends={showWeekends}
             workerLines={todayLine}
+            dependencyRelated={relatedJobIds.has(String(row.job.id))}
+            onDependencyHover={onDependencyHover}
           />
         ))
       ))}
@@ -408,12 +421,14 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const toggleDate = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
   const showWeekends = useUiStore((s) => s.showWeekends);
+  const dependencyMode = useUiStore((s) => s.dependencyMode);
   const workerLineOverrides = usePlanStore((s) => s.workerLines);
   const unlocked = useSupervisorStore((s) => s.unlocked);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     PMD: true,
   });
   const [sort, setSort] = useState<OrderSort | null>(null);
+  const [hoveredJobId, setHoveredJobId] = useState<string | null>(null);
 
   // The clock behind the "now" line. Five minutes is as fine as the line is
   // worth reading, and it keeps the board from re-rendering every second.
@@ -459,6 +474,18 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     () => visibleGroups.flatMap((group) => group.rows),
     [visibleGroups],
   );
+  const dependencyFocusId = selectedJobId ?? hoveredJobId;
+  const relatedJobIds = useMemo(() => {
+    if (dependencyMode === 'off') return new Set<string>();
+    const edges = visibleRows.flatMap((row) =>
+      row.predecessors.map((dependency) => ({
+        key: `${String(dependency.onJobId)}->${String(row.job.id)}`,
+        sourceId: String(dependency.onJobId),
+        targetId: String(row.job.id),
+      })),
+    );
+    return dependencyFocus(edges, dependencyFocusId).nodeIds;
+  }, [dependencyFocusId, dependencyMode, visibleRows]);
   // Every name in the header carries five load squares, so the whole roster's
   // week is worked out once here rather than once per chip on every render.
   // From today: the week to come is what a supervisor allocates against.
@@ -610,7 +637,12 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
         />
       )}
 
-      <DependencyArrows root={root} rows={visibleRows} />
+      <DependencyArrows
+        root={root}
+        rows={visibleRows}
+        mode={dependencyMode}
+        focusJobId={dependencyFocusId}
+      />
 
       <div className="assy-sticky">
         {/* Who is in, and how much of them is spoken for. The names themselves
@@ -748,6 +780,8 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           onToggle={() => setCollapsed((current) => ({ ...current, [group.line.key]: !current[group.line.key] }))}
           filtered={orderWindow === 'next-five'}
           unlocked={unlocked}
+          relatedJobIds={relatedJobIds}
+          onDependencyHover={setHoveredJobId}
         />
       ))}
     </div>

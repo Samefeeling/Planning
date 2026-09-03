@@ -471,15 +471,32 @@ button {
   overflow: visible;
   pointer-events: none;
 }
+.dependency-link {
+  opacity: 0.24;
+}
+.dependency-link.focused {
+  opacity: 1;
+}
+.dependency-casing,
 .dependency-arrow {
   fill: none;
-  stroke: #475569;
-  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0.82;
 }
-.dependency-layer marker path { fill: #475569; }
+.dependency-casing {
+  stroke: rgba(248, 250, 252, 0.96);
+  stroke-width: 5;
+}
+.dependency-arrow {
+  stroke: #64748b;
+  stroke-width: 1.5;
+}
+.dependency-link.focused .dependency-arrow {
+  stroke: #2563eb;
+  stroke-width: 2;
+}
+.dependency-marker { fill: #64748b; }
+.dependency-marker-focus { fill: #2563eb; }
 .assy-summary {
   display: flex;
   gap: 6px;
@@ -1137,6 +1154,9 @@ body.col-resizing {
 }
 .bar.selected .bar-piece {
   box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.55);
+}
+.bar.dependency-related .bar-piece {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.42);
 }
 .bar.dragging {
   opacity: 0.6;
