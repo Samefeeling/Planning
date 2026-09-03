@@ -472,7 +472,7 @@ button {
   pointer-events: none;
 }
 .dependency-link {
-  opacity: 0.24;
+  opacity: 0.72;
 }
 .dependency-link.focused {
   opacity: 1;
@@ -488,15 +488,23 @@ button {
   stroke-width: 5;
 }
 .dependency-arrow {
-  stroke: #64748b;
-  stroke-width: 1.5;
+  stroke: #1d4ed8;
+  stroke-width: 2;
 }
 .dependency-link.focused .dependency-arrow {
   stroke: #2563eb;
   stroke-width: 2;
 }
-.dependency-marker { fill: #64748b; }
+.dependency-marker { fill: #1d4ed8; }
 .dependency-marker-focus { fill: #2563eb; }
+.pick-list { display: grid; gap: 5px; }
+.pick-list-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) auto;
+  gap: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
 .assy-summary {
   display: flex;
   gap: 6px;

@@ -52,28 +52,29 @@ const partKey = (part: PartId): string => String(part).trim().toUpperCase();
  * `Planning1.JobHead_PartNum`: the material export is the source that proves
  * the parent/child relationship. `Planning1` only confirms that both job
  * numbers are on the live board. Several rows normally name the same producing
- * job, so the map also deduplicates them. If several open jobs build the same
- * part, the earliest scheduled one wins; ties break on job number.
+ * job, so the map deduplicates those rows while retaining every distinct open
+ * `JobMtl_JobNum`. Retaining all of them prevents a repeated part number from
+ * cutting off a deeper branch of the BOM relationship graph.
  */
 function suppliersByPart(
   jobsById: ReadonlyMap<string, Job>,
   links: readonly JobMaterialLink[],
-): Map<string, Job> {
-  const out = new Map<string, Job>();
+): Map<string, Job[]> {
+  const out = new Map<string, Job[]>();
+  const seen = new Set<string>();
   for (const link of links) {
     const job = jobsById.get(String(link.jobNum));
     const key = partKey(link.parentPart);
     // A missing/finished order cannot constrain the live plan, and a blank
     // parent part cannot be the producing end of a material relationship.
     if (!job || job.remainingQty <= 0 || !key) continue;
-    const held = out.get(key);
-    if (
-      !held ||
-      scheduledAt(job) < scheduledAt(held) ||
-      (scheduledAt(job) === scheduledAt(held) && String(job.id) < String(held.id))
-    ) {
-      out.set(key, job);
-    }
+    const pair = `${key}\u0000${String(job.id)}`;
+    if (seen.has(pair)) continue;
+    seen.add(pair);
+    const held = out.get(key) ?? [];
+    held.push(job);
+    held.sort((a, b) => scheduledAt(a) - scheduledAt(b) || String(a.id).localeCompare(String(b.id)));
+    out.set(key, held);
   }
   return out;
 }
@@ -175,10 +176,14 @@ export function buildDependencies(
     // Second join, entirely inside JobMaterialReq: this row's child part must
     // equal another material row's parent part. That row's JobMtl_JobNum is the
     // producing order the consumer waits for.
-    const made = supplier.get(partKey(link.childPart));
-    if (!made) continue; // bought in, in stock, or no producing material row
-    if (String(made.id) === String(consumer.id)) continue; // makes its own part
-    add(consumer.id, made.id, link.childPart);
+    const made = supplier.get(partKey(link.childPart)) ?? [];
+    // Preserve every JobMtl_JobNum found for the child part. Choosing only one
+    // batch here silently cut deep BOM chains whenever the export contained
+    // several open jobs for the same part.
+    for (const producingJob of made) {
+      if (String(producingJob.id) === String(consumer.id)) continue;
+      add(consumer.id, producingJob.id, link.childPart);
+    }
   }
 
   if (mismatched.size > 0) {

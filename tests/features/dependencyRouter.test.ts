@@ -65,8 +65,9 @@ describe('dependency route allocation', () => {
       route.channelX <= obstacle.left - 6 ||
         route.channelX >= obstacle.right + 6,
     ).toBe(true);
-    expect(route.path.startsWith('M 10 20 V')).toBe(true);
-    expect(route.path.endsWith('H 180')).toBe(true);
+    expect(route.path.startsWith('M 20 20 V')).toBe(true);
+    expect(route.path.endsWith('H 180 V 100')).toBe(true);
+    expect(route.points.at(-1)).toEqual({ x: target.left, y: target.top });
   });
 
   it('spreads parallel trunks over separate channels', () => {

@@ -125,9 +125,7 @@ describe('buildDependencies', () => {
     expect(edges(g)).toEqual([]);
   });
 
-  it('takes the earliest of several batches of the same part', () => {
-    // Two runs of the same shell are open. The chair needs one lot of shells,
-    // not both, so it waits for the run that comes first.
+  it('keeps every JobMtl job for several open batches of the same part', () => {
     const early = new Date(2026, 8, 10);
     const late = new Date(2026, 8, 24);
     const jobs = [
@@ -140,17 +138,17 @@ describe('buildDependencies', () => {
       link('PMD-LATE', 'SHELL', 'RESIN-LATE'),
       link('PMD-EARLY', 'SHELL', 'RESIN-EARLY'),
     ]);
-    expect(edges(g)).toEqual(['ASSY1→PMD-EARLY']);
+    expect(edges(g)).toEqual(['ASSY1→PMD-EARLY', 'ASSY1→PMD-LATE']);
   });
 
-  it('breaks a tie on job number, so the same file always schedules the same', () => {
+  it('deduplicates repeated material rows without dropping distinct job numbers', () => {
     const jobs = [job('ASSY1', 'CHAIR'), job('PMD-B', 'SHELL'), job('PMD-A', 'SHELL')];
     const g = buildDependencies(jobs, [
       link('ASSY1', 'CHAIR', 'SHELL'),
       link('PMD-B', 'SHELL', 'RESIN-B'),
       link('PMD-A', 'SHELL', 'RESIN-A'),
     ]);
-    expect(edges(g)).toEqual(['ASSY1→PMD-A']);
+    expect(edges(g)).toEqual(['ASSY1→PMD-A', 'ASSY1→PMD-B']);
   });
 
   it('keeps a predecessor named directly in the order export', () => {

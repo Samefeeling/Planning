@@ -13,7 +13,6 @@ import { findOrderRow } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
 import {
-  MAX_WORKERS_PER_ORDER,
   PRODUCTIVE_HOURS_PER_PERSON,
   type MaterialPrepStatus,
 } from '@/domain/assembly';
@@ -435,31 +434,23 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
         </section>
 
         <section className="inspector-section crew-pace">
-          <h3>Crew &amp; Pace</h3>
-          <dl className="kv">
-            <dt>On the job</dt>
-            <dd>
-              {activeCrew.length} / {MAX_WORKERS_PER_ORDER} today
-              {activeCrew.length > 0 &&
-                ` — ${activeCrew.map((worker) => worker.name).join(', ')}`}
-            </dd>
-            <dt>Duration</dt>
-            <dd>{row.days === null ? '—' : `${row.days.toFixed(1)} days`}</dd>
-            <dt>Daily target</dt>
-            <dd>
-              {row.dailyTarget > 0 ? `${Math.round(row.dailyTarget)} / day` : '—'}
-            </dd>
-            {status.color !== 'green' && (
-              <>
-                <dt>To hit ship</dt>
-                <dd>
-                  {row.crewToHitShip === null
-                    ? `not reachable, even with ${MAX_WORKERS_PER_ORDER}`
-                    : `${row.crewToHitShip} people`}
-                </dd>
-              </>
-            )}
-          </dl>
+          <h3>Warehouse Pick List</h3>
+          {(row.pickList ?? []).length === 0 ? (
+            <p className="hint">No materials found in JobMaterialReq.csv.</p>
+          ) : (
+            <div className="pick-list">
+              {(row.pickList ?? []).map((material, index) => (
+                <div className="pick-list-row" key={`${String(material.childPart)}-${index}`}>
+                  <span className="part">{String(material.childPart)}</span>
+                  <span>
+                    {material.requiredQty === null
+                      ? 'quantity not supplied'
+                      : `pick ${material.requiredQty}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="production-start">
             {row.actualStart ? (
               <div className="production-history">
