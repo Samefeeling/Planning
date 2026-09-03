@@ -173,6 +173,40 @@ describe('assembly Gantt (mock data)', () => {
     expect(handovers).toBeGreaterThan(0);
   });
 
+  /**
+   * A press job holds up the chair it moulds the shell for.
+   *
+   * The supplier side of a material link is proved by `JobMaterialReq` — a row
+   * naming the produced part as that order's own parent part — so a press job
+   * with no material rows of its own silently stops being anyone's supplier.
+   * That is easy to lose and impossible to see on the board, hence a test on
+   * the demo data rather than a hand-built graph.
+   */
+  it('carries the moulding-to-assembly links, not just the ones inside assembly', () => {
+    const b = build();
+    const rows = b.groups.flatMap((g) => g.rows);
+    const pressLinks = rows.flatMap((row) =>
+      row.predecessors
+        .filter((dep) => /^(SFM|SUNF)/.test(String(dep.onJobId)))
+        .map((dep) => `${String(row.job.id)}→${String(dep.onJobId)}`),
+    );
+
+    expect(pressLinks.sort()).toEqual([
+      'ASM80011→SFM507014',
+      'ASM80013→SFM507068',
+      'ASM8008→SFM507016',
+      'ASM8008→SUNF0000000230',
+      'ASM8009→SFM507066',
+      'ASM8009→SFM507067',
+    ]);
+    // Every wait on this board names the component it is for, which only
+    // happens when the material file proved it: an order carried by the
+    // export's `Predecessor` column alone knows a job number and no part.
+    expect(
+      rows.flatMap((row) => row.predecessors).every((dep) => dep.part !== null),
+    ).toBe(true);
+  });
+
   it('leaves an order unschedulable when nobody is on it', () => {
     const b = build({ orderWorkers: {} });
     const rows = b.groups.filter((g) => g.line.schedulable).flatMap((g) => g.rows);

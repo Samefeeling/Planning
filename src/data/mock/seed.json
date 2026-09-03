@@ -13531,6 +13531,54 @@
       "parentPart": "SFA-FA3S",
       "childPart": "SFA3S-STRMU",
       "requiredQty": 18
+    },
+    {
+      "jobNum": "ASM8001",
+      "parentPart": "PDSC00747",
+      "childPart": "RM-FAB-PODIUM",
+      "requiredQty": 60
+    },
+    {
+      "jobNum": "ASM8003",
+      "parentPart": "SFA2S-CHAR",
+      "childPart": "RM-FAB-CHARCOAL",
+      "requiredQty": 14
+    },
+    {
+      "jobNum": "SFM507014",
+      "parentPart": "POPL00430",
+      "childPart": "RM-PP-GRAPHITE",
+      "requiredQty": 96
+    },
+    {
+      "jobNum": "SFM507016",
+      "parentPart": "POPL00548",
+      "childPart": "RM-PP-BLACK",
+      "requiredQty": 249
+    },
+    {
+      "jobNum": "SFM507066",
+      "parentPart": "FW40002",
+      "childPart": "RM-PP-FOREST",
+      "requiredQty": 200
+    },
+    {
+      "jobNum": "SFM507067",
+      "parentPart": "FW40017",
+      "childPart": "RM-PP-FOREST",
+      "requiredQty": 150
+    },
+    {
+      "jobNum": "SFM507068",
+      "parentPart": "V11694",
+      "childPart": "RM-RPP-AMBER",
+      "requiredQty": 88
+    },
+    {
+      "jobNum": "SUNF0000000230",
+      "parentPart": "G11881000",
+      "childPart": "RM-RPP-ONYX",
+      "requiredQty": 86
     }
   ]
 }

@@ -145,8 +145,27 @@ function MaterialLinks({ board }: { board: AssemblyGanttView }) {
     );
   }
 
+  // "ASM8020 (Upholstery) waits on ASM8019 · SFA3S-STRM-SS" — the whole graph
+  // in running order. An arrow only exists where both bars are on screen, so
+  // the count includes links the board cannot currently draw, and this is
+  // where you find out which ones those are.
+  const links = [...board.groups.flatMap((group) => group.rows)]
+    .filter((row) => row.predecessors.length > 0)
+    .sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime())
+    .flatMap((row) =>
+      row.predecessors.map(
+        (dep) =>
+          `${String(row.job.id)} (${row.line.name}) waits on ` +
+          `${String(dep.onJobId)}${dep.part ? ` · ${String(dep.part)}` : ''}`,
+      ),
+    )
+    .join('\n');
+
   return (
-    <span className="board-load" title="Dependencies are drawn as arrows on visible order blocks">
+    <span
+      className="board-load"
+      title={`Drawn as arrows wherever both orders are on screen:\n${links}`}
+    >
       {rows.length} order{rows.length === 1 ? '' : 's'} wait on another
     </span>
   );

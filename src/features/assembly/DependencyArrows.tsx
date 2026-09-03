@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type RefObject } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
 import type { DependencyDisplayMode } from '@/store/uiStore';
 import {
@@ -37,13 +37,17 @@ export function DependencyArrows({
   rows,
   mode,
   focusJobId,
+  labelWidth,
 }: {
   root: RefObject<HTMLDivElement | null>;
   rows: OrderRow[];
   mode: DependencyDisplayMode;
   focusJobId: string | null;
+  /** Where the day grid starts — everything left of it is frozen columns. */
+  labelWidth: number;
 }) {
   const [drawing, setDrawing] = useState<Drawing>(EMPTY);
+  const layer = useRef<SVGSVGElement>(null);
 
   useLayoutEffect(() => {
     const host = root.current;
@@ -134,9 +138,36 @@ export function DependencyArrows({
     };
   }, [focusJobId, mode, root, rows]);
 
+  /*
+   * Keep the arrows out from under the frozen columns.
+   *
+   * The layer spans the whole board, and the grid slides beneath the Order,
+   * date and Team columns as it is scrolled right. Those columns hide it on an
+   * ordinary row, but a row drawn faded — the moulding plan, an order closed
+   * today — is one composited layer, so a quarter of whatever is behind it
+   * comes through, enough for an arrow to cut across the dates. Clipping off
+   * exactly the strip they cover settles it wherever the board is scrolled to.
+   */
+  useLayoutEffect(() => {
+    const scroller = root.current?.parentElement;
+    if (!scroller) return;
+    const clip = () => {
+      // Straight to the node: this fires on every scroll frame, and nothing
+      // else on the board depends on the number.
+      if (layer.current) {
+        const hidden = scroller.scrollLeft + labelWidth;
+        layer.current.style.clipPath = `inset(0 0 0 ${hidden}px)`;
+      }
+    };
+    clip();
+    scroller.addEventListener('scroll', clip, { passive: true });
+    return () => scroller.removeEventListener('scroll', clip);
+  }, [root, labelWidth, drawing.arrows.length]);
+
   if (drawing.arrows.length === 0) return null;
   return (
     <svg
+      ref={layer}
       className="dependency-layer"
       width={drawing.width}
       height={drawing.height}

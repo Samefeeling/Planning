@@ -642,6 +642,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
         rows={visibleRows}
         mode={dependencyMode}
         focusJobId={dependencyFocusId}
+        labelWidth={labelWidth}
       />
 
       <div className="assy-sticky">
