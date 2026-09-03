@@ -57,7 +57,10 @@ const edges = (g: ReturnType<typeof buildDependencies>): string[] =>
 describe('buildDependencies', () => {
   it('makes the parent wait for the order that builds its component', () => {
     const jobs = [job('ASSY1', 'CHAIR'), job('UPL1', 'COVER')];
-    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'COVER')]);
+    const g = buildDependencies(jobs, [
+      link('ASSY1', 'CHAIR', 'COVER'),
+      link('UPL1', 'COVER', 'FABRIC'),
+    ]);
 
     expect(edges(g)).toEqual(['ASSY1→UPL1']);
     expect(String(g.byJob.get('ASSY1')![0].part)).toBe('COVER');
@@ -72,6 +75,8 @@ describe('buildDependencies', () => {
     const g = buildDependencies(jobs, [
       link('ASSY1', 'CHAIR', 'COVER'),
       link('ASSY1', 'CHAIR', 'SHELL'),
+      link('UPL1', 'COVER', 'FABRIC'),
+      link('PMD1', 'SHELL', 'RESIN'),
     ]);
     expect(edges(g)).toEqual(['ASSY1→PMD1', 'ASSY1→UPL1']);
   });
@@ -81,7 +86,10 @@ describe('buildDependencies', () => {
       job('ASSY1', 'CHAIR'),
       job('SFM1', 'SHELL', { department: 'moulding' }),
     ];
-    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'SHELL')]);
+    const g = buildDependencies(jobs, [
+      link('ASSY1', 'CHAIR', 'SHELL'),
+      link('SFM1', 'SHELL', 'RESIN'),
+    ]);
     expect(edges(g)).toEqual(['ASSY1→SFM1']);
   });
 
@@ -92,6 +100,7 @@ describe('buildDependencies', () => {
       job('ASSY', 'CHAIR'),
     ];
     const g = buildDependencies(jobs, [
+      link('CUT', 'FABRIC', 'RAW-FABRIC'),
       link('UPL', 'COVER', 'FABRIC'),
       link('ASSY', 'CHAIR', 'COVER'),
     ]);
@@ -109,7 +118,10 @@ describe('buildDependencies', () => {
       job('ASSY1', 'CHAIR'),
       job('PMD1', 'SHELL', { remainingQty: 0, completedQty: 100 }),
     ];
-    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'SHELL')]);
+    const g = buildDependencies(jobs, [
+      link('ASSY1', 'CHAIR', 'SHELL'),
+      link('PMD1', 'SHELL', 'RESIN'),
+    ]);
     expect(edges(g)).toEqual([]);
   });
 
@@ -123,13 +135,21 @@ describe('buildDependencies', () => {
       job('PMD-LATE', 'SHELL', { startDate: late }),
       job('PMD-EARLY', 'SHELL', { startDate: early }),
     ];
-    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'SHELL')]);
+    const g = buildDependencies(jobs, [
+      link('ASSY1', 'CHAIR', 'SHELL'),
+      link('PMD-LATE', 'SHELL', 'RESIN-LATE'),
+      link('PMD-EARLY', 'SHELL', 'RESIN-EARLY'),
+    ]);
     expect(edges(g)).toEqual(['ASSY1→PMD-EARLY']);
   });
 
   it('breaks a tie on job number, so the same file always schedules the same', () => {
     const jobs = [job('ASSY1', 'CHAIR'), job('PMD-B', 'SHELL'), job('PMD-A', 'SHELL')];
-    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'SHELL')]);
+    const g = buildDependencies(jobs, [
+      link('ASSY1', 'CHAIR', 'SHELL'),
+      link('PMD-B', 'SHELL', 'RESIN-B'),
+      link('PMD-A', 'SHELL', 'RESIN-A'),
+    ]);
     expect(edges(g)).toEqual(['ASSY1→PMD-A']);
   });
 
@@ -148,7 +168,10 @@ describe('buildDependencies', () => {
       job('ASSY1', 'CHAIR', { predecessors: [JobId('UPL1')] }),
       job('UPL1', 'COVER'),
     ];
-    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'COVER')]);
+    const g = buildDependencies(jobs, [
+      link('ASSY1', 'CHAIR', 'COVER'),
+      link('UPL1', 'COVER', 'FABRIC'),
+    ]);
     expect(edges(g)).toEqual(['ASSY1→UPL1']);
     // …and keeps the component, which only the material file knows.
     expect(String(g.byJob.get('ASSY1')![0].part)).toBe('COVER');
@@ -165,6 +188,8 @@ describe('buildDependencies', () => {
     const jobs = [job('UPL1', 'COVER')];
     const g = buildDependencies(jobs, [link('GONE', 'CHAIR', 'COVER')]);
     expect(edges(g)).toEqual([]);
+    expect(g.warnings[0]).toMatch(/GONE/);
+    expect(g.warnings[0]).toMatch(/not present in Planning1/);
   });
 
   it('breaks a circular pair and says which one it dropped', () => {
@@ -182,11 +207,31 @@ describe('buildDependencies', () => {
 
   it('flags an order whose two exports disagree about the part it builds', () => {
     const jobs = [job('ASSY1', 'CHAIR'), job('UPL1', 'COVER')];
-    const g = buildDependencies(jobs, [link('ASSY1', 'STOOL', 'COVER')]);
+    const g = buildDependencies(jobs, [
+      link('ASSY1', 'STOOL', 'COVER'),
+      link('UPL1', 'COVER', 'FABRIC'),
+    ]);
 
     // Still used: the job number is what matters, the part is a cross-check.
     expect(edges(g)).toEqual(['ASSY1→UPL1']);
     expect(g.warnings[0]).toMatch(/different part/);
     expect(g.warnings[0]).toMatch(/ASSY1/);
+  });
+
+  it('does not infer a supplier from Planning1 without a parent row in JobMaterialReq', () => {
+    const jobs = [job('ASSY1', 'CHAIR'), job('UPL1', 'COVER')];
+    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'COVER')]);
+
+    expect(edges(g)).toEqual([]);
+  });
+
+  it('matches parent and child parts without case or surrounding whitespace', () => {
+    const jobs = [job('ASSY1', 'CHAIR'), job('UPL1', 'COVER')];
+    const g = buildDependencies(jobs, [
+      link('ASSY1', 'CHAIR', ' cover '),
+      link('UPL1', 'Cover', 'FABRIC'),
+    ]);
+
+    expect(edges(g)).toEqual(['ASSY1→UPL1']);
   });
 });

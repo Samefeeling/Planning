@@ -1,10 +1,9 @@
 /**
  * Which order has to wait for which.
  *
- * `JobMaterialReq.csv` says what each order consumes, one component per row.
- * A component nobody is making is bought or already in stock and constrains
- * nothing; a component another open order is still building is the real
- * constraint, and that is the edge this module produces:
+ * `JobMaterialReq.csv` says what each order builds and consumes, one component
+ * per row. A component becomes a constraint only when another material row
+ * names it as that order's parent part, which is the edge this module produces:
  *
  *   ASM80010 consumes PDSC00747U → ASM8002 builds PDSC00747U → ASM80010 waits
  *
@@ -43,21 +42,30 @@ export interface DependencyGraph {
 const scheduledAt = (job: Job): number =>
   (job.startDate ?? job.dueDate)?.getTime() ?? Number.POSITIVE_INFINITY;
 
+/** Epicor part numbers are case-insensitive; preserve the source for display. */
+const partKey = (part: PartId): string => String(part).trim().toUpperCase();
+
 /**
- * Which open order supplies a part.
+ * Which open material-export order supplies a part.
  *
- * Several batches of one part may be open at once. The consumer waits for the
- * one scheduled first — the earliest supply it could take — rather than for
- * all of them: a second run of the same shell booked for next month says
- * nothing about the chair being built this week. Ties break on job number so
- * the same export always yields the same schedule.
+ * This deliberately indexes `JobMaterialReq.JobHead_PartNum`, not
+ * `Planning1.JobHead_PartNum`: the material export is the source that proves
+ * the parent/child relationship. `Planning1` only confirms that both job
+ * numbers are on the live board. Several rows normally name the same producing
+ * job, so the map also deduplicates them. If several open jobs build the same
+ * part, the earliest scheduled one wins; ties break on job number.
  */
-function suppliersByPart(jobs: Job[]): Map<string, Job> {
+function suppliersByPart(
+  jobsById: ReadonlyMap<string, Job>,
+  links: readonly JobMaterialLink[],
+): Map<string, Job> {
   const out = new Map<string, Job>();
-  for (const job of jobs) {
-    // A finished order is not a constraint; its parts already exist.
-    if (job.remainingQty <= 0) continue;
-    const key = String(job.partNum);
+  for (const link of links) {
+    const job = jobsById.get(String(link.jobNum));
+    const key = partKey(link.parentPart);
+    // A missing/finished order cannot constrain the live plan, and a blank
+    // parent part cannot be the producing end of a material relationship.
+    if (!job || job.remainingQty <= 0 || !key) continue;
     const held = out.get(key);
     if (
       !held ||
@@ -117,7 +125,7 @@ export function buildDependencies(
   links: readonly JobMaterialLink[],
 ): DependencyGraph {
   const byId = new Map(jobs.map((j) => [String(j.id), j]));
-  const supplier = suppliersByPart(jobs);
+  const supplier = suppliersByPart(byId, links);
   const byJob = new Map<string, Dependency[]>();
   const warnings: string[] = [];
   const seen = new Set<string>();
@@ -149,20 +157,26 @@ export function buildDependencies(
   }
 
   const mismatched = new Set<string>();
+  const missingJobs = new Set<string>();
   for (const link of links) {
     const consumer = byId.get(String(link.jobNum));
-    // A link for an order that is not open — already closed, or a department
-    // this board does not plan. Nothing to hold up.
-    if (!consumer) continue;
+    // First join: JobMtl_JobNum must be a current Planning1 JobHead_JobNum.
+    if (!consumer) {
+      missingJobs.add(String(link.jobNum));
+      continue;
+    }
     if (
       String(link.parentPart) &&
-      String(link.parentPart) !== String(consumer.partNum)
+      partKey(link.parentPart) !== partKey(consumer.partNum)
     ) {
       mismatched.add(String(link.jobNum));
     }
 
-    const made = supplier.get(String(link.childPart));
-    if (!made) continue; // bought in, or already on the shelf
+    // Second join, entirely inside JobMaterialReq: this row's child part must
+    // equal another material row's parent part. That row's JobMtl_JobNum is the
+    // producing order the consumer waits for.
+    const made = supplier.get(partKey(link.childPart));
+    if (!made) continue; // bought in, in stock, or no producing material row
     if (String(made.id) === String(consumer.id)) continue; // makes its own part
     add(consumer.id, made.id, link.childPart);
   }
@@ -173,6 +187,15 @@ export function buildDependencies(
       `JobMaterialReq.csv names a different part than Planning1.csv for ` +
         `${mismatched.size} order${mismatched.size === 1 ? '' : 's'} ` +
         `(${shown}${mismatched.size > 3 ? ', …' : ''}) — the links were still used.`,
+    );
+  }
+
+  if (missingJobs.size > 0) {
+    const shown = [...missingJobs].sort().slice(0, 3).join(', ');
+    warnings.push(
+      `JobMaterialReq.csv contains ${missingJobs.size} job${missingJobs.size === 1 ? '' : 's'} ` +
+        `not present in Planning1.csv (${shown}${missingJobs.size > 3 ? ', …' : ''}) — ` +
+        `their material links were ignored.`,
     );
   }
 

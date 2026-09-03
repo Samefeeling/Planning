@@ -257,7 +257,10 @@ describe('waiting on the orders that build the components', () => {
     const cover = job('COVER1', 1, { partNum: PartId('COVER') });
     const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
     const b = board([cover, chair], {
-      jobLinks: [link('CHAIR1', 'CHAIR', 'COVER')],
+      jobLinks: [
+        link('CHAIR1', 'CHAIR', 'COVER'),
+        link('COVER1', 'COVER', 'FABRIC'),
+      ],
     });
 
     const upstream = b.rowsByJob.get('COVER1')!;
@@ -278,7 +281,10 @@ describe('waiting on the orders that build the components', () => {
     const cover = job('COVER1', 2, { partNum: PartId('COVER') });
     const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
     const b = board([cover, chair], {
-      jobLinks: [link('CHAIR1', 'CHAIR', 'COVER')],
+      jobLinks: [
+        link('CHAIR1', 'CHAIR', 'COVER'),
+        link('COVER1', 'COVER', 'FABRIC'),
+      ],
     });
 
     expect(b.rowsByJob.get('COVER1')!.expectDate).toEqual(day(12));
@@ -293,6 +299,8 @@ describe('waiting on the orders that build the components', () => {
       jobLinks: [
         link('CHAIR1', 'CHAIR', 'COVER'),
         link('CHAIR1', 'CHAIR', 'FRAME'),
+        link('COVER1', 'COVER', 'FABRIC'),
+        link('FRAME1', 'FRAME', 'STEEL'),
       ],
     });
 
@@ -313,7 +321,10 @@ describe('waiting on the orders that build the components', () => {
     });
     const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
     const b = board([shell, chair], {
-      jobLinks: [link('CHAIR1', 'CHAIR', 'SHELL')],
+      jobLinks: [
+        link('CHAIR1', 'CHAIR', 'SHELL'),
+        link('SFM1', 'SHELL', 'RESIN'),
+      ],
     });
 
     const row = b.rowsByJob.get('CHAIR1')!;
@@ -336,7 +347,10 @@ describe('waiting on the orders that build the components', () => {
   it('moves the whole chain when the first order is dragged out', () => {
     const cover = job('COVER1', 1, { partNum: PartId('COVER') });
     const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
-    const links = [link('CHAIR1', 'CHAIR', 'COVER')];
+    const links = [
+      link('CHAIR1', 'CHAIR', 'COVER'),
+      link('COVER1', 'COVER', 'FABRIC'),
+    ];
 
     const before = board([cover, chair], { jobLinks: links });
     const after = board([cover, chair], {
@@ -495,7 +509,10 @@ describe('one order against the next', () => {
     const cover = job('COVER1', 1.5, { partNum: PartId('COVER') });
     const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
     const b = board([cover, chair], {
-      jobLinks: [link('CHAIR1', 'CHAIR', 'COVER')],
+      jobLinks: [
+        link('CHAIR1', 'CHAIR', 'COVER'),
+        link('COVER1', 'COVER', 'FABRIC'),
+      ],
       // Different people, so only the component holds the chair back.
       orderWorkers: { COVER1: ['W0'], CHAIR1: ['W1'] },
     });
@@ -512,7 +529,10 @@ describe('one order against the next', () => {
     const cover = job('COVER1', 1.5, { partNum: PartId('COVER') });
     const chair = job('CHAIR1', 1, { partNum: PartId('CHAIR') });
     const b = board([cover, chair], {
-      jobLinks: [link('CHAIR1', 'CHAIR', 'COVER')],
+      jobLinks: [
+        link('CHAIR1', 'CHAIR', 'COVER'),
+        link('COVER1', 'COVER', 'FABRIC'),
+      ],
       orderWorkers: { COVER1: ['W0'], CHAIR1: ['W1'] },
     });
     const next = b.rowsByJob.get('CHAIR1')!;

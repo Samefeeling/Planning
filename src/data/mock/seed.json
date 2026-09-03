@@ -13509,6 +13509,12 @@
       "requiredQty": 40
     },
     {
+      "jobNum": "ASM8018",
+      "parentPart": "SFA3S-STRM",
+      "childPart": "RM-FAB-STORM",
+      "requiredQty": 18
+    },
+    {
       "jobNum": "ASM8019",
       "parentPart": "SFA3S-STRM-SS",
       "childPart": "SFA3S-STRM",

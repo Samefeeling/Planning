@@ -177,12 +177,13 @@ plan goes back the other way, into the `ASSY_Production` list.
   The bands are exhaustive and non-overlapping.
 
 - **Dependencies across the four lines** — `JobMaterialReq.csv` says what each
-  order consumes (`JobMtl_JobNum` builds `JobHead_PartNum` from
-  `JobMtl_PartNum`). Wherever another open order is still making one of those
-  components, the parent cannot start until that order finishes — a chair on
-  ASSY waits for its cover on UPL and its shell on a press. An order waits for
-  the *latest* of its components; the bar carries a `⇠` marker and the
-  inspector lists each one, which order supplies it and when, with the one
+  order builds and consumes (`JobMtl_JobNum` builds `JobHead_PartNum` from
+  `JobMtl_PartNum`). A child part is matched to another material row's parent
+  part; that row's `JobMtl_JobNum` is the supplying order. Both job numbers must
+  exist in `Planning1.csv`. The parent cannot start until its supplier finishes
+  — a chair on ASSY waits for its cover on UPL and its shell on a press. An
+  order waits for the *latest* of its components; the bar carries a `⇠` marker
+  and the inspector lists each one, which order supplies it and when, with the one
   actually holding it up in bold. A component nobody is making is bought in or
   on the shelf, and constrains nothing. Press jobs that assembly is waiting on
   are pulled to the front of the PMD row so they can be chased.
@@ -294,22 +295,26 @@ the whole chain; the rest are ignored.
 | CSV column | Becomes | Note |
 | --- | --- | --- |
 | `JobMtl_JobNum` | the order that consumes | must also appear in `Planning1.csv`, or the row is skipped |
-| `JobHead_PartNum` | the part that order builds | cross-checked against the order export; a disagreement is warned about, not fatal |
-| `JobMtl_PartNum` | the component consumed | this is what creates the wait |
+| `JobHead_PartNum` | the part that order builds | indexed inside this export; also cross-checked against Planning1 |
+| `JobMtl_PartNum` | the component consumed | matched to another row's `JobHead_PartNum` |
 | `JobMtl_RequiredQty` | quantity | carried, not yet used for scheduling |
 
 Both part columns end in `PartNum`, so header matching deliberately strips only
 the `JobHead_` prefix — a bare `PartNum` is never taken for the component,
 because one part column cannot say which end of a link it is.
 
-The rule, in `engine/assembly/dependencies.ts`: for each component, find the
-open order whose `PartNum` is that component. If there is one, the consumer
-waits for it to finish. If there is none, the component is bought in or already
-on the shelf and nothing waits. Where several batches of the same part are
-open, the consumer waits for the one scheduled **first** — the earliest supply
-it could take, not all of them — with ties broken on job number so the same
-export always yields the same schedule. Circular links (two orders each listing
-the other's part) are broken deterministically and reported in the header.
+The rule, in `engine/assembly/dependencies.ts`, is a two-stage join. First,
+`JobMtl_JobNum` must equal a current `Planning1.csv` `JobHead_JobNum`. Second,
+each `JobMtl_PartNum` child is matched to the `JobHead_PartNum` parent on another
+`JobMaterialReq.csv` row; that row's `JobMtl_JobNum` is the order the consumer
+waits for. Part matching ignores case and surrounding spaces. A component with
+no producing material row is bought in, already on the shelf, or outside the
+current export and constrains nothing. Where several batches of the same part
+are open, the consumer waits for the one scheduled **first** — the earliest
+supply it could take, not all of them — with ties broken on job number so the
+same export always yields the same schedule. Circular links (two orders each
+listing the other's part) are broken deterministically and reported in the
+header.
 
 An order that has no material export at all schedules exactly as before, so
 this file is optional.
