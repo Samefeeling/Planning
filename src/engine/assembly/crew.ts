@@ -6,8 +6,8 @@
  * has no bar, no Expect Date and no share of the load. Eighty such orders is
  * not a schedule, and staffing them one at a time is not a morning's work.
  *
- * So: hand every unstaffed order a crew drawn from the people qualified for
- * its line, cycling through them down the queue. The result is a starting
+ * So: hand every unstaffed order a crew drawn from the operators currently
+ * placed on its line, cycling through them down the queue. The result is a starting
  * point, not an answer — it knows nothing about who is good at what, and the
  * supervisor is expected to change it. That is why it only ever *adds*: an
  * order somebody has already crewed is left exactly as it is.
@@ -17,7 +17,6 @@
 
 import {
   MAX_WORKERS_PER_ORDER,
-  canWorkKind,
   type CrewAssignment,
   type LineKey,
   type Worker,
@@ -32,7 +31,7 @@ export interface CrewSuggestion {
   allocations: Record<string, string[]>;
   /** How many orders were given a crew. */
   staffed: number;
-  /** Orders left alone because nobody on shift is qualified for their line. */
+  /** Orders left alone because their current line roster has nobody available. */
   unstaffed: number;
 }
 
@@ -284,33 +283,6 @@ interface Span {
 const clashesWith = (booked: Span[] | undefined, want: Span): boolean =>
   (booked ?? []).some((s) => s.from < want.to && want.from < s.to);
 
-/**
- * Who to reach for first on a line.
- *
- * Skill leads. `ASSY_Operator.Skills` is written in order, so whoever has this
- * line first is trained on it before their other lines, and comes before
- * somebody helping out from a line they know better.
- *
- * Then the roster order. The list itself is the priority list — the row at the
- * top is the first name the supervisor wants on the job — so it is read as
- * written rather than reordered into whoever happens to be carrying least.
- * Anyone already busy across the order's days has been filtered out before
- * this runs, so the top of the list is the top of *those free to take it*.
- */
-export function preferredCrewOrder(
-  roster: Worker[],
-  line: LineKey,
-): (a: Worker, b: Worker) => number {
-  const listed = new Map(roster.map((w, i) => [String(w.id), i]));
-  const skill = (w: Worker): number => {
-    const at = w.skills.indexOf(line);
-    return at < 0 ? w.skills.length : at;
-  };
-  return (a, b) =>
-    skill(a) - skill(b) ||
-    (listed.get(String(a.id)) ?? 0) - (listed.get(String(b.id)) ?? 0);
-}
-
 /** Orders on a schedulable line with nobody on them and work left to do. */
 const waitingRows = (board: AssemblyGanttView): OrderRow[] =>
   board.groups
@@ -342,6 +314,7 @@ const MAX_WAVES = 40;
 function staffOneWave(
   board: AssemblyGanttView,
   into: Record<string, string[]>,
+  workerLines: ReadonlyMap<string, LineKey>,
 ): number {
   // Who is committed when, from the board as it stands.
   const booked = new Map<string, Span[]>();
@@ -359,14 +332,19 @@ function staffOneWave(
   for (const group of board.groups) {
     if (!group.line.schedulable) continue;
 
-    // Same rule as the crew picker: in today, and qualified for this line.
-    // The trade is per order, not per line — a cutter is no use on a softie —
-    // so it is applied inside the loop below.
+    // Same rule as the crew picker: the operator's supervisor-owned current
+    // line, independent of legacy Skills and Trades columns.
     const onLine: Worker[] = board.workers.filter(
-      (w) => w.onShift && w.skills.includes(group.line.key),
+      (w) =>
+        w.onShift && workerLines.get(String(w.id)) === group.line.key,
     );
     if (onLine.length === 0) continue;
-    const prefer = preferredCrewOrder(board.workers, group.line.key);
+    const rosterIndex = new Map(
+      board.workers.map((worker, index) => [String(worker.id), index]),
+    );
+    const prefer = (a: Worker, b: Worker) =>
+      (rosterIndex.get(String(a.id)) ?? 0) -
+      (rosterIndex.get(String(b.id)) ?? 0);
 
     const waiting = group.rows
       .filter(
@@ -384,10 +362,7 @@ function staffOneWave(
     // will have moved it out by the next round, and if it never becomes
     // staffable it is left for the supervisor, which is the honest answer.
     for (const next of waiting) {
-      // Only the people who work this bench. Cutting, softies and upholstering
-      // are different trades on one line, and swapping them is not a matter of
-      // preference — see `canWorkKind`.
-      const pool = onLine.filter((w) => canWorkKind(w, next.kind));
+      const pool = onLine;
       if (pool.length === 0) continue;
 
       // Build the team one at a time. Each person added shortens the bar, so
@@ -449,12 +424,17 @@ function staffOneWave(
 export function suggestCrew(
   board: AssemblyGanttView,
   recompute?: (allocations: Record<string, string[]>) => AssemblyGanttView,
+  workerLines: ReadonlyMap<string, LineKey> = new Map(
+    board.workers.flatMap((worker) =>
+      worker.skills[0] ? [[String(worker.id), worker.skills[0]]] : [],
+    ),
+  ),
 ): CrewSuggestion {
   const allocations: Record<string, string[]> = {};
   let view = board;
 
   for (let wave = 0; wave < MAX_WAVES; wave++) {
-    if (staffOneWave(view, allocations) === 0) break;
+    if (staffOneWave(view, allocations, workerLines) === 0) break;
     if (!recompute) break;
     view = recompute(allocations);
   }

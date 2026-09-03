@@ -14,6 +14,7 @@ import type { Job, WorkCenter } from '@/domain/types';
 import {
   MAX_WORKERS_PER_ORDER,
   type CrewAssignment,
+  type LineKey,
 } from '@/domain/assembly';
 
 /** Container id for the un-scheduled job pool. */
@@ -70,6 +71,8 @@ interface PlanState {
 
   /** Legacy mirror of whole-order allocations; bounded windows live below. */
   orderWorkers: Record<string, string[]>;
+  /** Supervisor-owned current production line for each operator. */
+  workerLines: Record<string, LineKey>;
   /** Canonical, date-bounded crew plan. Old `orderWorkers` migrate into this. */
   orderCrewAssignments: Record<string, CrewAssignment[]>;
   /** Job id → ISO day the planner dragged the bar to. */
@@ -128,6 +131,8 @@ interface PlanState {
    * supervisor's and is never overwritten.
    */
   assignCrews: (allocations: Record<string, string[]>) => void;
+  /** Move an operator's roster position; started work makes them immovable. */
+  moveWorkerToLine: (workerId: string, line: LineKey) => void;
   /** Pin an order's bar to a start day (null clears the pin). */
   setOrderStart: (jobId: JobId, isoDay: string | null) => void;
   startOrder: (jobId: JobId, record: ActualStartRecord) => void;
@@ -145,6 +150,7 @@ interface PlanState {
   /** Replace the assembly plan wholesale (e.g. loaded from persistence). */
   setAssemblyPlan: (plan: {
     orderWorkers?: Record<string, string[]>;
+    workerLines?: Record<string, LineKey>;
     orderCrewAssignments?: Record<string, CrewAssignment[]>;
     orderStarts?: Record<string, string>;
     orderActualStarts?: Record<string, ActualStartRecord>;
@@ -239,6 +245,7 @@ const legacyWorkers = (assignments: CrewAssignment[]): string[] =>
 export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
   orderWorkers: {},
+  workerLines: {},
   orderCrewAssignments: {},
   orderStarts: {},
   orderActualStarts: {},
@@ -328,6 +335,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   assignWorkerWindow(jobId, workerId, fromDay, toDayExclusive) {
     set((state) => {
       const key = String(jobId);
+      if (state.orderActualStarts[key]) return state;
       if (fromDay && toDayExclusive && fromDay >= toDayExclusive) return state;
       const current =
         state.orderCrewAssignments[key] ??
@@ -358,6 +366,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   updateWorkerWindow(jobId, workerId, fromDay, toDayExclusive) {
     set((state) => {
       const key = String(jobId);
+      if (state.orderActualStarts[key]) return state;
       if (fromDay && toDayExclusive && fromDay >= toDayExclusive) return state;
       const current =
         state.orderCrewAssignments[key] ??
@@ -378,6 +387,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   unassignWorker(jobId, workerId) {
     set((state) => {
       const key = String(jobId);
+      if (state.orderActualStarts[key]) return state;
       const current = state.orderWorkers[key] ?? [];
       const assignments =
         state.orderCrewAssignments[key] ??
@@ -429,6 +439,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const orderCrewAssignments = { ...state.orderCrewAssignments };
       let changed = false;
       for (const [jobId, crew] of Object.entries(allocations)) {
+        if (state.orderActualStarts[jobId]) continue;
         if (
           (orderCrewAssignments[jobId] ?? []).length > 0 ||
           (orderWorkers[jobId] ?? []).length > 0 ||
@@ -439,6 +450,71 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         changed = true;
       }
       return changed ? { orderWorkers, orderCrewAssignments } : state;
+    });
+  },
+
+  moveWorkerToLine(workerId, line) {
+    set((state) => {
+      const assignmentsFor = (jobId: string): CrewAssignment[] =>
+        state.orderCrewAssignments[jobId] ??
+        fullAssignments(state.orderWorkers[jobId] ?? []);
+      const hasWorker = (jobId: string): boolean =>
+        assignmentsFor(jobId).some(
+          (assignment) => assignment.workerId === workerId,
+        );
+
+      // Once production has started, the recorded crew is an operational fact
+      // and cannot be rewritten by moving a name in the planning roster.
+      if (
+        Object.keys(state.orderActualStarts).some(
+          (jobId) => state.orderActualStarts[jobId] && hasWorker(jobId),
+        )
+      ) return state;
+
+      const containerByJob = new Map<string, string>();
+      for (const [container, jobIds] of Object.entries(state.containers)) {
+        for (const jobId of jobIds) containerByJob.set(String(jobId), container);
+      }
+
+      const affected = Object.keys({
+        ...state.orderWorkers,
+        ...state.orderCrewAssignments,
+      }).filter(
+        (jobId) =>
+          hasWorker(jobId) &&
+          !state.orderActualStarts[jobId] &&
+          containerByJob.get(jobId) !== line,
+      );
+      const orderWorkers = { ...state.orderWorkers };
+      const orderCrewAssignments = { ...state.orderCrewAssignments };
+      const orderDoubleBooked = { ...state.orderDoubleBooked };
+
+      for (const jobId of affected) {
+        const next = assignmentsFor(jobId).filter(
+          (assignment) => assignment.workerId !== workerId,
+        );
+        if (next.length > 0) orderCrewAssignments[jobId] = next;
+        else delete orderCrewAssignments[jobId];
+        const legacy = legacyWorkers(next);
+        if (legacy.length > 0) orderWorkers[jobId] = legacy;
+        else delete orderWorkers[jobId];
+      }
+      for (const [jobId, workers] of Object.entries(orderDoubleBooked)) {
+        // An approval may be stored against either side of the old overlap.
+        // Once a line move removes any assignment, expire every approval for
+        // this worker so a future clash always needs a fresh decision.
+        if (affected.length === 0) continue;
+        const next = workers.filter((id) => id !== workerId);
+        if (next.length > 0) orderDoubleBooked[jobId] = next;
+        else delete orderDoubleBooked[jobId];
+      }
+
+      return {
+        workerLines: { ...state.workerLines, [workerId]: line },
+        orderWorkers,
+        orderCrewAssignments,
+        orderDoubleBooked,
+      };
     });
   },
 
@@ -572,6 +648,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         );
       return {
         orderWorkers,
+        workerLines: plan.workerLines ?? state.workerLines,
         orderCrewAssignments,
         orderStarts: plan.orderStarts ?? state.orderStarts,
         orderActualStarts: plan.orderActualStarts ?? state.orderActualStarts,
@@ -603,6 +680,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({
       containers: seed(workCenters, jobs),
       orderWorkers: {},
+      workerLines: {},
       orderCrewAssignments: {},
       orderStarts: {},
       orderActualStarts: {},

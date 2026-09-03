@@ -516,7 +516,7 @@ describe('the UPL benches and the chain through them', () => {
     }
   });
 
-  it('offers the auto-fill nobody from the wrong bench', () => {
+  it('offers auto-fill only from the operator current line roster', () => {
     // Nothing crewed at all, so every order is filled from scratch.
     const bare = build({ orderWorkers: {} });
     const { allocations } = suggestCrew(bare, (soFar) =>
@@ -527,10 +527,8 @@ describe('the UPL benches and the chain through them', () => {
     for (const [jobId, crew] of Object.entries(allocations)) {
       const row = bare.rowsByJob.get(jobId)!;
       for (const id of crew) {
-        expect(
-          canWorkKind(byId.get(id)!, row.kind),
-          `${byId.get(id)!.name} on ${jobId} (${row.kind})`,
-        ).toBe(true);
+        expect(byId.get(id)!.skills[0], `${byId.get(id)!.name} on ${jobId}`)
+          .toBe(row.line.key);
         checked++;
       }
     }

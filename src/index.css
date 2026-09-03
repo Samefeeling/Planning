@@ -463,6 +463,23 @@ button {
   --team-w: 172px;
   font-size: 12px;
 }
+.dependency-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  overflow: visible;
+  pointer-events: none;
+}
+.dependency-arrow {
+  fill: none;
+  stroke: #475569;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.82;
+}
+.dependency-layer marker path { fill: #475569; }
 .assy-summary {
   display: flex;
   gap: 6px;
@@ -1392,6 +1409,20 @@ body.col-resizing {
   background: #dbeafe;
   border-color: #93c5fd;
 }
+.worker-name:not(.drag-locked) { cursor: grab; }
+.worker-name.dragging { opacity: 0.45; cursor: grabbing; }
+.worker-name.drag-locked { cursor: pointer; }
+.worker-drag-overlay {
+  padding: 5px 10px;
+  border: 1px solid #60a5fa;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 8px 20px rgba(30, 41, 59, 0.2);
+  cursor: grabbing;
+}
 /*
  * Five squares, one per working day of the window, in the same bands as the
  * day columns above the board. An idle day is drawn hollow rather than green:
@@ -1423,10 +1454,8 @@ body.col-resizing {
   border-color: var(--border);
 }
 .worker-load {
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  z-index: 40;
+  position: fixed;
+  z-index: 70;
   width: 430px;
   max-width: 78vw;
   padding: 9px 11px 11px;

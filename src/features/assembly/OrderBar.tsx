@@ -173,12 +173,12 @@ export function OrderBar({
     left,
     gridWidth,
     overtime: row.overtime,
-    waiting: Boolean(row.waitingOn),
   });
 
   return (
     <div
       ref={setNodeRef}
+      data-job-id={id}
       className={`bar ${row.status.color} ${selected ? 'selected' : ''} ${
         isDragging ? 'dragging' : ''
       } ${readOnly ? 'readonly' : ''} ${row.overtime ? 'overtime' : ''} ${
@@ -226,19 +226,6 @@ export function OrderBar({
         {row.overtime && (
           <span className="bar-ot" title="Weekend overtime approved">
             OT
-          </span>
-        )}
-        {row.waitingOn && (
-          <span
-            className="bar-wait"
-            title={
-              `Held until ${String(row.waitingOn.onJobId)} is finished` +
-              (row.waitingOn.part
-                ? ` — it makes ${String(row.waitingOn.part)}`
-                : '')
-            }
-          >
-            ⇠
           </span>
         )}
       </span>

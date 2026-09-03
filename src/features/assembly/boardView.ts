@@ -150,10 +150,9 @@ export function activeWorkerIdsOnDay(
  * shade wide is right: a borderline label goes outside rather than being cut.
  */
 const LABEL_CHAR_PX = 6.9;
-/** The bar's own padding, and room for the overtime and waiting markers. */
+/** The bar's own padding, and room for the overtime marker. */
 const LABEL_PADDING_PX = 14;
 const OT_MARKER_PX = 22;
-const WAIT_MARKER_PX = 15;
 /**
  * Under half a day the block has bottomed out at its minimum width, so its
  * length tells you nothing and the tag carries the hours instead.
@@ -190,7 +189,6 @@ export function barTag(bar: {
   left: number;
   gridWidth: number;
   overtime: boolean;
-  waiting: boolean;
 }): BarTag {
   const stub = bar.spanDays < STUB_DAYS;
   const text =
@@ -200,8 +198,7 @@ export function barTag(bar: {
   const needed =
     text.length * LABEL_CHAR_PX +
     LABEL_PADDING_PX +
-    (bar.overtime ? OT_MARKER_PX : 0) +
-    (bar.waiting ? WAIT_MARKER_PX : 0);
+    (bar.overtime ? OT_MARKER_PX : 0);
   const outside = bar.width < needed;
   return {
     text,
@@ -214,11 +211,9 @@ export function barTag(bar: {
 /**
  * Which line each person is on today.
  *
- * Somebody trained on two lines is qualified for both, but at any one moment
- * they are standing at one of them — so the board shows them once, on the line
- * their work today is on. With nothing on today they sit under the first line
- * in their `skills`, the one they normally work; the Team header's free list
- * is what says they could be pulled anywhere.
+ * An explicit supervisor drag always wins. Before the first drag, today's
+ * scheduled work chooses the line; with nothing today, the first legacy Skill
+ * is used once as the initial placement.
  *
  * Their week of squares still counts every order they are on, whichever line
  * it belongs to: the question those answer is "how much room has this person
@@ -228,6 +223,7 @@ export function lineOfWorkerToday(
   workers: Worker[],
   rows: OrderRow[],
   today: Date,
+  overrides: Readonly<Record<string, LineKey>> = {},
 ): Map<string, LineKey> {
   const key = crewDayKey(today);
   const at = new Map<string, LineKey>();
@@ -238,10 +234,16 @@ export function lineOfWorkerToday(
       : row.workers.map((worker) => String(worker.id));
     // First order of the day wins. There should only be one — the schedule
     // will not put anyone on two at once unless a supervisor said so.
-    for (const id of onDay) if (!at.has(id)) at.set(id, row.line.key);
+    for (const id of onDay) {
+      if (!overrides[id] && !at.has(id)) at.set(id, row.line.key);
+    }
   }
   for (const worker of workers) {
     const id = String(worker.id);
+    if (overrides[id]) {
+      at.set(id, overrides[id]);
+      continue;
+    }
     if (!at.has(id) && worker.skills.length > 0) at.set(id, worker.skills[0]);
   }
   return at;

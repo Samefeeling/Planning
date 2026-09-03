@@ -36,6 +36,7 @@ export default function App() {
 
   const containers = usePlanStore((s) => s.containers);
   const orderWorkers = usePlanStore((s) => s.orderWorkers);
+  const workerLines = usePlanStore((s) => s.workerLines);
   const orderCrewAssignments = usePlanStore((s) => s.orderCrewAssignments);
   const orderStarts = usePlanStore((s) => s.orderStarts);
   const orderActualStarts = usePlanStore((s) => s.orderActualStarts);
@@ -92,6 +93,7 @@ export default function App() {
         containers,
         assembly: {
           orderWorkers,
+          workerLines,
           orderCrewAssignments,
           orderStarts,
           orderActualStarts,
@@ -107,6 +109,7 @@ export default function App() {
   }, [
     containers,
     orderWorkers,
+    workerLines,
     orderCrewAssignments,
     orderStarts,
     orderActualStarts,
@@ -119,6 +122,12 @@ export default function App() {
 
   const activeJob =
     dnd.activeJobId && board ? board.jobsById.get(dnd.activeJobId) : null;
+  const activeWorker =
+    dnd.activeWorkerId && board
+      ? board.workers.find(
+          (worker) => String(worker.id) === dnd.activeWorkerId,
+        )
+      : null;
 
   return (
     <div className="app">
@@ -184,7 +193,9 @@ export default function App() {
         </div>
 
         <DragOverlay dropAnimation={null}>
-          {activeJob ? (
+          {activeWorker ? (
+            <div className="worker-drag-overlay">{activeWorker.name}</div>
+          ) : activeJob ? (
             <div className="ord" style={{ cursor: 'grabbing', width: 240 }}>
               <div className="ord-head">
                 <span className="ord-job">{String(activeJob.id)}</span>

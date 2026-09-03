@@ -1,6 +1,6 @@
 /**
  * The crew on an order. Up to four people; click a chip to take someone off,
- * "+" to add from the qualified people on shift.
+ * "+" to add from the people currently placed on this production line.
  *
  * Only a supervisor decides who works an order, so both actions are behind the
  * supervisor unlock (`store/supervisorStore`). Booking the shift's output in
@@ -13,18 +13,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
-import type { Worker } from '@/domain/assembly';
+import type { LineKey, Worker } from '@/domain/assembly';
 import {
   MAX_WORKERS_PER_ORDER,
   SHIFT_END_HOUR,
-  canWorkKind,
-  type WorkKind,
 } from '@/domain/assembly';
 import {
   clashesFor,
   clashesOnBoard,
   freeCrewWindow,
-  preferredCrewOrder,
   type FreeCrewWindow,
 } from '@/engine/assembly/crew';
 import { crewDayKey } from '@/engine/assembly/crewSchedule';
@@ -61,14 +58,6 @@ const clockTime = (hour: number): string =>
   `${String(Math.floor(hour)).padStart(2, '0')}:${String(
     Math.round((hour % 1) * 60),
   ).padStart(2, '0')}`;
-
-/** How a bench reads in a sentence. */
-const KIND_LABEL: Record<WorkKind, string> = {
-  general: 'this line',
-  'cut-sew': 'cutting and sewing',
-  'smart-softie': 'smart softies',
-  upholstery: 'upholstery',
-};
 
 export interface CrewPickerStatus {
   primary: string;
@@ -122,12 +111,15 @@ export function TeamChips({
   row,
   roster,
   rows,
+  workerLines,
   disabled = false,
 }: {
   row: OrderRow;
   roster: Worker[];
   /** Every row on the board — an overlap on another line counts too. */
   rows: OrderRow[];
+  /** Current supervisor-owned line placement for every visible operator. */
+  workerLines: ReadonlyMap<string, LineKey>;
   disabled?: boolean;
 }) {
   const jobId = String(row.job.id);
@@ -192,20 +184,16 @@ export function TeamChips({
       .filter(Boolean)
       .join(' · ');
 
-  // Only people who are in today and qualified for this line. Those already
-  // busy across these days come last — still offered, because a supervisor
-  // may know something the schedule does not, but not offered first. Among
-  // those free, the same order the board fills a crew in: best skill for this
-  // line, then straight down the roster, which is written as a priority list.
-  const prefer = preferredCrewOrder(roster, row.line.key);
+  const rosterIndex = new Map(
+    roster.map((worker, index) => [String(worker.id), index]),
+  );
+  // Skills and trades are legacy source data, not allocation gates. The
+  // draggable production-line roster is the only eligibility rule here.
   const candidates = roster
     .filter(
       (w) =>
         w.onShift &&
-        w.skills.includes(row.line.key) &&
-        // The line is not one bench: cutting, softies and upholstering are
-        // different trades, and only the people who work this one are offered.
-        canWorkKind(w, row.kind) &&
+        workerLines.get(String(w.id)) === row.line.key &&
         !onIt.has(String(w.id)),
     )
     .map((w) => ({
@@ -215,7 +203,9 @@ export function TeamChips({
     }))
     .sort(
       (a, b) =>
-        a.busy.length - b.busy.length || prefer(a.worker, b.worker),
+        a.busy.length - b.busy.length ||
+        (rosterIndex.get(String(a.worker.id)) ?? 0) -
+          (rosterIndex.get(String(b.worker.id)) ?? 0),
     );
 
   const add = (
@@ -400,18 +390,14 @@ export function TeamChips({
                 </div>
               ) : candidates.length === 0 ? (
                 <div className="picker-empty">
-                  {/* Name the bench, not just the line: "nobody on UPL" reads
-                      as a staffing problem when the answer is that only two
-                      people do softies and both are already on this order. */}
-                  Nobody who works {KIND_LABEL[row.kind]} on {row.line.name} is
-                  free
+                  Nobody assigned to {row.line.name} is free
                 </div>
               ) : (
                 candidates.map(({ worker: w, busy, free }) => {
                   const status = crewPickerStatus(
                     free,
                     busy.map((other) => String(other.job.id)),
-                    w.position ?? w.skills.join(' · '),
+                    w.position ?? row.line.name,
                   );
                   return (
                     <button

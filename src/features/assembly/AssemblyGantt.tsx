@@ -11,7 +11,7 @@
  */
 
 import { useDroppable } from '@dnd-kit/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AssemblyGanttView,
   LineGroup,
@@ -32,7 +32,8 @@ import {
   rosterLoad,
   type WorkerLoad,
 } from '@/engine/assembly/workload';
-import { preferredCrewOrder } from '@/engine/assembly/crew';
+import { usePlanStore } from '@/store/planStore';
+import { useSupervisorStore } from '@/store/supervisorStore';
 import {
   MAX_ORDER_WIDTH,
   MIN_ORDER_WIDTH,
@@ -44,6 +45,7 @@ import {
 import { OrderBar } from './OrderBar';
 import { TeamChips } from './TeamChips';
 import { WorkerLoadChip } from './WorkerLoadChip';
+import { DependencyArrows } from './DependencyArrows';
 import {
   activeWorkerIdsOnDay,
   isInNextWorkingDays,
@@ -105,6 +107,7 @@ function OrderRowView({
   orderWidth,
   visibleDates,
   showWeekends,
+  workerLines,
 }: {
   row: OrderRow;
   board: AssemblyGanttView;
@@ -117,6 +120,7 @@ function OrderRowView({
   orderWidth: number;
   visibleDates: DateCols;
   showWeekends: boolean;
+  workerLines: ReadonlyMap<string, LineKey>;
 }) {
   const isContext = !row.line.schedulable;
   let dateOffset = orderWidth + QTY_W + HOURS_W;
@@ -193,7 +197,8 @@ function OrderRowView({
             row={row}
             roster={board.workers}
             rows={allRows}
-            disabled={row.completedToday}
+            workerLines={workerLines}
+            disabled={row.completedToday || Boolean(row.actualStart)}
           />
         )}
       </div>
@@ -222,9 +227,8 @@ function OrderRowView({
  * load. One roster across the top of the board could not say which of those
  * names mattered to the line you were reading; here it is the same row.
  *
- * Once each: somebody trained on two lines is qualified for both but is only
- * ever at one of them, so they appear on the line their work today is on. See
- * `lineOfWorkerToday`.
+ * Each operator appears once, on the line the supervisor currently owns in
+ * the draggable roster. See `lineOfWorkerToday`.
  */
 function LineGroupView({
   group,
@@ -242,6 +246,7 @@ function LineGroupView({
   collapsed,
   onToggle,
   filtered,
+  unlocked,
 }: {
   group: LineGroup;
   board: AssemblyGanttView;
@@ -260,10 +265,15 @@ function LineGroupView({
   collapsed: boolean;
   onToggle: () => void;
   filtered: boolean;
+  unlocked: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: String(group.line.id),
-    data: { type: 'line', lineId: String(group.line.id) },
+    data: {
+      type: 'line',
+      lineId: String(group.line.id),
+      lineKey: group.line.key,
+    },
     disabled: !group.line.schedulable,
   });
   const load = group.load;
@@ -273,12 +283,8 @@ function LineGroupView({
         .filter(
           (worker) =>
             worker.onShift &&
-            worker.skills.includes(group.line.key) &&
-            // One person, one line: whoever is standing here today, not
-            // everyone who could be.
             todayLine.get(String(worker.id)) === group.line.key,
-        )
-        .sort(preferredCrewOrder(board.workers, group.line.key)),
+        ),
     [board.workers, group.line.key, todayLine],
   );
 
@@ -330,7 +336,7 @@ function LineGroupView({
         {crew.length > 0 && (
           <span
             className="agroup-roster"
-            title={`In today and trained on ${group.line.name}, in the order the board picks them`}
+            title={`Operators currently assigned to ${group.line.name}`}
           >
             {crew.map((worker) => {
               const week = rosterLoads.get(String(worker.id));
@@ -339,6 +345,18 @@ function LineGroupView({
                   key={String(worker.id)}
                   worker={worker}
                   load={week}
+                  line={group.line.key}
+                  dragDisabled={
+                    !unlocked ||
+                    allRows.some(
+                      (row) =>
+                        Boolean(row.actualStart) &&
+                        row.workers.some(
+                          (assigned) =>
+                            String(assigned.id) === String(worker.id),
+                        ),
+                    )
+                  }
                 />
               ) : null;
             })}
@@ -371,6 +389,7 @@ function LineGroupView({
             orderWidth={orderWidth}
             visibleDates={visibleDates}
             showWeekends={showWeekends}
+            workerLines={todayLine}
           />
         ))
       ))}
@@ -379,6 +398,7 @@ function LineGroupView({
 }
 
 export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
+  const root = useRef<HTMLDivElement>(null);
   const select = useUiStore((s) => s.select);
   const selectedJobId = useUiStore((s) => s.selectedJobId);
   const dayWidth = useUiStore((s) => s.dayWidth);
@@ -388,6 +408,8 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const toggleDate = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
   const showWeekends = useUiStore((s) => s.showWeekends);
+  const workerLineOverrides = usePlanStore((s) => s.workerLines);
+  const unlocked = useSupervisorStore((s) => s.unlocked);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     PMD: true,
   });
@@ -445,11 +467,17 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     [board, allRows],
   );
   const allocated = activeWorkerIdsOnDay(allRows, board.today);
-  // One row per person: the line their work today is on, else the line they
-  // normally work. Somebody qualified for two is not in two places at once.
+  // One row per person: an explicit drag wins; source data supplies only the
+  // initial line for plans that have never placed that person.
   const todayLine = useMemo(
-    () => lineOfWorkerToday(board.workers, allRows, board.today),
-    [board.workers, allRows, board.today],
+    () =>
+      lineOfWorkerToday(
+        board.workers,
+        allRows,
+        board.today,
+        workerLineOverrides,
+      ),
+    [board.workers, allRows, board.today, workerLineOverrides],
   );
   const attendanceIds = new Set(attendance.map((worker) => String(worker.id)));
   const allocatedOnSite = [...allocated].filter((id) => attendanceIds.has(id)).length;
@@ -545,6 +573,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
 
   return (
     <div
+      ref={root}
       className="assy"
       style={
         {
@@ -580,6 +609,8 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           }
         />
       )}
+
+      <DependencyArrows root={root} rows={visibleRows} />
 
       <div className="assy-sticky">
         {/* Who is in, and how much of them is spoken for. The names themselves
@@ -716,6 +747,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           collapsed={Boolean(collapsed[group.line.key])}
           onToggle={() => setCollapsed((current) => ({ ...current, [group.line.key]: !current[group.line.key] }))}
           filtered={orderWindow === 'next-five'}
+          unlocked={unlocked}
         />
       ))}
     </div>

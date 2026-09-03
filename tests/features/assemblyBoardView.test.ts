@@ -112,7 +112,6 @@ describe('barTag', () => {
       left: 0,
       gridWidth: 1400,
       overtime: false,
-      waiting: false,
       ...over,
     });
 
@@ -147,11 +146,10 @@ describe('barTag', () => {
     expect(bar({ width: 20, left: 1340 }).flip).toBe(true);
   });
 
-  it('makes room for the overtime and waiting markers', () => {
+  it('makes room for the overtime marker', () => {
     // Wide enough for the name alone, not once a marker sits beside it.
     expect(bar({ width: 76 }).outside).toBe(false);
     expect(bar({ width: 76, overtime: true }).outside).toBe(true);
-    expect(bar({ width: 76, waiting: true }).outside).toBe(true);
   });
 });
 
@@ -202,6 +200,14 @@ describe('lineOfWorkerToday', () => {
       TODAY,
     );
     expect(at.get('W1')).toBe('UPL');
+  });
+
+  it('uses the supervisor drag placement ahead of legacy skills and work', () => {
+    const bill = person('Bill', ['UPL', 'ASSY']);
+    const rows = [onLine('OLD', 'UPL', TODAY, ['Bill'])];
+    expect(
+      lineOfWorkerToday([bill], rows, TODAY, { Bill: 'TABLE' }).get('Bill'),
+    ).toBe('TABLE');
   });
 
   it('never lands anyone on two lines at once', () => {

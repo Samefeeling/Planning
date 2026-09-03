@@ -8,10 +8,11 @@
  * view, the same hours totalled per day across every order the person is on.
  */
 
-import { useEffect, useRef, useState } from 'react';
-import type { Worker } from '@/domain/assembly';
+import { useDraggable } from '@dnd-kit/core';
+import { createPortal } from 'react-dom';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { LineKey, Worker } from '@/domain/assembly';
 import {
-  LOAD_WINDOW_DAYS,
   dayBand,
   loadPreview,
   type WorkerLoad,
@@ -28,20 +29,78 @@ const hrs = (n: number): string => `${n.toFixed(1)} h`;
 export function WorkerLoadChip({
   worker,
   load,
+  line,
+  dragDisabled,
 }: {
   worker: Worker;
   /** This person's week, computed once for the whole roster by the board. */
   load: WorkerLoad;
+  line: LineKey;
+  dragDisabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
   const wrap = useRef<HTMLSpanElement>(null);
+  const anchor = useRef<HTMLButtonElement | null>(null);
+  const popup = useRef<HTMLDivElement>(null);
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `worker:${String(worker.id)}`,
+    disabled: dragDisabled,
+    data: { type: 'worker', workerId: String(worker.id), line },
+  });
+
+  const workingDays = load.days.filter((day) => day.working).slice(0, 5);
+  const totalHours = workingDays.reduce((sum, day) => sum + day.hours, 0);
+  const capacityHours = workingDays.reduce(
+    (sum, day) => sum + day.capacity,
+    0,
+  );
+  const orderCount = new Set(
+    workingDays.flatMap((day) => day.entries.map((entry) => String(entry.jobId))),
+  ).size;
+  const overloadedDays = workingDays.filter((day) => day.over).length;
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const button = anchor.current;
+      const panel = popup.current;
+      if (!button || !panel) return;
+      const gap = 8;
+      const margin = 12;
+      const target = button.getBoundingClientRect();
+      const box = panel.getBoundingClientRect();
+      let left = target.left;
+      if (left + box.width > window.innerWidth - margin) {
+        left = target.right - box.width;
+      }
+      left = Math.max(margin, Math.min(left, window.innerWidth - box.width - margin));
+      let top = target.bottom + gap;
+      if (top + box.height > window.innerHeight - margin) {
+        top = target.top - box.height - gap;
+      }
+      top = Math.max(margin, Math.min(top, window.innerHeight - box.height - margin));
+      setPosition({ left, top });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open, worker.id]);
 
   useEffect(() => {
     if (!open) return;
     const close = (e: Event) => {
       // The button lives inside the wrapper too, so clicking it again toggles
       // rather than closing and immediately reopening.
-      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (
+        !wrap.current?.contains(target) &&
+        !popup.current?.contains(target)
+      ) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -54,8 +113,8 @@ export function WorkerLoadChip({
     };
   }, [open]);
 
-  const pct = load.capacityHours
-    ? Math.round((load.totalHours / load.capacityHours) * 100)
+  const pct = capacityHours
+    ? Math.round((totalHours / capacityHours) * 100)
     : 0;
   const preview = loadPreview(load);
 
@@ -85,12 +144,22 @@ export function WorkerLoadChip({
   return (
     <span className="worker-load-anchor" ref={wrap}>
       <button
+        ref={(node) => {
+          anchor.current = node;
+          setNodeRef(node);
+        }}
         type="button"
-        className={`worker-name ${open ? 'open' : ''}`}
+        className={`worker-name ${open ? 'open' : ''} ${isDragging ? 'dragging' : ''} ${dragDisabled ? 'drag-locked' : ''}`}
         aria-expanded={open}
         aria-label={`${worker.name} — ${pct}% booked over ${preview.length} working days`}
-        title={`${worker.name} — ${LOAD_WINDOW_DAYS}-day work load`}
+        title={
+          dragDisabled
+            ? `${worker.name} — load details; unlock Supervisor and finish started work before moving lines`
+            : `${worker.name} — click for load, drag to another production line`
+        }
         onClick={() => setOpen((o) => !o)}
+        {...listeners}
+        {...attributes}
       >
         {worker.name}
         {/* One square per working day. Decorative for a screen reader — the
@@ -102,16 +171,20 @@ export function WorkerLoadChip({
         </span>
       </button>
 
-      {open && (
-        <div className="worker-load" role="dialog" aria-label={`${worker.name} work load`}>
+      {open && createPortal(
+        <div
+          ref={popup}
+          className="worker-load"
+          role="dialog"
+          aria-label={`${worker.name} work load`}
+          style={position}
+        >
           <header className="wl-head">
             <strong>{worker.name}</strong>
             <span className="wl-sub">
               {[
                 worker.position,
-                worker.skills.join(' · ') || 'no skill listed',
-                // Which bench, where the line has more than one.
-                worker.trades?.length ? worker.trades.join(' · ') : null,
+                `line ${line}`,
                 worker.supervisor && `reports to ${worker.supervisor}`,
               ]
                 .filter(Boolean)
@@ -129,17 +202,17 @@ export function WorkerLoadChip({
 
           <div className="wl-summary">
             <span>
-              <b>{hrs(load.totalHours)}</b> booked
+              <b>{hrs(totalHours)}</b> booked
             </span>
-            <span>of {hrs(load.capacityHours)}</span>
+            <span>of {hrs(capacityHours)}</span>
             <span className={`wl-pct ${pct > 100 ? 'over' : ''}`}>{pct}%</span>
             <span>
-              {load.orderCount} order{load.orderCount === 1 ? '' : 's'}
+              {orderCount} order{orderCount === 1 ? '' : 's'}
             </span>
           </div>
 
           <ol className="wl-days">
-            {load.days.map((day) => {
+            {workingDays.map((day) => {
               const over = day.over;
               // Same bands as the squares, so the two views of one week can
               // never read differently.
@@ -187,14 +260,15 @@ export function WorkerLoadChip({
             })}
           </ol>
 
-          {load.overloadedDays > 0 && (
+          {overloadedDays > 0 && (
             <p className="wl-warn">
-              Booked past a full shift on {load.overloadedDays} day
-              {load.overloadedDays === 1 ? '' : 's'} — they are on more than one
-              order at once, on leave, or at the weekend.
+              Booked past a full shift on {overloadedDays} day
+              {overloadedDays === 1 ? '' : 's'} — they are on more than one
+              order at once or on leave.
             </p>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </span>
   );

@@ -21,6 +21,7 @@ describe('ASSY_Production bookings', () => {
       progress: {},
       progressBaselines: {},
       orderWorkers: {},
+      workerLines: {},
       orderCrewAssignments: {},
       orderDoubleBooked: {},
       orderActualStarts: {},
@@ -127,6 +128,51 @@ describe('ASSY_Production bookings', () => {
     usePlanStore.getState().recordProduction(job, entry(7));
 
     expect(usePlanStore.getState().production[String(job)]).toEqual([entry(7)]);
+  });
+});
+
+describe('operator production-line placement', () => {
+  beforeEach(() => {
+    usePlanStore.setState({
+      containers: {
+        UPL: [JobId('UPL-1')],
+        ASSY: [JobId('ASSY-1')],
+        TABLE: [JobId('TABLE-1')],
+      },
+      workerLines: {},
+      orderWorkers: {
+        'UPL-1': ['Bill'],
+        'ASSY-1': ['Bill'],
+      },
+      orderCrewAssignments: {},
+      orderActualStarts: {},
+      orderDoubleBooked: { 'UPL-1': ['Bill'] },
+    });
+  });
+
+  it('moves the roster and removes only off-line unstarted allocations', () => {
+    usePlanStore.getState().moveWorkerToLine('Bill', 'ASSY');
+    const state = usePlanStore.getState();
+    expect(state.workerLines.Bill).toBe('ASSY');
+    expect(state.orderWorkers['UPL-1']).toBeUndefined();
+    expect(state.orderWorkers['ASSY-1']).toEqual(['Bill']);
+    expect(state.orderDoubleBooked['UPL-1']).toBeUndefined();
+  });
+
+  it('cannot move anyone whose assigned order has started', () => {
+    usePlanStore.setState({
+      orderActualStarts: {
+        'UPL-1': {
+          startedAt: '2026-09-03T07:00:00.000Z',
+          overrideReason: null,
+          operatorIds: ['Bill'],
+          operatorNames: ['Bill'],
+        },
+      },
+    });
+    usePlanStore.getState().moveWorkerToLine('Bill', 'ASSY');
+    expect(usePlanStore.getState().workerLines.Bill).toBeUndefined();
+    expect(usePlanStore.getState().orderWorkers['UPL-1']).toEqual(['Bill']);
   });
 });
 

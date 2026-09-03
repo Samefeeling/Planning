@@ -125,23 +125,8 @@ function MaterialLinks({ board }: { board: AssemblyGanttView }) {
     );
   }
 
-  // "ASM8020 waits on ASM8019 · SFA3S-STRM-SS" — the whole chain, in the order
-  // it runs, so the three UPL steps read as three lines one after another.
-  const chain = rows
-    .sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime())
-    .map((row) =>
-      row.predecessors
-        .map(
-          (dep) =>
-            `${String(row.job.id)} (${row.line.name}) waits on ` +
-            `${String(dep.onJobId)}${dep.part ? ` · ${String(dep.part)}` : ''}`,
-        )
-        .join('\n'),
-    )
-    .join('\n');
-
   return (
-    <span className="board-load" title={chain}>
+    <span className="board-load" title="Dependencies are drawn as arrows on visible order blocks">
       {rows.length} order{rows.length === 1 ? '' : 's'} wait on another
     </span>
   );

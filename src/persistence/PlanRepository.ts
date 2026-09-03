@@ -9,7 +9,7 @@ import type {
   ProductionEntry,
   ProgressBaseline,
 } from '@/store/planStore';
-import type { CrewAssignment } from '@/domain/assembly';
+import type { CrewAssignment, LineKey } from '@/domain/assembly';
 
 export interface PersistedPlan {
   id: string;
@@ -20,6 +20,8 @@ export interface PersistedPlan {
   /** Assembly plan: crew per order, pinned starts, booked output. */
   assembly?: {
     orderWorkers?: Record<string, string[]>;
+    /** Supervisor-owned roster placement, independent of legacy Skills data. */
+    workerLines?: Record<string, LineKey>;
     /** Date-bounded crew plan; supersedes static `orderWorkers`. */
     orderCrewAssignments?: Record<string, CrewAssignment[]>;
     orderStarts?: Record<string, string>;

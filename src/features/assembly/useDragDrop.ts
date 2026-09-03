@@ -21,6 +21,7 @@ import { POOL_ID, usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
 import { DEFAULT_DAY_WIDTH } from '@/store/uiStore';
 import { DRAG_TYPE_BAR } from '@/features/assembly/OrderBar';
+import type { LineKey } from '@/domain/assembly';
 import {
   isWeekend,
   nextWorkingDay,
@@ -40,6 +41,7 @@ const collisionDetection: CollisionDetection = (args) => {
 
 export function useDragDrop() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeWorkerId, setActiveWorkerId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -48,13 +50,32 @@ export function useDragDrop() {
   const onDragStart = (e: DragStartEvent) => {
     // Bars carry a prefixed id; the overlay only wants plain job cards.
     const type = e.active.data.current?.type;
-    setActiveJobId(type === DRAG_TYPE_BAR ? null : String(e.active.id));
+    setActiveWorkerId(
+      type === 'worker' ? String(e.active.data.current?.workerId ?? '') : null,
+    );
+    setActiveJobId(
+      type === DRAG_TYPE_BAR || type === 'worker' ? null : String(e.active.id),
+    );
   };
-  const onDragCancel = () => setActiveJobId(null);
+  const onDragCancel = () => {
+    setActiveJobId(null);
+    setActiveWorkerId(null);
+  };
 
   const onDragEnd = (e: DragEndEvent) => {
     setActiveJobId(null);
+    setActiveWorkerId(null);
     const { over, active, delta } = e;
+
+    if (active.data.current?.type === 'worker') {
+      if (over?.data.current?.type !== 'line') return;
+      const line = over.data.current.lineKey as LineKey | undefined;
+      if (!line) return;
+      usePlanStore
+        .getState()
+        .moveWorkerToLine(String(active.data.current.workerId), line);
+      return;
+    }
 
     // An assembly bar dragged along its own row moves its start day. Dragged
     // onto another line, it changes line as well — and that is the only thing
@@ -138,6 +159,7 @@ export function useDragDrop() {
   return {
     sensors,
     activeJobId,
+    activeWorkerId,
     onDragStart,
     onDragEnd,
     onDragCancel,
