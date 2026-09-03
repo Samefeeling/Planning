@@ -53,7 +53,12 @@
  * Pure — same shape as `computeBoardView` for moulding.
  */
 
-import type { Job, MaterialStatus, PlanningDataset } from '@/domain/types';
+import type {
+  Job,
+  JobMaterialLink,
+  MaterialStatus,
+  PlanningDataset,
+} from '@/domain/types';
 import {
   DEFAULT_HORIZON_DAYS,
   LINES,
@@ -152,6 +157,8 @@ export interface OrderRow {
   dailyTarget: number;
   status: ScheduleStatus;
   material: MaterialStatus;
+  /** Material rows to pick for this job, straight from JobMaterialReq.csv. */
+  pickList?: JobMaterialLink[];
   release: ReleaseCheck;
   /** Orders this one waits on, with the component each supplies. */
   predecessors: Dependency[];
@@ -321,6 +328,7 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
       reason: 'Moulding plan — shown for context, not scheduled here',
     },
     material: MOULDING_MATERIAL,
+    pickList: [],
     release: {
       level: 'ready' as const,
       releasable: true,
@@ -455,6 +463,13 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     [...assemblyJobs, ...[...mouldingRows.values()].map((r) => r.job)],
     dataset.jobLinks ?? [],
   );
+  const pickListByJob = new Map<string, JobMaterialLink[]>();
+  for (const material of dataset.jobLinks ?? []) {
+    const id = String(material.jobNum);
+    const list = pickListByJob.get(id);
+    if (list) list.push(material);
+    else pickListByJob.set(id, [material]);
+  }
 
   const rowsByJob = new Map<string, OrderRow>();
   const placed = new Set<string>();
@@ -765,6 +780,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       ),
       status,
       material,
+      pickList: pickListByJob.get(id) ?? [],
       release: releaseCheck(material, job.materialPrep),
       predecessors,
       waitingOn,

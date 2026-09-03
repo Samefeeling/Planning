@@ -142,24 +142,22 @@ const pointsFor = (
   channelX: number,
   clearance: number,
 ): RoutePoint[] => {
-  const downward = edge.source.top <= edge.target.top;
-  const sourceX = (edge.source.left + edge.source.right) / 2;
-  const sourceY = downward ? edge.source.bottom : edge.source.top;
-  const targetY = (edge.target.top + edge.target.bottom) / 2;
-  const sourceGutter = downward
-    ? edge.source.bottom + clearance
-    : edge.source.top - clearance;
-  const targetGutter = downward
-    ? edge.target.top - clearance
-    : edge.target.bottom + clearance;
+  const sourceX = edge.source.right;
+  const sourceY = edge.source.bottom;
+  // Finish at the target's top-left. The last segment is deliberately
+  // vertical and downward so the arrowhead unmistakably points into the next
+  // order rather than sideways through its label.
+  const targetX = edge.target.left;
+  const targetY = edge.target.top;
+  const sourceGutter = edge.source.bottom + clearance;
+  const targetGutter = targetY - clearance;
   return [
     { x: sourceX, y: sourceY },
     { x: sourceX, y: sourceGutter },
     { x: channelX, y: sourceGutter },
     { x: channelX, y: targetGutter },
-    { x: edge.target.left - clearance, y: targetGutter },
-    { x: edge.target.left - clearance, y: targetY },
-    { x: edge.target.left, y: targetY },
+    { x: targetX, y: targetGutter },
+    { x: targetX, y: targetY },
   ];
 };
 
