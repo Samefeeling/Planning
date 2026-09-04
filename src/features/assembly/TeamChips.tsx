@@ -24,11 +24,10 @@ import {
   freeCrewWindow,
   type FreeCrewWindow,
 } from '@/engine/assembly/crew';
-import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
 import { useUiStore } from '@/store/uiStore';
-import { formatDay } from '@/lib/time';
+import { formatDay, fromDayKey, toDayKey } from '@/lib/time';
 
 /** "ASM8002 · UPL · 4 Sep – 8 Sep" — enough to go and look at it. */
 const describe = (row: OrderRow): string =>
@@ -36,18 +35,18 @@ const describe = (row: OrderRow): string =>
   `${row.start ? formatDay(row.start) : '—'} – ` +
   `${row.expectDate ? formatDay(row.expectDate) : '—'}`;
 
-const parseDay = (day: string): Date => {
-  const [year, month, date] = day.split('-').map(Number);
-  return new Date(year, month - 1, date);
-};
-
 const moveDay = (day: string, amount: number): string => {
-  const date = parseDay(day);
+  const date = fromDayKey(day);
   date.setDate(date.getDate() + amount);
-  return crewDayKey(date);
+  return toDayKey(date);
 };
 
-const shortDay = (day: string): string => formatDay(parseDay(day));
+const shortDay = (day: string): string => formatDay(fromDayKey(day));
+
+const compactDay = (day: string): string => {
+  const date = fromDayKey(day);
+  return `${date.getDate()}/${date.getMonth() + 1}`;
+};
 
 /** Stable empty list, so a shut picker gives the memo nothing to change. */
 const NO_CANDIDATES: {
@@ -55,11 +54,6 @@ const NO_CANDIDATES: {
   busy: OrderRow[];
   free: FreeCrewWindow | null;
 }[] = [];
-
-const compactDay = (day: string): string => {
-  const date = parseDay(day);
-  return `${date.getDate()}/${date.getMonth() + 1}`;
-};
 
 const clockTime = (hour: number): string =>
   `${String(Math.floor(hour)).padStart(2, '0')}:${String(
@@ -291,7 +285,7 @@ export function TeamChips({
     ) return 'whole order';
     return windows
       .map((assignment) => {
-        const from = assignment.fromDay ?? crewDayKey(row.plannedStart);
+        const from = assignment.fromDay ?? toDayKey(row.plannedStart);
         const through = assignment.toDayExclusive
           ? shortDay(moveDay(assignment.toDayExclusive, -1))
           : 'completion';

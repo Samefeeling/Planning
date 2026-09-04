@@ -10,8 +10,13 @@
  */
 
 import { ok, err, type Result } from '@/lib/result';
-import type { SharePointConfig } from '@/data/excel/sharepoint.client';
-import type { ListItemFields } from './lists.client';
+import {
+  graphSite,
+  type SharePointConfig,
+} from '@/data/excel/sharepoint.client';
+
+/** One list row: the column values, keyed by internal column name. */
+export type ListItemFields = Record<string, unknown>;
 
 /** A list row with the id needed to update it. */
 export interface ListItem {
@@ -51,14 +56,8 @@ const unconfigured = (message: string): WriteError => ({
   message,
 });
 
-/** `https://graph.microsoft.com/v1.0/sites/{host}:{/sites/PMD}:` */
-function sitePrefix(cfg: SharePointConfig): string {
-  const u = new URL(cfg.siteUrl);
-  return `https://graph.microsoft.com/v1.0/sites/${u.hostname}:${u.pathname.replace(/\/$/, '')}:`;
-}
-
 const listUrl = (cfg: SharePointConfig, list: string): string =>
-  `${sitePrefix(cfg)}/lists/${encodeURIComponent(list)}`;
+  `${graphSite(cfg)}/lists/${encodeURIComponent(list)}`;
 
 function configured(cfg: SharePointConfig): WriteError | null {
   if (!cfg.siteUrl) return unconfigured('SharePoint site URL not configured.');
@@ -72,12 +71,15 @@ const message = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
 /**
- * Every row of a list, each with its item id.
+ * Every row of a list, paged.
  *
- * `$select=id` on the item and `expand=fields` on its values is the one shape
- * that returns both in a single round trip.
+ * `expand=fields` on the item is the one shape that returns the values and the
+ * item id in a single round trip. The id is what addresses an update; a read
+ * that only wants the values does not need it, and this is the loop both of
+ * them share — there used to be a second copy in `lists.client`, and only one
+ * of the two ever learned to bound its paging.
  */
-export async function fetchListItemsWithIds(
+export async function fetchListRows(
   cfg: SharePointConfig,
   list: string,
 ): Promise<Result<ListItem[], WriteError>> {
@@ -106,7 +108,7 @@ export async function fetchListItemsWithIds(
         '@odata.nextLink'?: string;
       };
       for (const item of body.value ?? []) {
-        if (item.id) items.push({ id: item.id, fields: item.fields ?? {} });
+        items.push({ id: item.id ?? '', fields: item.fields ?? {} });
       }
       url = body['@odata.nextLink'] ?? '';
     }
@@ -114,6 +116,18 @@ export async function fetchListItemsWithIds(
   } catch (e) {
     return err(unreachable(`Graph list "${list}" read error: ${message(e)}`));
   }
+}
+
+/**
+ * The rows an update could actually address. Anything Graph handed back
+ * without an item id is left out: a write needs somewhere to send the PATCH.
+ */
+export async function fetchListItemsWithIds(
+  cfg: SharePointConfig,
+  list: string,
+): Promise<Result<ListItem[], WriteError>> {
+  const res = await fetchListRows(cfg, list);
+  return res.ok ? ok(res.value.filter((item) => item.id)) : res;
 }
 
 /** Add a row. Resolves to the new item's id. */

@@ -89,14 +89,9 @@ import {
   wholeDaysBetween,
   type ScheduleStatus,
 } from './dates';
-import {
-  crewDayKey,
-  endOfCrewDay,
-  planVariableCrew,
-  type CrewDayPlan,
-  type VariableCrewPlan,
-} from './crewSchedule';
+import { endOfCrewDay, planVariableCrew, type CrewDayPlan, type VariableCrewPlan } from './crewSchedule';
 import { lineLoad, type LineLoad } from './workload';
+import { toDayKey } from '@/lib/time';
 import type {
   ActualStartRecord,
   ProductionEntry,
@@ -559,7 +554,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
    */
   const bookedUntil = new Map<string, Date>();
   const diaryKey = (workerId: string, day: Date): string =>
-    `${workerId}|${crewDayKey(day)}`;
+    `${workerId}|${toDayKey(day)}`;
 
   /**
    * The first moment `workerId` is actually free, at or after `from`.
@@ -572,13 +567,13 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   const freeFrom = (workerId: string, from: Date): Date => {
     let cursor = from;
     for (let guard = 0; guard < 400; guard++) {
-      const day = crewDayKey(cursor);
+      const day = toDayKey(cursor);
       const busy = bookedUntil.get(`${workerId}|${day}`);
       if (!busy || busy <= cursor) return cursor;
       cursor = busy;
       // Coming off at the close of a shift means the next open day, not the
       // sliver left of this one — capacity is charged a whole day at a time.
-      if (crewDayKey(cursor) !== day) cursor = nextWorkingDay(cursor);
+      if (toDayKey(cursor) !== day) cursor = nextWorkingDay(cursor);
     }
     return cursor;
   };
@@ -628,8 +623,8 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     const start = clear ? startOfDay(from) : firstClearDay(workerId, from);
     const until = firstBookedDay(workerId, addDays(startOfDay(start), 1));
     return {
-      fromDay: clear ? null : crewDayKey(start),
-      toDayExclusive: until ? crewDayKey(until) : null,
+      fromDay: clear ? null : toDayKey(start),
+      toDayExclusive: until ? toDayKey(until) : null,
     };
   };
 
@@ -653,7 +648,6 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     }
     return earliest;
   };
-
 
   // Line id → when each of its build positions next frees up.
   const slotsByLine = new Map<string, Date[]>();

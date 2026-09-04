@@ -17,18 +17,13 @@ import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
 import { useUiStore } from '@/store/uiStore';
 import { Button } from '@/ui';
+import { fromDayKey } from '@/lib/time';
 
 const WEEKDAY = new Intl.DateTimeFormat(undefined, {
   weekday: 'long',
   day: 'numeric',
   month: 'short',
 });
-
-/** `YYYY-MM-DD` read as a local day — never as UTC midnight. */
-function localDay(iso: string): Date {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
 
 export function OvertimePrompt() {
   const request = useUiStore((s) => s.overtimeRequest);
@@ -44,8 +39,8 @@ export function OvertimePrompt() {
   if (!request) return null;
 
   const jobId = JobId(request.jobId);
-  const dropped = localDay(request.isoDay);
-  const monday = localDay(request.nextWorkingIsoDay);
+  const dropped = fromDayKey(request.isoDay);
+  const monday = fromDayKey(request.nextWorkingIsoDay);
 
   const confirm = () => {
     setOvertime(jobId, true);

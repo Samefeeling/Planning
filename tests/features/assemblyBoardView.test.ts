@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { OrderRow } from '@/engine/assembly/board';
 import { WorkerId } from '@/domain/ids';
+import { toDayKey } from '@/lib/time';
 import {
   PRODUCTIVE_HOURS_PER_PERSON,
   type LineKey,
   type Worker,
 } from '@/domain/assembly';
-import { crewDayKey } from '@/engine/assembly/crewSchedule';
+
 import {
   activeWorkerIdsOnDay,
   countRunningOrders,
@@ -313,7 +314,7 @@ describe('lineOfWorkerToday', () => {
       completedToday: false,
       workers: workerIds.map((id) => ({ id })),
       crewDays: [
-        { day: crewDayKey(day), date: day, from: 0, used: 1, workerIds },
+        { day: toDayKey(day), date: day, from: 0, used: 1, workerIds },
       ],
     }) as unknown as OrderRow;
 
@@ -409,7 +410,7 @@ describe('counting the orders running on each day', () => {
 
     const rows = [a, b, idle, booked, press];
     const oneAtATime = new Map(
-      days.map((day) => [crewDayKey(day), countRunningOrders(rows, day)]),
+      days.map((day) => [toDayKey(day), countRunningOrders(rows, day)]),
     );
     expect(runningOrdersByDay(rows, days)).toEqual(oneAtATime);
     // And the answer itself is the one the board should draw: the 2nd has A
@@ -427,7 +428,7 @@ describe('counting the orders running on each day', () => {
 
   it('gives every column asked for a number, even an empty one', () => {
     expect([...runningOrdersByDay([], days).keys()]).toEqual(
-      days.map(crewDayKey),
+      days.map(toDayKey),
     );
     expect([...runningOrdersByDay([], days).values()]).toEqual([0, 0, 0, 0]);
   });

@@ -27,9 +27,9 @@ import {
   nextWorkingDay,
   startOfDay,
 } from '@/engine/assembly/dates';
-import { dayKey } from '@/engine/assembly/workload';
 import { shiftTimelineDays } from './boardView';
 import { planGroupMove, type MarkedMove } from './groupMove';
+import { toDayKey } from '@/lib/time';
 
 /** Prefer the specific card target, then a lane/pool, then the nearest. */
 const collisionDetection: CollisionDetection = (args) => {
@@ -150,8 +150,8 @@ export function useDragDrop() {
       if (isWeekend(moved)) {
         useUiStore.getState().askOvertime({
           jobId: key,
-          isoDay: dayKey(moved),
-          nextWorkingIsoDay: dayKey(nextWorkingDay(moved)),
+          isoDay: toDayKey(moved),
+          nextWorkingIsoDay: toDayKey(nextWorkingDay(moved)),
         });
         return;
       }

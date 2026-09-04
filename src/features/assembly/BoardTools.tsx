@@ -9,8 +9,8 @@
 
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { DATE_COLS, DATE_COL_LABEL, useUiStore } from '@/store/uiStore';
-import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import { countRunningOrders } from './boardView';
+import { fromDayKey, toDayKey } from '@/lib/time';
 
 /** How much one press of − or + moves the day column, in pixels. */
 const ZOOM_STEP = 16;
@@ -30,7 +30,10 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
   if (!board) return null;
   const hidden = DATE_COLS.filter((key) => !dateCols[key]);
   const running = orderWindow === 'day' && orderDay
-    ? countRunningOrders(board.groups.flatMap((group) => group.rows), new Date(`${orderDay}T00:00:00`))
+    ? countRunningOrders(
+        board.groups.flatMap((group) => group.rows),
+        fromDayKey(orderDay),
+      )
     : null;
 
   return (
@@ -80,7 +83,7 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
           onChange={(event) => setOrderDay(event.target.value || null)}
         />
       </label>
-      <button className="date-restore" onClick={() => setOrderDay(crewDayKey(board.today))}>
+      <button className="date-restore" onClick={() => setOrderDay(toDayKey(board.today))}>
         Today
       </button>
       {orderWindow === 'day' && orderDay && (

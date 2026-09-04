@@ -25,8 +25,9 @@ import {
 } from '@/domain/assembly';
 import { durationDays, remainingHours, remainingQty } from './duration';
 import { addDays, addWorkingDays } from './dates';
-import { crewDayKey, planVariableCrew, type CrewDayPlan } from './crewSchedule';
+import { planVariableCrew, type CrewDayPlan } from './crewSchedule';
 import type { AssemblyGanttView, OrderRow } from './board';
+import { toDayKey } from '@/lib/time';
 
 export interface CrewSuggestion {
   /** Job id → worker ids, for the orders that had nobody on them. */
@@ -148,12 +149,14 @@ export function overlapsOnBoard(
  * Only the target order can be unstaffed; any order the person is already on
  * has at least one person, and therefore has real dates.
  */
-export function clashesFor(
-  rows: OrderRow[],
-  target: OrderRow,
-  workerId: string,
-): OrderRow[] {
-  if (!target.line.schedulable || target.completedToday) return [];
+/**
+ * The order replanned as if `workerId` were on it for the whole of it.
+ *
+ * Both questions below start here — "would adding them clash?" and "where is
+ * their first useful gap?" — because both are asked before the schedule has
+ * had a chance to place them, and so both have to imagine it.
+ */
+function planWith(target: OrderRow, workerId: string) {
   const current =
     target.crewAssignments ??
     target.workers.map((worker) => ({
@@ -166,12 +169,21 @@ export function clashesFor(
   )
     ? current
     : [...current, { workerId, fromDay: null, toDayExclusive: null }];
-  const mine = planVariableCrew(
+  return planVariableCrew(
     target.plannedStart,
     remainingHours(target.job),
     proposed,
     target.overtime,
   );
+}
+
+export function clashesFor(
+  rows: OrderRow[],
+  target: OrderRow,
+  workerId: string,
+): OrderRow[] {
+  if (!target.line.schedulable || target.completedToday) return [];
+  const mine = planWith(target, workerId);
   const mineDays = mine.crewDays.filter((day) =>
     day.workerIds.includes(workerId),
   );
@@ -210,24 +222,7 @@ export function freeCrewWindow(
   target: OrderRow,
   workerId: string,
 ): FreeCrewWindow | null {
-  const current =
-    target.crewAssignments ??
-    target.workers.map((worker) => ({
-      workerId: String(worker.id),
-      fromDay: null,
-      toDayExclusive: null,
-    }));
-  const proposed: CrewAssignment[] = current.some(
-    (assignment) => assignment.workerId === workerId,
-  )
-    ? current
-    : [...current, { workerId, fromDay: null, toDayExclusive: null }];
-  const plan = planVariableCrew(
-    target.plannedStart,
-    remainingHours(target.job),
-    proposed,
-    target.overtime,
-  );
+  const plan = planWith(target, workerId);
   const candidateDays = plan.crewDays.filter((day) =>
     day.workerIds.includes(workerId),
   );
@@ -334,7 +329,7 @@ function staffOneWave(
     // someone to another line implicitly; rank skills within this roster.
     const onLine: Worker[] = board.workers.filter(
       (w) =>
-        w.onShift && !w.plannedLeave?.includes(crewDayKey(board.today)) &&
+        w.onShift && !w.plannedLeave?.includes(toDayKey(board.today)) &&
         workerLines.get(String(w.id)) === group.line.key,
     );
     if (onLine.length === 0) continue;

@@ -27,7 +27,6 @@ import {
 } from '@/domain/assembly';
 import { addCalendarDays, isWeekend, shiftFraction } from '@/engine/assembly/dates';
 import { remainingHours } from '@/engine/assembly/duration';
-import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import {
   boardDayLoads,
   lineLoad,
@@ -37,6 +36,7 @@ import {
 import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
 import {
+  DATE_COLS,
   MAX_ORDER_WIDTH,
   MIN_ORDER_WIDTH,
   useUiStore,
@@ -59,6 +59,7 @@ import {
 } from './boardView';
 import { useStableBoardOrder } from './useStableBoardOrder';
 import { markedSet, type MarkedMove } from './groupMove';
+import { fromDayKey, toDayKey } from '@/lib/time';
 
 // Must match the widths in index.css (--qty-w, --date-w x4, --team-w),
 // otherwise the header's day columns drift out of line with the row tracks.
@@ -87,6 +88,28 @@ const TIME_FMT = new Intl.DateTimeFormat(undefined, {
 });
 
 const fmt = (d: Date | null): string => (d ? SHORT_FMT.format(d) : '—');
+
+/**
+ * Where each frozen column starts, left to right.
+ *
+ * The header and the rows both need these, and each used to walk the visible
+ * date columns with its own running total — two counters that had to be kept
+ * in step by hand, and drift in either one slides the dates out from under
+ * their headings.
+ */
+function frozenLefts(
+  visible: DateCols,
+  orderWidth: number,
+): { date: Partial<Record<DateCol, number>>; team: number } {
+  const date: Partial<Record<DateCol, number>> = {};
+  let left = orderWidth + QTY_W + HOURS_W;
+  for (const key of DATE_COLS) {
+    if (!visible[key]) continue;
+    date[key] = left;
+    left += DATE_W;
+  }
+  return { date, team: left };
+}
 
 /** A clock hour as text — 15.5 reads as 15:30. */
 const hourLabel = (h: number): string =>
@@ -138,17 +161,13 @@ function OrderRowView({
   onDependencyHover: (id: string | null) => void;
 }) {
   const isContext = !row.line.schedulable;
-  let dateOffset = orderWidth + QTY_W + HOURS_W;
-  const frozenDate = (visible: boolean): React.CSSProperties | undefined => {
-    if (!visible) return undefined;
-    const style = { left: dateOffset };
-    dateOffset += DATE_W;
-    return style;
-  };
-  const startStyle = frozenDate(visibleDates.start);
-  const dueStyle = frozenDate(visibleDates.due);
-  const expectStyle = frozenDate(visibleDates.expect);
-  const shipStyle = frozenDate(visibleDates.ship);
+  const lefts = frozenLefts(visibleDates, orderWidth);
+  const at = (key: DateCol): React.CSSProperties | undefined =>
+    lefts.date[key] === undefined ? undefined : { left: lefts.date[key] };
+  const startStyle = at('start');
+  const dueStyle = at('due');
+  const expectStyle = at('expect');
+  const shipStyle = at('ship');
   const startAt = row.job.startDate;
   const mustStart = row.mustStartBy;
   const orderQty = row.job.remainingQty + row.job.completedQty;
@@ -222,7 +241,7 @@ function OrderRowView({
         {fmt(row.expectDate)}
       </div>}
       {visibleDates.ship && <div className="acell date frozen" style={shipStyle}>{fmt(row.job.shipDate)}</div>}
-      <div className="acell team frozen" style={{ left: dateOffset }}>
+      <div className="acell team frozen" style={{ left: lefts.team }}>
         {isContext ? (
           <span className="chip empty">moulding</span>
         ) : (
@@ -501,7 +520,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
                 isInNextWorkingDays(row, board.today),
               )
             : orderWindow === 'day' && orderDay
-              ? group.rows.filter((row) => isRunningOnDay(row, new Date(`${orderDay}T00:00:00`)))
+              ? group.rows.filter((row) => isRunningOnDay(row, fromDayKey(orderDay)))
               : group.rows;
         return {
           ...group,
@@ -583,12 +602,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       ),
     [board.workers, allRows, board.today, workerLineOverrides],
   );
-  let headerOffset = orderWidth + QTY_W + HOURS_W;
-  const headerLeft = () => {
-    const left = headerOffset;
-    headerOffset += DATE_W;
-    return left;
-  };
+  const headLefts = frozenLefts(visibleDates, orderWidth);
 
   /** Drag the Order column's right-hand edge. */
   const startColumnResize = (e: React.PointerEvent) => {
@@ -633,14 +647,13 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       : (todayIndex + shiftFraction(now, SHIFT_START_HOUR, SHIFT_END_HOUR)) *
         dayWidth;
 
-
   const dateHead = (
     key: DateCol,
     label: string,
     sortable: boolean,
   ) =>
     visibleDates[key] && (
-      <div className="acell date date-head frozen" style={{ left: headerLeft() }}>
+      <div className="acell date date-head frozen" style={{ left: headLefts.date[key] }}>
         {sortable ? (
           <button
             className={`date-sort ${sort?.key === key ? 'active' : ''}`}
@@ -748,7 +761,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           {dateHead('ship', 'Ship Date', true)}
           <div
             className="acell team team-head frozen"
-            style={{ left: headerOffset }}
+            style={{ left: headLefts.team }}
           >
             <span>Team</span>
             <span
@@ -763,7 +776,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           <div className="acell track" style={{ width: gridWidth }}>
             {days.map((d, i) => {
               const load = dayLoads[i];
-              const running = runningByDay.get(crewDayKey(d)) ?? 0;
+              const running = runningByDay.get(toDayKey(d)) ?? 0;
               const pct = Math.round(load.pct);
               // A closed day still shows what landed on it — that is the case
               // for overtime — but muted, so it never reads as normal capacity.
@@ -792,10 +805,10 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
                   <span className={`day-load ${band}`}>{pct}%</span>
                   <button
                     className="day-order-filter"
-                    aria-label={`Filter orders running on ${crewDayKey(d)}`}
-                    aria-pressed={orderWindow === 'day' && orderDay === crewDayKey(d)}
+                    aria-label={`Filter orders running on ${toDayKey(d)}`}
+                    aria-pressed={orderWindow === 'day' && orderDay === toDayKey(d)}
                     onClick={() => setOrderDay(
-                      orderWindow === 'day' && orderDay === crewDayKey(d) ? null : crewDayKey(d),
+                      orderWindow === 'day' && orderDay === toDayKey(d) ? null : toDayKey(d),
                     )}
                   >
                     {running} {running === 1 ? 'order' : 'orders'}

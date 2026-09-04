@@ -7,9 +7,8 @@ import {
   startOfDay,
   wholeDaysBetween,
 } from '@/engine/assembly/dates';
-import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import type { LineKey, Worker } from '@/domain/assembly';
-import { MS_PER_DAY } from '@/lib/time';
+import { MS_PER_DAY, toDayKey } from '@/lib/time';
 
 export type OrderSortKey = 'start' | 'due' | 'ship';
 export type SortDirection = 'asc' | 'desc';
@@ -71,7 +70,7 @@ export function retainLineRows(
  * bar because its crew is managed outside this board.
  */
 export function isRunningOnDay(row: OrderRow, day: Date): boolean {
-  const key = crewDayKey(day);
+  const key = toDayKey(day);
   if (row.booked.some((entry) => entry.day === key && entry.qty > 0)) return true;
   if (row.line.schedulable) {
     return row.crewDays.some((entry) => entry.day === key && entry.hours > 0);
@@ -120,13 +119,13 @@ export function runningOrdersByDay(
       continue;
     }
     for (const day of days) {
-      if (isRunningOnDay(row, day)) mark(crewDayKey(day), jobId);
+      if (isRunningOnDay(row, day)) mark(toDayKey(day), jobId);
     }
   }
 
   return new Map(
     days.map((day) => {
-      const key = crewDayKey(day);
+      const key = toDayKey(day);
       return [key, onDay.get(key)?.size ?? 0];
     }),
   );
@@ -215,7 +214,7 @@ export function isInNextWorkingDays(
 
 /** Today's available roster and unique allocations, across the whole board. */
 export function teamSummary(workers: Worker[], rows: OrderRow[], today: Date) {
-  const key = crewDayKey(today);
+  const key = toDayKey(today);
   const attendance = workers.filter(
     (worker) => worker.onShift && !worker.plannedLeave?.includes(key),
   );
@@ -235,7 +234,7 @@ export function activeWorkerIdsOnDay(
   rows: OrderRow[],
   day: Date,
 ): Set<string> {
-  const key = crewDayKey(day);
+  const key = toDayKey(day);
   const active = new Set<string>();
   for (const row of rows) {
     if (!row.line.schedulable || row.completedToday) continue;
@@ -327,7 +326,7 @@ export function lineOfWorkerToday(
   today: Date,
   overrides: Readonly<Record<string, LineKey>> = {},
 ): Map<string, LineKey> {
-  const key = crewDayKey(today);
+  const key = toDayKey(today);
   const at = new Map<string, LineKey>();
   for (const row of rows) {
     if (!row.line.schedulable || row.completedToday) continue;

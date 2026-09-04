@@ -13,7 +13,10 @@
  */
 
 import { ok, err, type Result } from '@/lib/result';
-import type { SharePointConfig } from '@/data/excel/sharepoint.client';
+import {
+  graphFile,
+  type SharePointConfig,
+} from '@/data/excel/sharepoint.client';
 
 let manualCsv: string | null = null;
 let manualJobMaterialCsv: string | null = null;
@@ -58,15 +61,6 @@ export function readCsvConfigFromEnv(): CsvSourceConfig {
   };
 }
 
-function graphFileUrl(sp: SharePointConfig, filePath: string): string {
-  const u = new URL(sp.siteUrl);
-  const path = filePath.startsWith('/') ? filePath : `/${filePath}`;
-  return (
-    `https://graph.microsoft.com/v1.0/sites/${u.hostname}:${u.pathname.replace(/\/$/, '')}:` +
-    `/drive/root:${encodeURI(path)}:/content`
-  );
-}
-
 /** GET a file as text, naming it in any error so the banner is actionable. */
 async function fetchText(
   label: string,
@@ -106,7 +100,7 @@ export async function fetchPlanningCsv(
     return err('Missing Graph access token (VITE_GRAPH_TOKEN).');
   }
 
-  const url = viaGraph ? graphFileUrl(sp, cfg.filePath) : cfg.url;
+  const url = viaGraph ? graphFile(sp, cfg.filePath) : cfg.url;
   return fetchText('Planning1.csv', url, viaGraph ? sp.token : null);
 }
 
@@ -127,7 +121,7 @@ export async function fetchJobMaterialCsv(
 
   return fetchText(
     'JobMaterialReq.csv',
-    graphFileUrl(sp, cfg.linksFilePath),
+    graphFile(sp, cfg.linksFilePath),
     sp.token,
   );
 }

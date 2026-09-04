@@ -50,21 +50,23 @@ export async function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
 // --- Microsoft Graph -------------------------------------------------------
 
 /**
- * Build the Graph "drive item content" URL from a site URL + library path.
- * Uses the `:/path:` addressing form so we don't need to pre-resolve ids.
+ * The Graph address of a site, in the `:/path:` form, so nothing has to
+ * pre-resolve an id: `…/sites/contoso.sharepoint.com:/sites/PMD:`.
+ *
+ * Every module that talked to Graph had built this for itself — four copies
+ * of two lines, which is three chances for one of them to keep a trailing
+ * slash the others strip.
  */
-function buildGraphUrl(cfg: SharePointConfig): string {
+export function graphSite(cfg: SharePointConfig): string {
   const u = new URL(cfg.siteUrl);
-  const host = u.hostname; // contoso.sharepoint.com
-  const sitePath = u.pathname.replace(/\/$/, ''); // /sites/PMD
-  const file = cfg.filePath.startsWith('/')
-    ? cfg.filePath
-    : `/${cfg.filePath}`;
-  return (
-    `https://graph.microsoft.com/v1.0/sites/${host}:${sitePath}:` +
-    `/drive/root:${encodeURI(file)}:/content`
-  );
+  return `https://graph.microsoft.com/v1.0/sites/${u.hostname}:${u.pathname.replace(/\/$/, '')}:`;
 }
+
+/** A file in the site's default drive, by its library path. */
+export const graphFile = (cfg: SharePointConfig, filePath: string): string =>
+  `${graphSite(cfg)}/drive/root:${encodeURI(
+    filePath.startsWith('/') ? filePath : `/${filePath}`,
+  )}:/content`;
 
 /**
  * Resolve the workbook bytes. Prefers a manually-uploaded workbook, then falls
@@ -87,7 +89,7 @@ export async function fetchWorkbook(
   }
 
   try {
-    const res = await fetch(buildGraphUrl(cfg), {
+    const res = await fetch(graphFile(cfg, cfg.filePath), {
       headers: { Authorization: `Bearer ${cfg.token}` },
     });
     if (!res.ok) {

@@ -15,6 +15,7 @@ import type { JobId } from '@/domain/ids';
 import { remainingHours } from './duration';
 import { addCalendarDays, isWeekend, startOfDay } from './dates';
 import type { OrderRow } from './board';
+import { toDayKey } from '@/lib/time';
 
 export { isWeekend };
 
@@ -140,13 +141,13 @@ export function boardDayLoads(
   today: Date = from,
 ): DayBoardLoad[] {
   const start = startOfDay(from);
-  const todayKey = dayKey(startOfDay(today));
+  const todayKey = toDayKey(startOfDay(today));
   const scheduled = rows.filter((r) => r.line.schedulable);
   const out: DayBoardLoad[] = [];
 
   for (let i = 0; i < dayCount; i++) {
     const date = addCalendarDays(start, i);
-    const key = dayKey(date);
+    const key = toDayKey(date);
     const available = workers.filter(
       (w) => (key !== todayKey || w.onShift) && !w.plannedLeave?.includes(key),
     ).length;
@@ -197,11 +198,6 @@ export interface LineLoad {
   needsCrew: number;
 }
 
-export const dayKey = (d: Date): string =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate(),
-  ).padStart(2, '0')}`;
-
 /**
  * Hours of `row` that fall on the day starting at `from`, per person.
  *
@@ -219,7 +215,7 @@ function hoursOnDay(
   from: Date,
   workerId?: string,
 ): number {
-  const plan = row.crewDays.find((day) => day.day === dayKey(from));
+  const plan = row.crewDays.find((day) => day.day === toDayKey(from));
   if (!plan) return 0;
   if (workerId && !plan.workerIds.includes(workerId)) return 0;
   return workerId ? plan.perWorkerHours : plan.hours;
@@ -249,7 +245,7 @@ export function workerLoad(
 
   for (let i = 0; i < dayCount; i++) {
     const date = addCalendarDays(start, i);
-    const key = dayKey(date);
+    const key = toDayKey(date);
     const onLeave = leave.has(key);
     const entries: LoadEntry[] = [];
 

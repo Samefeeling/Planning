@@ -13,6 +13,7 @@ import {
   type CrewAssignment,
 } from '@/domain/assembly';
 import { addDays, isWeekend, nextMidnight, startOfDay } from './dates';
+import { toDayKey } from '@/lib/time';
 import { MS_PER_DAY } from '@/lib/time';
 
 export interface CrewDayPlan {
@@ -50,11 +51,6 @@ export interface VariableCrewPlan {
 const MAX_PLAN_DAYS = 730;
 const EPSILON = 1e-8;
 
-export const crewDayKey = (date: Date): string =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-    date.getDate(),
-  ).padStart(2, '0')}`;
-
 export function assignmentActiveOnDay(
   assignment: CrewAssignment,
   day: string,
@@ -89,7 +85,7 @@ export function planVariableCrew(
   overtime: boolean,
 ): VariableCrewPlan {
   const orderStart = startOfDay(from);
-  const orderStartDay = crewDayKey(orderStart);
+  const orderStartDay = toDayKey(orderStart);
   // What is left of the opening day. An order picking up where another left
   // off starts part-way through a shift and gets only the rest of it, which is
   // what makes a hand-over exact rather than a day of waiting.
@@ -119,7 +115,7 @@ export function planVariableCrew(
       cursor = nextMidnight(cursor);
       continue;
     }
-    const day = crewDayKey(cursor);
+    const day = toDayKey(cursor);
     const workerIds = crewIdsOnDay(assignments, day, orderStartDay);
     if (workerIds.length === 0) {
       cursor = nextMidnight(cursor);
