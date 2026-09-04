@@ -72,7 +72,7 @@ export function retainLineRows(
  */
 export function isRunningOnDay(row: OrderRow, day: Date): boolean {
   const key = crewDayKey(day);
-  if (row.booked?.some((entry) => entry.day === key && entry.qty > 0)) return true;
+  if (row.booked.some((entry) => entry.day === key && entry.qty > 0)) return true;
   if (row.line.schedulable) {
     return row.crewDays.some((entry) => entry.day === key && entry.hours > 0);
   }
@@ -85,6 +85,51 @@ export function isRunningOnDay(row: OrderRow, day: Date): boolean {
 export function countRunningOrders(rows: OrderRow[], day: Date): number {
   return new Set(rows.filter((row) => isRunningOnDay(row, day))
     .map((row) => String(row.job.id))).size;
+}
+
+/**
+ * How many orders run on each day of `days`, in one pass over the rows.
+ *
+ * The header asks this once per column, and asking it column by column walked
+ * every row on the board for every column on screen. An order names the days
+ * it runs — its own plan, and whatever the shift booked against it — so
+ * counting outwards from the rows is the cheap direction. Only the moulding
+ * lane, which has no day plan to name, is still asked day by day, and there
+ * are few of those: the lane holds only the press work assembly waits on.
+ */
+export function runningOrdersByDay(
+  rows: OrderRow[],
+  days: Date[],
+): Map<string, number> {
+  const onDay = new Map<string, Set<string>>();
+  const mark = (day: string, jobId: string): void => {
+    const already = onDay.get(day);
+    if (already) already.add(jobId);
+    else onDay.set(day, new Set([jobId]));
+  };
+
+  for (const row of rows) {
+    const jobId = String(row.job.id);
+    for (const entry of row.booked) {
+      if (entry.qty > 0) mark(entry.day, jobId);
+    }
+    if (row.line.schedulable) {
+      for (const entry of row.crewDays) {
+        if (entry.hours > 0) mark(entry.day, jobId);
+      }
+      continue;
+    }
+    for (const day of days) {
+      if (isRunningOnDay(row, day)) mark(crewDayKey(day), jobId);
+    }
+  }
+
+  return new Map(
+    days.map((day) => {
+      const key = crewDayKey(day);
+      return [key, onDay.get(key)?.size ?? 0];
+    }),
+  );
 }
 
 /** Today through the end of the fifth working day, including today if open. */

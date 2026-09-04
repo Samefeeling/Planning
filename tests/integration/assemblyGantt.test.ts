@@ -398,7 +398,9 @@ describe('assembly Gantt (mock data)', () => {
     const row = [...base.rowsByJob.values()].find((candidate) => candidate.workers.length > 0)!;
     const id = String(row.job.id);
     const actual: ActualStartRecord = {
-      startedAt: '2026-09-11T03:15:00.000Z',
+      // A local morning, not an instant: 03:15Z is the previous evening west
+      // of Greenwich, and the day a shift started is a local day.
+      startedAt: '2026-09-11T09:15:00',
       overrideReason: null,
       operatorIds: row.workers.map((worker) => String(worker.id)),
       operatorNames: row.workers.map((worker) => worker.name),

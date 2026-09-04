@@ -10,6 +10,7 @@ import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import {
   activeWorkerIdsOnDay,
   countRunningOrders,
+  runningOrdersByDay,
   isRunningOnDay,
   retainLineRows,
   barTag,
@@ -36,6 +37,7 @@ const row = (
     line: { schedulable: true },
     workers: [],
     crewDays: [],
+    booked: [],
     plannedStart: dates.start ? new Date(dates.start) : new Date('2026-09-30'),
     start: dates.start ? new Date(dates.start) : null,
     expectDate: dates.due ? new Date(dates.due) : null,
@@ -205,11 +207,11 @@ describe('assembly board view controls', () => {
   });
 
   it('counts only the crew active today, not a later assignment', () => {
-    const planned = row('SFM507569', { start: '2026-09-02' });
+    const planned = row('SFM507569', { start: '2026-09-02T00:00:00' });
     planned.crewDays = [
       {
         day: '2026-09-02',
-        date: new Date('2026-09-02'),
+        date: new Date('2026-09-02T00:00:00'),
         from: 0,
         used: 1,
         workerIds: ['Bill'],
@@ -218,7 +220,7 @@ describe('assembly board view controls', () => {
       },
       {
         day: '2026-09-04',
-        date: new Date('2026-09-04'),
+        date: new Date('2026-09-04T00:00:00'),
         from: 0,
         used: 1,
         workerIds: ['Jones'],
@@ -226,7 +228,7 @@ describe('assembly board view controls', () => {
         perWorkerHours: PRODUCTIVE_HOURS_PER_PERSON,
       },
     ];
-    expect([...activeWorkerIdsOnDay([planned], new Date('2026-09-02'))]).toEqual([
+    expect([...activeWorkerIdsOnDay([planned], new Date('2026-09-02T00:00:00'))]).toEqual([
       'Bill',
     ]);
   });
@@ -365,5 +367,68 @@ describe('lineOfWorkerToday', () => {
     const pmd = onLine('SFM1', 'PMD', TODAY, ['W9']);
     (pmd.line as { schedulable: boolean }).schedulable = false;
     expect(lineOfWorkerToday([ken], [pmd], TODAY).get('W9')).toBe('TABLE');
+  });
+});
+
+/**
+ * The header counts orders per column. Asking column by column walked every
+ * row on the board once per column on screen; counting outwards from the rows
+ * is the same answer for a fraction of the work, so the two must agree
+ * exactly — including on the moulding lane, which has no day plan to walk and
+ * is still read off its source bar.
+ */
+describe('counting the orders running on each day', () => {
+  const days = ['2026-09-02', '2026-09-03', '2026-09-04', '2026-09-07'].map(
+    (d) => new Date(`${d}T00:00:00`),
+  );
+  const planned = (day: string, ids: string[], hours = PRODUCTIVE_HOURS_PER_PERSON) => ({
+    day,
+    date: new Date(`${day}T00:00:00`),
+    from: 0,
+    used: 1,
+    workerIds: ids,
+    hours,
+    perWorkerHours: hours,
+  });
+
+  it('agrees with asking one column at a time', () => {
+    const a = row('A', { start: '2026-09-02T00:00:00', due: '2026-09-05T00:00:00' });
+    a.crewDays = [planned('2026-09-02', ['W1']), planned('2026-09-04', ['W1'])];
+    const b = row('B', { start: '2026-09-02T00:00:00', due: '2026-09-05T00:00:00' });
+    b.crewDays = [planned('2026-09-04', ['W2'])];
+    // Nobody on it: it runs on no day, however far its bar reaches.
+    const idle = row('C', { start: '2026-09-02T00:00:00', due: '2026-09-08T00:00:00' });
+    // Booked output counts even once the plan has moved past it.
+    const booked = row('D', { start: '2026-09-07T00:00:00', due: '2026-09-09T00:00:00' });
+    booked.booked = [{ day: '2026-09-03', qty: 2, hours: 4 }];
+    // The moulding lane keeps its source bar.
+    const press = {
+      ...row('E', { start: '2026-09-02T00:00:00', due: '2026-09-04T00:00:00' }),
+      line: { schedulable: false },
+    } as unknown as OrderRow;
+
+    const rows = [a, b, idle, booked, press];
+    const oneAtATime = new Map(
+      days.map((day) => [crewDayKey(day), countRunningOrders(rows, day)]),
+    );
+    expect(runningOrdersByDay(rows, days)).toEqual(oneAtATime);
+    // And the answer itself is the one the board should draw: the 2nd has A
+    // planned and the press bar across it, the 3rd has D's booked output and
+    // the press again, the 4th has A and B, and nothing reaches the Monday.
+    expect([...oneAtATime.values()]).toEqual([2, 2, 2, 0]);
+  });
+
+  it('counts an order once however many days it names', () => {
+    const a = row('A', { start: '2026-09-02T00:00:00', due: '2026-09-05T00:00:00' });
+    a.crewDays = [planned('2026-09-02', ['W1'])];
+    a.booked = [{ day: '2026-09-02', qty: 1, hours: 1 }];
+    expect(runningOrdersByDay([a, a], days).get('2026-09-02')).toBe(1);
+  });
+
+  it('gives every column asked for a number, even an empty one', () => {
+    expect([...runningOrdersByDay([], days).keys()]).toEqual(
+      days.map(crewDayKey),
+    );
+    expect([...runningOrdersByDay([], days).values()]).toEqual([0, 0, 0, 0]);
   });
 });

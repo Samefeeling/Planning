@@ -11,7 +11,7 @@
  * a chip for someone on two orders at the same time is marked either way.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
 import type { LineKey, Worker } from '@/domain/assembly';
 import {
@@ -48,6 +48,13 @@ const moveDay = (day: string, amount: number): string => {
 };
 
 const shortDay = (day: string): string => formatDay(parseDay(day));
+
+/** Stable empty list, so a shut picker gives the memo nothing to change. */
+const NO_CANDIDATES: {
+  worker: Worker;
+  busy: OrderRow[];
+  free: FreeCrewWindow | null;
+}[] = [];
 
 const compactDay = (day: string): string => {
   const date = parseDay(day);
@@ -147,7 +154,6 @@ export function TeamChips({
     return () => document.removeEventListener('pointerdown', closeOutside);
   }, [picking, setCrewPicker]);
 
-  const onIt = new Set(row.workers.map((w) => String(w.id)));
   const full =
     row.crewDays.length > 0 &&
     row.crewDays.every((day) => day.workerIds.length >= MAX_WORKERS_PER_ORDER);
@@ -158,12 +164,6 @@ export function TeamChips({
   // still busy elsewhere joins on the day they come free, which is no clash.
   const marked = (workerId: string): OrderRow[] =>
     clashesOnBoard(rows, row, workerId);
-  // The other question: would adding somebody put them in two places? That one
-  // has to imagine them on the whole order, because it is asked before the
-  // schedule has had a chance to place them.
-  const wouldClash = (workerId: string): OrderRow[] =>
-    clashesFor(rows, row, workerId);
-
   /** Was this overlap put there on purpose? Either order may hold the note. */
   const isApproved = (workerId: string, other: OrderRow): boolean =>
     (approved[String(row.job.id)] ?? []).includes(workerId) ||
@@ -175,29 +175,43 @@ export function TeamChips({
       .filter(Boolean)
       .join(' · ');
 
-  const rosterIndex = new Map(
-    roster.map((worker, index) => [String(worker.id), index]),
-  );
-  // Skills and trades are legacy source data, not allocation gates. The
-  // draggable production-line roster is the only eligibility rule here.
-  const candidates = roster
-    .filter(
-      (w) =>
-        w.onShift &&
-        workerLines.get(String(w.id)) === row.line.key &&
-        !onIt.has(String(w.id)),
-    )
-    .map((w) => ({
-      worker: w,
-      busy: wouldClash(String(w.id)),
-      free: freeCrewWindow(rows, row, String(w.id)),
-    }))
-    .sort(
-      (a, b) =>
-        a.busy.length - b.busy.length ||
-        (rosterIndex.get(String(a.worker.id)) ?? 0) -
-          (rosterIndex.get(String(b.worker.id)) ?? 0),
+  /*
+   * Who could join this order, and what it would cost them — but only while
+   * the picker is actually open.
+   *
+   * Answering it means planning the order again for each candidate and then
+   * scanning the whole board for overlaps, twice over. There is one of these
+   * components per row, so doing it unconditionally cost the board its line's
+   * roster times two schedules times every row, on every render — to fill a
+   * list nobody had asked for. Hovering a bar paid for all of it.
+   */
+  const candidates = useMemo(() => {
+    if (!picking) return NO_CANDIDATES;
+    const onIt = new Set(row.workers.map((w) => String(w.id)));
+    const rosterIndex = new Map(
+      roster.map((worker, index) => [String(worker.id), index]),
     );
+    // Skills and trades are legacy source data, not allocation gates. The
+    // draggable production-line roster is the only eligibility rule here.
+    return roster
+      .filter(
+        (w) =>
+          w.onShift &&
+          workerLines.get(String(w.id)) === row.line.key &&
+          !onIt.has(String(w.id)),
+      )
+      .map((w) => ({
+        worker: w,
+        busy: clashesFor(rows, row, String(w.id)),
+        free: freeCrewWindow(rows, row, String(w.id)),
+      }))
+      .sort(
+        (a, b) =>
+          a.busy.length - b.busy.length ||
+          (rosterIndex.get(String(a.worker.id)) ?? 0) -
+            (rosterIndex.get(String(b.worker.id)) ?? 0),
+      );
+  }, [picking, roster, rows, row, workerLines]);
 
   const add = (
     worker: Worker,

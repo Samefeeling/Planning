@@ -53,7 +53,7 @@ import {
   teamSummary,
   isInNextWorkingDays,
   isRunningOnDay,
-  countRunningOrders,
+  runningOrdersByDay,
   lineOfWorkerToday,
   type OrderSortKey,
 } from './boardView';
@@ -275,6 +275,7 @@ function LineGroupView({
   gridWidth,
   rosterLoads,
   todayLine,
+  startedWorkerIds,
   selectedJobId,
   onSelect,
   dayWidth,
@@ -299,6 +300,8 @@ function LineGroupView({
   rosterLoads: Map<string, WorkerLoad>;
   /** Which line each person is standing at today — one each. */
   todayLine: Map<string, LineKey>;
+  /** People whose work has started, and so cannot be moved to another line. */
+  startedWorkerIds: ReadonlySet<string>;
   selectedJobId: string | null;
   onSelect: (id: string, at?: ClickPoint) => void;
   dayWidth: number;
@@ -395,15 +398,7 @@ function LineGroupView({
                   load={week}
                   line={group.line.key}
                   dragDisabled={
-                    !unlocked ||
-                    allRows.some(
-                      (row) =>
-                        Boolean(row.actualStart) &&
-                        row.workers.some(
-                          (assigned) =>
-                            String(assigned.id) === String(worker.id),
-                        ),
-                    )
+                    !unlocked || startedWorkerIds.has(String(worker.id))
                   }
                 />
               ) : null;
@@ -482,12 +477,12 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     return () => window.clearInterval(id);
   }, []);
 
-  const calendarDays = Array.from({ length: board.horizonDays }, (_, i) =>
-    addCalendarDays(board.horizonStart, i),
-  );
-  const days = showWeekends
-    ? calendarDays
-    : calendarDays.filter((day) => !isWeekend(day));
+  const days = useMemo(() => {
+    const calendar = Array.from({ length: board.horizonDays }, (_, i) =>
+      addCalendarDays(board.horizonStart, i),
+    );
+    return showWeekends ? calendar : calendar.filter((day) => !isWeekend(day));
+  }, [board.horizonDays, board.horizonStart, showWeekends]);
   const gridWidth = days.length * dayWidth;
   const dateCount = Object.values(visibleDates).filter(Boolean).length;
   const labelWidth =
@@ -555,7 +550,27 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     () => rosterLoad(board.workers, allRows, board.today),
     [board, allRows],
   );
-  const team = teamSummary(board.workers, allRows, board.today);
+  const team = useMemo(
+    () => teamSummary(board.workers, allRows, board.today),
+    [board.workers, allRows, board.today],
+  );
+  const runningByDay = useMemo(
+    () => runningOrdersByDay(allRows, days),
+    [allRows, days],
+  );
+  /**
+   * Whose work has already started, so their name cannot be moved to another
+   * line. Worked out once for the board rather than by each name in each
+   * line's header rescanning every row on it.
+   */
+  const startedWorkerIds = useMemo(() => {
+    const started = new Set<string>();
+    for (const row of allRows) {
+      if (!row.actualStart) continue;
+      for (const worker of row.workers) started.add(String(worker.id));
+    }
+    return started;
+  }, [allRows]);
   // One row per person: an explicit drag wins; source data supplies only the
   // initial line for plans that have never placed that person.
   const todayLine = useMemo(
@@ -595,16 +610,20 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   // Hours booked per day against the hours the shift can deliver — the same
   // arithmetic as the per-person and per-line loads, so the three agree. The
   // columns behind today instead carry what was booked as output.
-  const calendarDayLoads = boardDayLoads(
-    visibleRows,
-    board.workers,
-    board.horizonStart,
-    board.horizonDays,
-    board.today,
-  );
-  const dayLoads = showWeekends
-    ? calendarDayLoads
-    : calendarDayLoads.filter((load) => load.working);
+  //
+  // Over every row, not the ones the date filter is showing: how full a day
+  // is does not change because somebody narrowed the view, and the counts
+  // beside it have always been over the whole board.
+  const dayLoads = useMemo(() => {
+    const calendar = boardDayLoads(
+      allRows,
+      board.workers,
+      board.horizonStart,
+      board.horizonDays,
+      board.today,
+    );
+    return showWeekends ? calendar : calendar.filter((load) => load.working);
+  }, [allRows, board, showWeekends]);
 
   // Where the shift has got to, as a fraction of today's column.
   const todayIndex = dayLoads.findIndex((load) => load.isToday);
@@ -744,7 +763,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           <div className="acell track" style={{ width: gridWidth }}>
             {days.map((d, i) => {
               const load = dayLoads[i];
-              const running = countRunningOrders(allRows, d);
+              const running = runningByDay.get(crewDayKey(d)) ?? 0;
               const pct = Math.round(load.pct);
               // A closed day still shows what landed on it — that is the case
               // for overtime — but muted, so it never reads as normal capacity.
@@ -797,6 +816,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           gridWidth={gridWidth}
           rosterLoads={rosterLoads}
           todayLine={todayLine}
+          startedWorkerIds={startedWorkerIds}
           selectedJobId={selectedJobId}
           onSelect={select}
           dayWidth={dayWidth}

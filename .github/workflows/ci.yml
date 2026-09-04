@@ -31,5 +31,8 @@ jobs:
           SUITES="tests/features/assemblyBoardView.test.ts tests/store/uiStore.test.ts tests/engine/crew.test.ts tests/engine/assemblyDates.test.ts tests/engine/crewSchedule.test.ts tests/engine/workload.test.ts tests/features/groupMove.test.ts"
           TZ=Australia/Sydney npx vitest run $SUITES
           TZ=Pacific/Auckland npx vitest run $SUITES
+          # Not a zone this runs in, but one where a date written without a
+          # time lands on the day before — which is how these creep back.
+          TZ=America/New_York npx vitest run $SUITES
       - run: npm run build
       - run: npm audit --omit=dev

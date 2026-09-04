@@ -17,7 +17,7 @@
  * names a list and Graph is configured. The mock demo never writes.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { readConfigFromEnv } from '@/data/excel/sharepoint.client';
 import {
@@ -68,9 +68,14 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
   // dependency, so a re-render that changes nothing costs no Graph call; the
   // effect parses it back rather than closing over the array, which keeps the
   // written rows and the fingerprint that triggered them in step.
-  const fingerprint = board
-    ? JSON.stringify(orderFactsFromBoard(board, production))
-    : '';
+  //
+  // Built only when the board or the bookings move. App watches ten slices of
+  // the plan, so it re-renders often, and walking every row of every line to
+  // serialise it was being paid for each time.
+  const fingerprint = useMemo(
+    () => (board ? JSON.stringify(orderFactsFromBoard(board, production)) : ''),
+    [board, production],
+  );
 
   useEffect(() => {
     if (!enabled || !fingerprint) return;
