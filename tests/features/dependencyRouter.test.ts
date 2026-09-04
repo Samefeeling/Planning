@@ -52,33 +52,70 @@ describe('recursive dependency focus', () => {
 });
 
 describe('dependency route allocation', () => {
-  it('chooses a vertical channel outside an intervening order block', () => {
+  it('leaves the supplier at its end and enters the successor at its start', () => {
+    // The Gantt elbow: right edge to left edge, both at mid-height, turning
+    // midway between the two — never up and over the top of the block.
     const source = rect('A', 0, 0, 20, 20);
     const target = rect('B', 180, 100, 220, 120);
-    const obstacle = rect('BLOCK', 90, 35, 110, 80);
-    const [route] = routeDependencies(
-      [edge('A-B', source, target)],
-      [source, target, obstacle],
-      { minX: 0, maxX: 240 },
-    );
-    expect(
-      route.channelX <= obstacle.left - 6 ||
-        route.channelX >= obstacle.right + 6,
-    ).toBe(true);
-    expect(route.path.startsWith('M 20 20 V')).toBe(true);
-    expect(route.path.endsWith('H 180 V 100')).toBe(true);
-    expect(route.points.at(-1)).toEqual({ x: target.left, y: target.top });
+    const [route] = routeDependencies([edge('A-B', source, target)], {
+      minX: 0,
+      maxX: 240,
+    });
+
+    expect(route.points).toEqual([
+      { x: 20, y: 10 },
+      { x: 99.5, y: 10 },
+      { x: 99.5, y: 110 },
+      { x: 179, y: 110 },
+    ]);
+    expect(route.path).toBe('M 20 10 H 99.5 V 110 H 179');
   });
 
-  it('spreads parallel trunks over separate channels', () => {
+  it('runs straight down the seam where two bars meet', () => {
+    // Hand-overs are planned to the hour, so this is the common case: the
+    // successor starts exactly where its supplier finishes.
+    const source = rect('A', 0, 0, 100, 20);
+    const target = rect('B', 100, 40, 200, 60);
+    const [route] = routeDependencies([edge('A-B', source, target)]);
+
+    // One vertical line at the join, less the arrowhead's approach.
+    expect(route.path).toBe('M 100 10 H 99.5 V 50 H 99');
+  });
+
+  it('doubles back when the successor starts before its supplier finishes', () => {
+    const source = rect('A', 200, 0, 400, 20);
+    const target = rect('B', 40, 60, 160, 80);
+    const [route] = routeDependencies([edge('A-B', source, target)]);
+
+    // Out to the right of A, back through the gutter between the rows, and in
+    // from the left of B — the doubling back is the point, not a glitch.
+    expect(route.points).toEqual([
+      { x: 400, y: 10 },
+      { x: 409, y: 10 },
+      { x: 409, y: 40 },
+      { x: 30, y: 40 },
+      { x: 30, y: 70 },
+      { x: 39, y: 70 },
+    ]);
+  });
+
+  it('nudges apart two links that would draw as one line', () => {
     const source = rect('A', 0, 0, 20, 20);
     const target = rect('B', 180, 100, 220, 120);
     const routes = routeDependencies(
       [edge('one', source, target), edge('two', source, target)],
-      [source, target],
       { minX: 0, maxX: 240 },
     );
     expect(routes).toHaveLength(2);
     expect(routes[0].channelX).not.toBe(routes[1].channelX);
+  });
+
+  it('leaves links on other rows sharing a channel alone', () => {
+    // Same seam, different rows: they never overlap, so both keep the join.
+    const routes = routeDependencies([
+      edge('top', rect('A', 0, 0, 100, 20), rect('B', 100, 20, 200, 40)),
+      edge('low', rect('C', 0, 200, 100, 220), rect('D', 100, 220, 200, 240)),
+    ]);
+    expect(routes[0].channelX).toBe(routes[1].channelX);
   });
 });

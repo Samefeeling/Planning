@@ -195,7 +195,10 @@ describe('assembly Gantt (mock data)', () => {
       'ASM80011→SFM507014',
       'ASM80013→SFM507068',
       'ASM8008→SFM507016',
+      // Two open press jobs build G11881000, 86 and 258 against a requirement
+      // of 240, so neither batch alone covers the chair and it waits for both.
       'ASM8008→SUNF0000000230',
+      'ASM8008→SUNF0000000231',
       'ASM8009→SFM507066',
       'ASM8009→SFM507067',
     ]);

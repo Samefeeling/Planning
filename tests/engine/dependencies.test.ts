@@ -216,11 +216,38 @@ describe('buildDependencies', () => {
     expect(g.warnings[0]).toMatch(/ASSY1/);
   });
 
-  it('does not infer a supplier from Planning1 without a parent row in JobMaterialReq', () => {
-    const jobs = [job('ASSY1', 'CHAIR'), job('UPL1', 'COVER')];
-    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'COVER')]);
+  it('recognises a supplier that has no material rows of its own', () => {
+    // A press job moulds a shell from bulk resin, so the material export has
+    // nothing to say about it and it never appears as a JobMtl_JobNum. Its
+    // Planning1 header still says it builds SHELL, and the chair still cannot
+    // be assembled until it is done — requiring a job to consume something
+    // before it counts as producing anything drops the link silently.
+    const jobs = [
+      job('ASSY1', 'CHAIR'),
+      job('SFM507623', 'SHELL', { department: 'moulding' }),
+    ];
+    const g = buildDependencies(jobs, [link('ASSY1', 'CHAIR', 'SHELL')]);
 
-    expect(edges(g)).toEqual([]);
+    expect(edges(g)).toEqual(['ASSY1→SFM507623']);
+    expect(String(g.byJob.get('ASSY1')![0].part)).toBe('SHELL');
+  });
+
+  it('lets one supplier feed several orders', () => {
+    // The case from the floor: one press job under two assembly orders.
+    const jobs = [
+      job('015539-8-1', 'CHAIR-A'),
+      job('018291-38-1', 'CHAIR-B'),
+      job('SFM507623', 'SHELL', { department: 'moulding' }),
+    ];
+    const g = buildDependencies(jobs, [
+      link('015539-8-1', 'CHAIR-A', 'SHELL'),
+      link('018291-38-1', 'CHAIR-B', 'SHELL'),
+    ]);
+
+    expect(edges(g)).toEqual([
+      '015539-8-1→SFM507623',
+      '018291-38-1→SFM507623',
+    ]);
   });
 
   it('matches parent and child parts without case or surrounding whitespace', () => {

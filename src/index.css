@@ -463,16 +463,27 @@ button {
   --team-w: 172px;
   font-size: 12px;
 }
+/*
+ * What waits for what: one elbow per material link, out of the end of the
+ * order that makes a part and into the start of the order that needs it.
+ *
+ * Under the bars (z-index 2), not over them. A connector's whole job is to
+ * join two blocks, so where it meets one it should pass behind rather than be
+ * drawn across its label; and routing around them to find a clear column sent
+ * lines the length of the board. The run between two rows crosses empty grid
+ * either way, and that run is the part anyone actually reads.
+ */
 .dependency-layer {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 3;
+  z-index: 1;
   overflow: visible;
   pointer-events: none;
 }
+/* Off the chain being followed: still there, no longer competing with it. */
 .dependency-link {
-  opacity: 0.72;
+  opacity: 0.35;
 }
 .dependency-link.focused {
   opacity: 1;
@@ -483,20 +494,22 @@ button {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* Enough to keep two crossing links apart, not a white gash down the grid. */
 .dependency-casing {
-  stroke: rgba(248, 250, 252, 0.96);
-  stroke-width: 5;
+  stroke: var(--surface);
+  stroke-width: 3.5;
+  opacity: 0.75;
 }
 .dependency-arrow {
-  stroke: #1d4ed8;
-  stroke-width: 2;
+  stroke: var(--border-strong);
+  stroke-width: 1.4;
 }
 .dependency-link.focused .dependency-arrow {
-  stroke: #2563eb;
-  stroke-width: 2;
+  stroke: var(--accent);
+  stroke-width: 1.9;
 }
-.dependency-marker { fill: #1d4ed8; }
-.dependency-marker-focus { fill: #2563eb; }
+.dependency-marker { fill: var(--border-strong); }
+.dependency-marker-focus { fill: var(--accent); }
 .pick-list { display: grid; gap: 5px; }
 .pick-list-row {
   display: grid;

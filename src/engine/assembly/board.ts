@@ -794,8 +794,12 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
             ),
           )
         : null,
+      // At the crew on the order, or at one person when it has none: an order
+      // nobody is on still has a date by which somebody has to pick it up, and
+      // one person is both the smallest crew that could and the reading that
+      // leaves the least room — a bigger crew only ever moves this later.
       mustStartBy: job.dueDate
-        ? latestStart(job, workers.length, job.dueDate)
+        ? latestStart(job, Math.max(1, workers.length), job.dueDate)
         : null,
       completedToday,
     };

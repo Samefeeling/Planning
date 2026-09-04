@@ -46,15 +46,25 @@ const scheduledAt = (job: Job): number =>
 const partKey = (part: PartId): string => String(part).trim().toUpperCase();
 
 /**
- * Which open material-export order supplies a part.
+ * Which open order supplies a part.
  *
- * This deliberately indexes `JobMaterialReq.JobHead_PartNum`, not
- * `Planning1.JobHead_PartNum`: the material export is the source that proves
- * the parent/child relationship. `Planning1` only confirms that both job
- * numbers are on the live board. Several rows normally name the same producing
- * job, so the map deduplicates those rows while retaining every distinct open
- * `JobMtl_JobNum`. Retaining all of them prevents a repeated part number from
- * cutting off a deeper branch of the BOM relationship graph.
+ * Two sources, and both are needed.
+ *
+ * `Planning1.JobHead_PartNum` is the order header — the part the job exists to
+ * make. `JobMaterialReq.JobHead_PartNum` is that same field repeated onto each
+ * material line; it is indexed too, because a job whose material rows name a
+ * different parent than its header is still building that parent.
+ *
+ * Reading only the material export loses any supplier that consumes nothing
+ * the export lists: a press job moulding a shell straight from bulk resin, or
+ * any job whose material lines the BAQ filtered out. Such a job never appears
+ * as a `JobMtl_JobNum`, so nothing names it as a producer, and every order
+ * waiting on it quietly comes free. That failure is invisible on the board — a
+ * missing constraint looks exactly like an order that never had one.
+ *
+ * Several open batches of one part all stay in the list; picking one here cut
+ * off the deeper branches of a nested BOM. Earliest scheduled first, ties
+ * broken on job number, so the same export always yields the same schedule.
  */
 function suppliersByPart(
   jobsById: ReadonlyMap<string, Job>,
@@ -62,19 +72,30 @@ function suppliersByPart(
 ): Map<string, Job[]> {
   const out = new Map<string, Job[]>();
   const seen = new Set<string>();
-  for (const link of links) {
-    const job = jobsById.get(String(link.jobNum));
-    const key = partKey(link.parentPart);
-    // A missing/finished order cannot constrain the live plan, and a blank
-    // parent part cannot be the producing end of a material relationship.
-    if (!job || job.remainingQty <= 0 || !key) continue;
+
+  const index = (job: Job | undefined, key: string): void => {
+    // A missing or finished order cannot constrain the live plan — its parts
+    // already exist — and a blank part cannot be the producing end of a link.
+    if (!job || job.remainingQty <= 0 || !key) return;
     const pair = `${key}\u0000${String(job.id)}`;
-    if (seen.has(pair)) continue;
+    if (seen.has(pair)) return;
     seen.add(pair);
     const held = out.get(key) ?? [];
     held.push(job);
-    held.sort((a, b) => scheduledAt(a) - scheduledAt(b) || String(a.id).localeCompare(String(b.id)));
+    held.sort(
+      (a, b) =>
+        scheduledAt(a) - scheduledAt(b) ||
+        String(a.id).localeCompare(String(b.id)),
+    );
     out.set(key, held);
+  };
+
+  // The order header first: what each open job exists to build.
+  for (const job of jobsById.values()) index(job, partKey(job.partNum));
+  // Then the material export, for a job building something other than the part
+  // its header names.
+  for (const link of links) {
+    index(jobsById.get(String(link.jobNum)), partKey(link.parentPart));
   }
   return out;
 }

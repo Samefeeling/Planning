@@ -10,6 +10,8 @@ import {
 import {
   MAX_WORKERS_PER_ORDER,
   PRODUCTIVE_HOURS_PER_PERSON,
+  SHIFT_END_HOUR,
+  SHIFT_START_HOUR,
 } from '@/domain/assembly';
 import { JobId, PartId } from '@/domain/ids';
 import type { Job } from '@/domain/types';
@@ -88,30 +90,34 @@ describe('assembly duration', () => {
 });
 
 /**
- * Where Epicor's Start Date comes from: the due date less the work, counted
- * back over open days at 7.5 productive hours a person a day.
+ * The board's own Start Date: the due date less the work, counted back over
+ * open days at 7.5 productive hours a person a day — and landing on the shift
+ * clock, because a start nobody can be on the floor for is not a start.
  */
 describe('latestStart', () => {
   const due = (n: number) => new Date(2026, 8, n);
+  /** A moment on 8 Sep + `n` days, at `h` o'clock. */
+  const at = (n: number, h: number, m = 0) => new Date(2026, 8, n, h, m);
   /** Ten units carrying `hours` of work, none of it done. */
   const order = (hours: number) => job(hours, 10);
 
-  it('counts back a whole number of days', () => {
-    // Three days of work for one person, due Thursday 10 Sep.
+  it('counts back a whole number of days, to the top of a shift', () => {
+    // Three days of work for one person, due Thursday 10 Sep. The due date is
+    // a deadline, so the last day it can run on is Wednesday — Mon, Tue, Wed.
     const j = order(3 * PRODUCTIVE_HOURS_PER_PERSON);
-    expect(latestStart(j, 1, due(10))).toEqual(due(7));
+    expect(latestStart(j, 1, due(10))).toEqual(at(7, SHIFT_START_HOUR));
   });
 
   it('steps over the weekend on the way back', () => {
     // Two days of work due Tuesday 8 Sep: Monday, then Friday before it.
     const j = order(2 * PRODUCTIVE_HOURS_PER_PERSON);
-    expect(latestStart(j, 1, due(8))).toEqual(due(4));
+    expect(latestStart(j, 1, due(8))).toEqual(at(4, SHIFT_START_HOUR));
   });
 
   it('halves the wait when a second person is on it', () => {
     const j = order(4 * PRODUCTIVE_HOURS_PER_PERSON);
-    expect(latestStart(j, 1, due(11))).toEqual(due(7));
-    expect(latestStart(j, 2, due(11))).toEqual(due(9));
+    expect(latestStart(j, 1, due(11))).toEqual(at(7, SHIFT_START_HOUR));
+    expect(latestStart(j, 2, due(11))).toEqual(at(9, SHIFT_START_HOUR));
   });
 
   it('counts only the work still to do', () => {
@@ -121,7 +127,23 @@ describe('latestStart', () => {
       remainingQty: 5,
       completedQty: 5,
     };
-    expect(latestStart(half, 1, due(11))).toEqual(due(9));
+    expect(latestStart(half, 1, due(11))).toEqual(at(9, SHIFT_START_HOUR));
+  });
+
+  it('puts part of a day at the hour it has to begin', () => {
+    // Three productive hours — 0.4 of a day — due Thursday 10 Sep. It has to
+    // be on the bench with 0.4 of Wednesday's shift left: 07:00 + 0.6 × 8.5 h.
+    const j = order(0.4 * PRODUCTIVE_HOURS_PER_PERSON);
+    expect(latestStart(j, 1, due(10))).toEqual(at(9, 12, 6));
+  });
+
+  it('never lands outside the shift, whatever the work comes to', () => {
+    for (const hours of [0.1, 1, 3.3, 7.4, 7.5, 12, 30, 61.7]) {
+      const when = latestStart(order(hours), 1, due(30))!;
+      const clock = when.getHours() + when.getMinutes() / 60;
+      expect(clock, `${hours} h`).toBeGreaterThanOrEqual(SHIFT_START_HOUR);
+      expect(clock, `${hours} h`).toBeLessThanOrEqual(SHIFT_END_HOUR);
+    }
   });
 
   it('has no answer with nobody on the order', () => {
@@ -129,8 +151,8 @@ describe('latestStart', () => {
     expect(latestStart(order(20), 0, due(10))).toBeNull();
   });
 
-  it('lands on the due date itself for an order with no work left', () => {
+  it('leaves an order with no work left until the last shift before it is due', () => {
     const done = { ...order(20), remainingQty: 0, completedQty: 10 };
-    expect(latestStart(done, 1, due(10))).toEqual(due(10));
+    expect(latestStart(done, 1, due(10))).toEqual(at(9, 15, 30));
   });
 });

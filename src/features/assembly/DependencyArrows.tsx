@@ -60,22 +60,10 @@ export function DependencyArrows({
     const measure = () => {
       const hostRect = host.getBoundingClientRect();
       const bars = new Map<string, RouteRect>();
-      const obstacles: RouteRect[] = [];
       host.querySelectorAll<HTMLElement>('[data-job-id]').forEach((element) => {
         const id = element.dataset.jobId;
-        if (!id) return;
-        const box = boxOf(element, hostRect, id);
-        bars.set(id, box);
-        obstacles.push(box);
+        if (id) bars.set(id, boxOf(element, hostRect, id));
       });
-      // Only outside labels need their own obstacle; an inside label is already
-      // protected by its bar rectangle.
-      host
-        .querySelectorAll<HTMLElement>('.bar.tagged [data-job-label]')
-        .forEach((element) => {
-          const id = element.dataset.jobLabel;
-          if (id) obstacles.push(boxOf(element, hostRect, `${id}:label`));
-        });
 
       const edges: DependencyEdge[] = [];
       for (const row of rows) {
@@ -103,12 +91,9 @@ export function DependencyArrows({
         mode === 'all'
           ? edges
           : edges.filter((edge) => focus.edgeKeys.has(edge.key));
-      const left = bars.size > 0
-        ? Math.min(...[...bars.values()].map((bar) => bar.left))
-        : 0;
-      const arrows = routeDependencies(visible, obstacles, {
-        minX: left + 2,
-        maxX: host.scrollWidth - 8,
+      const arrows = routeDependencies(visible, {
+        minX: labelWidth,
+        maxX: host.scrollWidth - 2,
       }).map((arrow) => ({
         ...arrow,
         focused: mode === 'focus' || focus.edgeKeys.has(arrow.key),
@@ -128,7 +113,7 @@ export function DependencyArrows({
     const observer = new ResizeObserver(queueMeasure);
     observer.observe(host);
     host
-      .querySelectorAll<HTMLElement>('[data-job-id], [data-job-label]')
+      .querySelectorAll<HTMLElement>('[data-job-id]')
       .forEach((element) => observer.observe(element));
     window.addEventListener('resize', queueMeasure);
     return () => {
@@ -136,7 +121,7 @@ export function DependencyArrows({
       observer.disconnect();
       window.removeEventListener('resize', queueMeasure);
     };
-  }, [focusJobId, mode, root, rows]);
+  }, [focusJobId, labelWidth, mode, root, rows]);
 
   /*
    * Keep the arrows out from under the frozen columns.

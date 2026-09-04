@@ -21,7 +21,8 @@ export interface OrderSort {
 }
 
 const sortDate = (row: OrderRow, key: OrderSortKey): Date | null => {
-  if (key === 'start') return row.job.startDate;
+  // The board's own back-scheduled start, which is what the column shows.
+  if (key === 'start') return row.mustStartBy ?? row.job.startDate;
   if (key === 'due') return row.job.dueDate;
   return row.job.shipDate;
 };

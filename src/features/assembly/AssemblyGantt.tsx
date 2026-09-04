@@ -19,6 +19,7 @@ import type {
 } from '@/engine/assembly/board';
 import {
   ORDER_TYPE_SHORT,
+  PRODUCTIVE_HOURS_PER_PERSON,
   SHIFT_END_HOUR,
   SHIFT_START_HOUR,
   WORK_KIND_SHORT,
@@ -91,8 +92,8 @@ const hourLabel = (h: number): string =>
   );
 
 /**
- * The time of day Epicor scheduled the order to start (`JobHead_StartHour`).
- * Midnight means the export carried no hour, so there is nothing to show.
+ * The time of day a start falls at. Midnight means there is no hour to show —
+ * the export carried none, or the work happens to begin as the shift opens.
  */
 const startTime = (d: Date | null): string | null =>
   d && (d.getHours() !== 0 || d.getMinutes() !== 0) ? TIME_FMT.format(d) : null;
@@ -140,6 +141,7 @@ function OrderRowView({
   const expectStyle = frozenDate(visibleDates.expect);
   const shipStyle = frozenDate(visibleDates.ship);
   const startAt = row.job.startDate;
+  const mustStart = row.mustStartBy;
   const orderQty = row.job.remainingQty + row.job.completedQty;
   return (
     <div
@@ -177,15 +179,32 @@ function OrderRowView({
       >
         {remainingHours(row.job).toFixed(1)} h
       </div>
+      {/* Worked out here, not taken from the export. Epicor back-schedules on
+          its own calendar and returns hours like 18:23, when the floor is
+          empty; this counts the same work back over 07:00–15:30 shifts at 7.5
+          productive hours a head, so the answer is always a moment somebody
+          could actually pick the order up. The export's own value stays in the
+          tooltip as the cross-check. */}
       {visibleDates.start && (
         <div
           className="acell date frozen start"
           style={startStyle}
-          title={startAt ? `Scheduled start ${startAt.toLocaleString()}` : 'No scheduled start in the export'}
+          title={
+            (mustStart
+              ? `Must start by ${mustStart.toLocaleString()} — ` +
+                `${remainingHours(row.job).toFixed(1)} h counted back from the ` +
+                `due date at ${PRODUCTIVE_HOURS_PER_PERSON} h a day for ` +
+                `${Math.max(1, row.workers.length)} ` +
+                `${row.workers.length === 1 ? 'person' : 'people'}`
+              : 'No due date to count back from') +
+            (startAt
+              ? `\nEpicor scheduled ${startAt.toLocaleString()}`
+              : '\nNo scheduled start in the export')
+          }
         >
-          <span>{fmt(startAt)}</span>
-          {startTime(startAt) && (
-            <span className="date-hour">{startTime(startAt)}</span>
+          <span>{fmt(mustStart)}</span>
+          {startTime(mustStart) && (
+            <span className="date-hour">{startTime(mustStart)}</span>
           )}
         </div>
       )}

@@ -9,9 +9,11 @@
 import {
   MAX_WORKERS_PER_ORDER,
   PRODUCTIVE_HOURS_PER_PERSON,
+  SHIFT_END_HOUR,
+  SHIFT_START_HOUR,
 } from '@/domain/assembly';
 import type { Job } from '@/domain/types';
-import { startOfDay, subWorkingDays } from './dates';
+import { prevWorkingDay, shiftMoment } from './dates';
 
 /** Fraction of the order already finished, clamped to [0, 1]. */
 export function completedFraction(job: Job): number {
@@ -79,18 +81,23 @@ export function crewNeededFor(job: Job, days: number): number | null {
 }
 
 /**
- * The last day work can begin and still be finished by `due`.
+ * The last moment work can begin and still be finished by `due`.
  *
- * This is where Epicor's own `JobHead_StartDate` comes from: the due date less
- * the work, counted back over open days only. The work is
- * `Calculated_RemainingLaborHrs`, and a day is worth
- * `PRODUCTIVE_HOURS_PER_PERSON` — 7.5, being 07:00 to 15:30 less morning tea
- * and lunch — per person on the order.
+ * This is the board's own Start Date, and it replaces the one in the export
+ * rather than trusting it. Epicor back-schedules on its own calendar and hands
+ * back hours like 18:23 and 23:40 — times when the assembly floor is empty and
+ * nothing can start. Here the sum is the factory's: the work is
+ * `Calculated_RemainingLaborHrs`, a day is worth `PRODUCTIVE_HOURS_PER_PERSON`
+ * per person — 7.5, being 07:00 to 15:30 less morning tea and lunch — and the
+ * count runs back over open days only.
  *
- * So it is also a check: derive it here, compare it with the date the export
- * carries, and a gap means the crew size or the hours differ from whatever
- * Epicor assumed. `null` when nobody is on the order, because then there is no
- * rate to count back at.
+ * The answer is a moment inside a shift, not a midnight: an order needing half
+ * a day must be on the bench by the middle of the last day, and saying so is
+ * the difference between a date that can be acted on and one that cannot. The
+ * export's own value stays visible beside it as a cross-check — a gap means
+ * the crew size or the hours differ from whatever Epicor assumed.
+ *
+ * `null` when nobody is on the order, because then there is no rate.
  */
 export function latestStart(
   job: Job,
@@ -99,5 +106,18 @@ export function latestStart(
 ): Date | null {
   const days = durationDays(job, workerCount);
   if (days === null) return null;
-  return startOfDay(subWorkingDays(due, days));
+
+  // The work has to be finished before the due date opens — `scheduleStatus`
+  // calls an Expect Date on the due date itself late — so the last shift it
+  // can run on is the working day before.
+  let day = prevWorkingDay(due);
+
+  // Whole days come off first; the remainder is the tail of the starting day,
+  // which is what puts a clock time on the answer.
+  let left = days;
+  while (left > 1) {
+    left -= 1;
+    day = prevWorkingDay(day);
+  }
+  return shiftMoment(day, 1 - left, SHIFT_START_HOUR, SHIFT_END_HOUR);
 }
