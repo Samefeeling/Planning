@@ -231,7 +231,6 @@ button {
   padding: 10px;
 }
 .pool h2,
-.inspector h2,
 .section-title {
   font-size: 12px;
   text-transform: uppercase;
@@ -267,10 +266,6 @@ button {
 }
 
 /* ---- inspector --------------------------------------------------------- */
-.inspector {
-  padding: 8px;
-  border-top: 1px solid var(--border);
-}
 /*
  * The order detail, opened beside the pointer. Fixed to the window rather than
  * to the board so scrolling the schedule underneath cannot drag it off screen.
@@ -286,58 +281,227 @@ button {
 .inspector.floating {
   position: fixed;
   z-index: 50;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
-  border: 1px solid var(--border);
+  padding: 0;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--surface);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.26);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
 }
+
+/*
+ * The masthead: what this order is, and how it stands. Named once, across the
+ * full width, so the description reads as a line of prose instead of being
+ * poured down a third of the panel; the badges are the summary a supervisor
+ * reads first, so they sit opposite it rather than buried under the dates.
+ */
+.inspector-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 16px;
+  padding: 11px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(var(--surface-2), var(--surface));
+}
+.inspector-ident {
+  min-width: 0;
+}
+.inspector-job {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+.inspector-part {
+  margin-left: 9px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  vertical-align: 2px;
+}
+/* Two lines of description, then an ellipsis; the rest is on hover. */
+.inspector-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.inspector-flags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  max-width: 300px;
+}
+/* Says what the missing close button used to: quietly, and only in the panel. */
+.inspector-dismiss {
+  flex: 1 0 100%;
+  text-align: right;
+  color: var(--faint);
+  font-size: 10px;
+}
+
 .inspector-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: start;
-  margin-top: 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
+  align-items: stretch;
+  flex: 1;
 }
 .inspector-section {
+  display: flex;
+  flex-direction: column;
   align-self: stretch;
   min-width: 0;
-  padding: 8px;
+  padding: 11px 14px 12px;
   border-left: 1px solid var(--border);
   background: var(--surface);
 }
 .inspector-section:first-child {
   border-left: 0;
 }
+/* A section title is a label for what follows, not a sentence in it: small,
+   spaced, and ruled off, the way a printed spec sheet divides its blocks. */
 .inspector-section h3 {
-  margin: 0 0 6px;
-  font-size: 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 9px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
   line-height: 1.2;
-  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+.inspector-section h3 .count {
+  color: var(--faint);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: none;
 }
 .inspector-subsection {
-  margin-top: 7px;
+  margin-top: 11px;
 }
 .inspector-subsection h4 {
   margin: 0 0 5px;
-  color: var(--muted);
-  font-size: 10.5px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.35px;
+  letter-spacing: 0.6px;
 }
-.inspector-section .kv {
-  grid-template-columns: 70px 1fr;
-  margin-bottom: 6px;
-}
-.inspector-section .job-number {
-  font-weight: 750;
-}
-.inspector-section .job-badges {
+/* Pushes the section's action to the foot of the column, so the three
+   sections end on a line however unevenly their content fills them. */
+.section-foot {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 9px;
+}
+.section-foot .hint {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.section-foot .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ---- the four dates, read across ---------------------------------------- */
+.date-rail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--border);
+  overflow: hidden;
+}
+.date-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px 6px;
+  background: var(--surface-2);
+}
+.date-label {
+  color: var(--faint);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.date-value {
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.date-value.green { color: #047857; }
+.date-value.orange { color: #b45309; }
+.date-value.red { color: #b91c1c; }
+.date-note {
+  color: #b91c1c;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+/* ---- how far through it is ---------------------------------------------- */
+.progress-figure {
+  font-variant-numeric: tabular-nums;
+}
+.progress-figure .of {
+  color: var(--faint);
+  font-weight: 400;
+}
+.progress-meter {
+  display: block;
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.progress-meter i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.inspector-section .kv {
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 5px 10px;
+  margin-bottom: 0;
+}
+.inspector-section .kv dt {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.6;
 }
 @media (max-width: 700px) {
   .inspector-grid {
@@ -374,22 +538,25 @@ button {
   color: var(--faint);
 }
 .kv dd {
+  min-width: 0;
   margin: 0;
   font-weight: 500;
 }
 /* ---- what an order is waiting for -------------------------------------- */
 .dep-list {
   list-style: none;
-  margin: 0 0 10px;
+  margin: 0;
   padding: 0;
   font-size: 12px;
 }
 .dep-list li {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: baseline;
-  padding: 3px 0;
+  padding: 4px 0;
+}
+.dep-list li + li {
   border-top: 1px solid var(--border);
 }
 /* The one actually holding the bar back; the others are already clear. */
@@ -402,12 +569,11 @@ button {
   padding: 0;
   border: 0;
   background: none;
-  font: inherit;
+  font-family: var(--mono);
+  font-size: 11.5px;
   color: var(--muted);
-  text-decoration: underline dotted;
-  cursor: pointer;
+  cursor: default;
 }
-.dep-job:hover { color: var(--accent); }
 .dep-part {
   color: var(--faint);
   font-family: var(--mono);
@@ -416,18 +582,32 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dep-when { color: var(--faint); font-size: 11px; }
+.dep-when {
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .shortage-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, auto) 1fr;
+  gap: 4px 10px;
   padding: 4px 0;
-  border-top: 1px solid var(--border);
   font-size: 11.5px;
+}
+.shortage-row + .shortage-row {
+  border-top: 1px solid var(--border);
 }
 .shortage-row .part {
   font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shortage-row span:last-child {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .zoom {
@@ -535,13 +715,37 @@ button {
 .marked-set:hover {
   background: rgba(91, 140, 255, 0.28);
 }
-.pick-list { display: grid; gap: 5px; }
+/*
+ * A picking sheet, so it is set like one: part numbers in a mono column that
+ * lines up character for character, quantities right-aligned on tabular
+ * figures, and a hairline only *between* rows — a rule under the last one
+ * closes off a list that has not ended.
+ */
+.pick-list { display: grid; }
 .pick-list-row {
   display: grid;
-  grid-template-columns: minmax(100px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--border);
+  align-items: baseline;
+  padding: 3px 0;
+  font-size: 11.5px;
+}
+.pick-list-row + .pick-list-row {
+  border-top: 1px solid var(--border);
+}
+.pick-list-row .part {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-list-row .qty {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.pick-list-row .qty.none {
+  color: var(--faint);
+  font-weight: 400;
 }
 .assy-summary {
   display: flex;
@@ -1690,33 +1894,6 @@ body.col-resizing {
   gap: 6px;
 }
 
-/* ---- inspector header --------------------------------------------------- */
-.inspector-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.inspector-head h2 {
-  flex: 1;
-  min-width: 0;
-}
-.inspector-close {
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  line-height: 1;
-  font-size: 16px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface-2);
-  color: var(--muted);
-  cursor: pointer;
-}
-.inspector-close:hover {
-  border-color: var(--border-strong);
-  color: var(--text);
-}
 .date-head { flex-direction: column; gap: 3px; text-align: center; line-height: 1.15; }
 .date-head .date-hide { width: 22px; height: 18px; line-height: 12px; }
 .date-head .date-sort {
@@ -1786,14 +1963,47 @@ body.col-resizing {
   display: block;
   color: var(--ok);
 }
-.production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 6px; }
-.production-grid label { color: var(--muted); font-size: 11px; }
+.production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 8px; margin-bottom: 8px; }
+.production-grid label { display: block; }
+.production-grid label > span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--faint);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
 .production-grid input,
-.production-input { width: 100%; margin-top: 2px; padding: 4px 6px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; font: inherit; }
+.production-input { width: 100%; padding: 5px 7px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; font: inherit; font-size: 12.5px; }
+.production-grid input { font-variant-numeric: tabular-nums; }
+.production-grid input:focus,
+.production-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+.production-input { margin-top: 6px; }
+.production-entry textarea.production-input { min-height: 52px; resize: vertical; }
 textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
-.production-actions { display: flex; align-items: center; gap: 12px; margin: 4px 0; }
-.pause-toggle { display: flex; align-items: center; gap: 5px; margin: 0; font-weight: 650; white-space: nowrap; }
-.production-start { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--border); }
+.production-actions { display: flex; align-items: center; gap: 14px; margin: 2px 0; }
+.pause-toggle { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--muted); font-size: 11.5px; font-weight: 650; white-space: nowrap; }
+/* The start gate is this section's action, so it drops to the foot of the
+   column and its button lands on the same line as Save entry next door,
+   against the same right edge. */
+.production-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 9px;
+  text-align: right;
+}
+.production-start > .hint,
+.production-start .production-history {
+  align-self: stretch;
+  margin: 0;
+  text-align: left;
+}
+.production-start .production-input { margin-top: 0; }
+.production-start .btn { white-space: nowrap; }
 .production-start .production-history { padding: 0; border-top: 0; }
 .action-message { margin-top: 5px; margin-bottom: 0; }
 .production-history { padding: 6px 0; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.45; }
@@ -1843,27 +2053,6 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
   font-size: 11px;
 }
 
-/* inspector extras */
-.book {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.book input {
-  flex: 1;
-  min-width: 0;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  padding: 5px 8px;
-  font-size: 12px;
-  font-family: inherit;
-}
-.book input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
 .hint {
   color: var(--faint);
   font-size: 10.5px;

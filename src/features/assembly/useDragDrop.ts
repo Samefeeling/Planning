@@ -29,6 +29,7 @@ import {
 } from '@/engine/assembly/dates';
 import { dayKey } from '@/engine/assembly/workload';
 import { shiftTimelineDays } from './boardView';
+import { planGroupMove, type MarkedMove } from './groupMove';
 
 /** Prefer the specific card target, then a lane/pool, then the nearest. */
 const collisionDetection: CollisionDetection = (args) => {
@@ -105,29 +106,19 @@ export function useDragDrop() {
        * A set marked with Ctrl moves as one.
        *
        * Every marked order shifts by the same number of columns as the bar
-       * under the pointer, each from where its own bar is drawn. One landing on
-       * a weekend is pulled to the Monday rather than asking: a bulk move is a
-       * re-plan of a run of work, not a decision about overtime on one order,
-       * and a prompt per order would be unanswerable. Only the dragged bar can
-       * change line — dropping a set on a lane and having all of it jump there
-       * is not what the pointer said.
+       * under the pointer, each from where its own bar is drawn, and the shape
+       * then comes to rest on the earliest days it may legally take — see
+       * `planGroupMove`. A weekend landing is pulled to the Monday rather than
+       * asking: a bulk move is a re-plan of a run of work, not a decision about
+       * overtime on one order, and a prompt per order would be unanswerable.
+       * Only the dragged bar can change line — dropping a set on a lane and
+       * having all of it jump there is not what the pointer said.
        */
-      const marks = (active.data.current.moveWith ?? []) as {
-        jobId: string;
-        startISO: string | null;
-      }[];
+      const marks = (active.data.current.moveWith ?? []) as MarkedMove[];
       if (marks.length > 1 && marks.some((m) => m.jobId === key)) {
-        const { orderActualStarts } = usePlanStore.getState();
-        for (const mark of marks) {
-          if (orderActualStarts[mark.jobId] || !mark.startISO) continue;
-          const to = shiftTimelineDays(
-            startOfDay(new Date(mark.startISO)),
-            dayShift,
-            showWeekends,
-          );
-          const landed = startOfDay(isWeekend(to) ? nextWorkingDay(to) : to);
-          setOvertime(JobId(mark.jobId), false);
-          setOrderStart(JobId(mark.jobId), landed.toISOString());
+        for (const landed of planGroupMove(marks, dayShift, showWeekends)) {
+          setOvertime(JobId(landed.jobId), false);
+          setOrderStart(JobId(landed.jobId), landed.startISO);
         }
         return;
       }

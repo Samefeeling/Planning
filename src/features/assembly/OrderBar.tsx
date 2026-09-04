@@ -23,6 +23,7 @@ import { addDays, workingSpans } from '@/engine/assembly/dates';
 import { completedFraction, remainingHours } from '@/engine/assembly/duration';
 import { MS_PER_DAY } from '@/lib/time';
 import { barTag, timelineDayOffset } from './boardView';
+import type { MarkedMove } from './groupMove';
 
 export const DRAG_TYPE_BAR = 'order-bar';
 
@@ -61,7 +62,7 @@ export function OrderBar({
    * whole set by the same number of columns. Only the bar being dragged reads
    * it, but it has to travel in the drag payload, which is set up here.
    */
-  moveWith?: { jobId: string; startISO: string | null }[];
+  moveWith?: MarkedMove[];
   onSelect: (jobId: string, at?: { x: number; y: number }) => void;
   onMark: (jobId: string) => void;
   onDependencyHover: (jobId: string | null) => void;

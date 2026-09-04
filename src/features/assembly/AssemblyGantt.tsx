@@ -56,6 +56,7 @@ import {
   type OrderSort,
   type OrderSortKey,
 } from './boardView';
+import type { MarkedMove } from './groupMove';
 
 // Must match the widths in index.css (--qty-w, --date-w x4, --team-w),
 // otherwise the header's day columns drift out of line with the row tracks.
@@ -130,7 +131,7 @@ function OrderRowView({
   workerLines: ReadonlyMap<string, LineKey>;
   dependencyRelated: boolean;
   marked: boolean;
-  moveWith: { jobId: string; startISO: string | null }[];
+  moveWith: MarkedMove[];
   onMark: (id: string) => void;
   onDependencyHover: (id: string | null) => void;
 }) {
@@ -308,7 +309,7 @@ function LineGroupView({
   unlocked: boolean;
   relatedJobIds: ReadonlySet<string>;
   markedIds: ReadonlySet<string>;
-  moveWith: { jobId: string; startISO: string | null }[];
+  moveWith: MarkedMove[];
   onMark: (id: string) => void;
   onDependencyHover: (id: string | null) => void;
 }) {
@@ -520,17 +521,41 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
    * them can move the rest by the same number of columns. The day a bar sits on
    * is not the day it was pinned to — a predecessor or a full line may have
    * pushed it out — so the drawn day is what a relative move has to start from.
+   *
+   * Each also carries the earliest day it may take, so the set can be pushed
+   * off days it cannot legally sit on without the drop handler needing the
+   * board. A predecessor inside the set is left out of that: it is about to
+   * move by the same amount, so where it finishes relative to this order is
+   * exactly what it was before the drag.
    */
-  const moveWith = useMemo(
-    () =>
-      visibleRows
-        .filter((row) => markedIds.has(String(row.job.id)) && row.start)
-        .map((row) => ({
-          jobId: String(row.job.id),
-          startISO: row.start!.toISOString(),
-        })),
-    [visibleRows, markedIds],
-  );
+  const moveWith = useMemo(() => {
+    const movable = visibleRows.filter(
+      (row) => markedIds.has(String(row.job.id)) && row.start && !row.actualStart,
+    );
+    const moving = new Set(movable.map((row) => String(row.job.id)));
+    // Predecessors are looked up across the whole board, not the visible rows:
+    // an order can be held by one scrolled out of the window, or by a press job.
+    const everyRow = new Map(
+      board.groups.flatMap((group) =>
+        group.rows.map((row) => [String(row.job.id), row] as const),
+      ),
+    );
+    return movable.map((row) => {
+      const floors: Date[] = [board.today];
+      if (row.material.earliestStart) floors.push(row.material.earliestStart);
+      for (const dependency of row.predecessors) {
+        const id = String(dependency.onJobId);
+        if (moving.has(id)) continue;
+        const finish = everyRow.get(id)?.expectDate;
+        if (finish) floors.push(finish);
+      }
+      return {
+        jobId: String(row.job.id),
+        startISO: row.start!.toISOString(),
+        floorISO: floors.reduce((a, b) => (b > a ? b : a)).toISOString(),
+      };
+    });
+  }, [visibleRows, markedIds, board.groups, board.today]);
   // Esc lets go of the set, the way it closes anything else on the board.
   useEffect(() => {
     if (marked.length === 0) return;

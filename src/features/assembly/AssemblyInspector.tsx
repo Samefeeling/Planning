@@ -176,18 +176,6 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     setEntryMessage('');
   }, [selectedJobId, productionEntries, today]);
 
-  const close = (
-    <button
-      type="button"
-      className="inspector-close"
-      aria-label="Close"
-      title="Close"
-      onClick={() => select(null)}
-    >
-      ×
-    </button>
-  );
-
   // Nothing picked: the panel is simply not there. It opens on a click and
   // closes again, rather than sitting in a column asking to be filled.
   if (!row) return null;
@@ -210,6 +198,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const activeCrew = row.workers.filter((worker) =>
     activeCrewIds.includes(String(worker.id)),
   );
+  const picks = row.pickList ?? [];
 
   const eligibility = startEligibility(
     job.released,
@@ -318,31 +307,69 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             }
       }
     >
-      <div className="inspector-head">
-        {close}
-      </div>
+      {/*
+       * The order names itself once, across the top, instead of as the first
+       * three rows of a narrow list — a part description is a sentence, and a
+       * sentence set in a third of the panel's width was the tallest thing on
+       * screen and the least readable. There is no close button: Esc and a
+       * click anywhere outside both close it, which is how everything else on
+       * the board behaves, and a button in the corner of a panel that opens at
+       * the pointer is one more thing to aim at.
+       */}
+      <header className="inspector-title">
+        <div className="inspector-ident">
+          <span className="inspector-job">{String(job.id)}</span>
+          <span className="inspector-part">{String(job.partNum)}</span>
+          {job.description && (
+            <span className="inspector-desc" title={job.description}>
+              {job.description}
+            </span>
+          )}
+        </div>
+        <div className="inspector-flags">
+          {closed && <Badge variant="neutral">Job completed</Badge>}
+          {row.overtime && <Badge variant="warn">Weekend overtime</Badge>}
+          <Badge
+            variant={
+              status.color === 'green'
+                ? 'ok'
+                : status.color === 'orange'
+                  ? 'warn'
+                  : status.color === 'red'
+                    ? 'error'
+                    : 'neutral'
+            }
+          >
+            {status.reason}
+          </Badge>
+          {row.waitingOn && (
+            <Badge variant="neutral">
+              Waits on {String(row.waitingOn.onJobId)}
+            </Badge>
+          )}
+          <span className="inspector-dismiss">Esc or click away to close</span>
+        </div>
+      </header>
 
       <div className="inspector-grid">
         <section className="inspector-section job-info">
-          <h3>Job Info</h3>
-          <dl className="kv">
-            <dt>Job</dt>
-            <dd className="job-number">{String(job.id)}</dd>
-            <dt>Part</dt>
-            <dd>{String(job.partNum)}</dd>
-            <dt>Description</dt>
-            <dd>{job.description || '—'}</dd>
-            <dt>Progress</dt>
-            <dd>{job.completedQty} / {job.completedQty + left}</dd>
-            <dt>Due date</dt>
-            <dd>{job.dueDate ? formatDay(job.dueDate) : '—'}</dd>
+          <h3>Schedule</h3>
+          {/* The four dates read across, not down: they are compared with each
+              other far more often than they are read one at a time, and a
+              column of labelled rows makes that comparison hard work. */}
+          <div className="date-rail">
+            <div className="date-cell">
+              <span className="date-label">Due</span>
+              <span className="date-value">
+                {job.dueDate ? formatDay(job.dueDate) : '—'}
+              </span>
+            </div>
             {/* Where Epicor's own Start Date comes from: the due date less the
                 work, at 7.5 productive hours a person a day. Derived here at
                 the crew actually on the order, so a gap against the export is
                 a difference in crew size or hours, not a mystery. */}
-            <dt>Must start</dt>
-            <dd
-              className={late ? 'expect red' : ''}
+            <div
+              className="date-cell"
               title={
                 row.mustStartBy
                   ? `Last day work can begin and still finish by the due date, ` +
@@ -355,40 +382,50 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                   : 'Nobody is on this order, so there is no rate to count back at'
               }
             >
-              {row.mustStartBy ? formatDay(row.mustStartBy) : '—'}
-              {late && ' — the plan starts later'}
+              <span className="date-label">Must start</span>
+              <span className={`date-value ${late ? 'red' : ''}`}>
+                {row.mustStartBy ? formatDay(row.mustStartBy) : '—'}
+              </span>
+              {late && <span className="date-note">plan starts later</span>}
+            </div>
+            <div className="date-cell">
+              <span className="date-label">Expect</span>
+              <span className={`date-value ${status.color}`}>
+                {row.expectDate ? formatDay(row.expectDate) : '—'}
+              </span>
+            </div>
+            <div className="date-cell">
+              <span className="date-label">Ship</span>
+              <span className="date-value">
+                {job.shipDate ? formatDay(job.shipDate) : '—'}
+              </span>
+            </div>
+          </div>
+          <dl className="kv">
+            <dt>Progress</dt>
+            <dd>
+              <span className="progress-figure">
+                {job.completedQty} <span className="of">of</span>{' '}
+                {job.completedQty + left}
+              </span>
+              <span
+                className="progress-meter"
+                title={`${left} still to make`}
+                aria-hidden="true"
+              >
+                <i
+                  style={{
+                    width: `${
+                      (100 * job.completedQty) /
+                      Math.max(1, job.completedQty + left)
+                    }%`,
+                  }}
+                />
+              </span>
             </dd>
-            <dt>Expect date</dt>
-            <dd className={`expect ${status.color}`}>
-              {row.expectDate ? formatDay(row.expectDate) : '—'}
-            </dd>
-            <dt>Ship date</dt>
-            <dd>{job.shipDate ? formatDay(job.shipDate) : '—'}</dd>
             <dt>Kit</dt>
             <dd>{PREP_LABEL[job.materialPrep]}</dd>
           </dl>
-          <div className="job-badges">
-            {closed && <Badge variant="neutral">Job completed</Badge>}
-            {row.overtime && <Badge variant="warn">Weekend overtime</Badge>}
-            <Badge
-              variant={
-                status.color === 'green'
-                  ? 'ok'
-                  : status.color === 'orange'
-                    ? 'warn'
-                    : status.color === 'red'
-                      ? 'error'
-                      : 'neutral'
-              }
-            >
-              {status.reason}
-            </Badge>
-            {row.waitingOn && (
-              <Badge variant="neutral">
-                Waits on {String(row.waitingOn.onJobId)}
-              </Badge>
-            )}
-          </div>
           {row.predecessors.length > 0 && (
             <div className="inspector-subsection">
               <h4>Needs finished first</h4>
@@ -402,7 +439,14 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                       className={holding ? 'holding' : ''}
                     >
                       <span className="dep-job">{String(dep.onJobId)}</span>
-                      <span className="dep-part">
+                      <span
+                        className="dep-part"
+                        title={
+                          dep.part
+                            ? `${String(dep.onJobId)} supplies ${String(dep.part)}`
+                            : 'Named as this order’s part in the order export'
+                        }
+                      >
                         {dep.part ? String(dep.part) : 'named in the order export'}
                       </span>
                       <span className="dep-when">
@@ -433,19 +477,30 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           )}
         </section>
 
-        <section className="inspector-section crew-pace">
-          <h3>Warehouse Pick List</h3>
-          {(row.pickList ?? []).length === 0 ? (
+        <section className="inspector-section pick-list-section">
+          <h3>
+            Warehouse pick list
+            {picks.length > 0 && (
+              <span className="count">
+                {picks.length} line{picks.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </h3>
+          {picks.length === 0 ? (
             <p className="hint">No materials found in JobMaterialReq.csv.</p>
           ) : (
             <div className="pick-list">
-              {(row.pickList ?? []).map((material, index) => (
+              {picks.map((material, index) => (
                 <div className="pick-list-row" key={`${String(material.childPart)}-${index}`}>
-                  <span className="part">{String(material.childPart)}</span>
-                  <span>
-                    {material.requiredQty === null
-                      ? 'quantity not supplied'
-                      : `pick ${material.requiredQty}`}
+                  <span className="part" title={String(material.childPart)}>
+                    {String(material.childPart)}
+                  </span>
+                  <span
+                    className={
+                      material.requiredQty === null ? 'qty none' : 'qty'
+                    }
+                  >
+                    {material.requiredQty === null ? '—' : material.requiredQty}
                   </span>
                 </div>
               ))}
@@ -493,19 +548,22 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
         </section>
 
         <section className="inspector-section production-entry">
-          <h3>Production Entry</h3>
+          <h3>
+            Production entry
+            <span className="count">today</span>
+          </h3>
           <div className="production-grid">
-            <label>Shift output<input type="number" min={0} value={shiftOutput} onChange={(event) => setShiftOutput(event.target.value)} /></label>
-            <label>Reject<input type="number" min={0} value={reject} onChange={(event) => setReject(event.target.value)} /></label>
-            <label>Rework<input type="number" min={0} value={rework} onChange={(event) => setRework(event.target.value)} /></label>
-            <label>Complete<input type="number" min={0} max={maxComplete} value={draft} placeholder={`≤ ${maxComplete}`} onChange={(event) => setDraft(event.target.value)} /></label>
+            <label><span>Shift output</span><input type="number" min={0} value={shiftOutput} onChange={(event) => setShiftOutput(event.target.value)} /></label>
+            <label><span>Reject</span><input type="number" min={0} value={reject} onChange={(event) => setReject(event.target.value)} /></label>
+            <label><span>Rework</span><input type="number" min={0} value={rework} onChange={(event) => setRework(event.target.value)} /></label>
+            <label><span>Complete</span><input type="number" min={0} max={maxComplete} value={draft} placeholder={`≤ ${maxComplete}`} onChange={(event) => setDraft(event.target.value)} /></label>
           </div>
           <div className="production-actions">
             <label className="pause-toggle">
               <input type="checkbox" checked={paused} onChange={(event) => setPaused(event.target.checked)} /> Pause
             </label>
             <label className="pause-toggle">
-              <input type="checkbox" checked={jobCompleted} onChange={(event) => setJobCompleted(event.target.checked)} /> Job Completed
+              <input type="checkbox" checked={jobCompleted} onChange={(event) => setJobCompleted(event.target.checked)} /> Job completed
             </label>
           </div>
           {paused && (
@@ -514,21 +572,23 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             </select>
           )}
           <textarea className="production-input" value={notes} placeholder="Notes (optional)" onChange={(event) => setNotes(event.target.value)} />
-          <div className="book">
+          {entryMessage && <p className="hint action-message" role="status">{entryMessage}</p>}
+          {/* The note that explains the form sits with the button that submits
+              it, so the section ends on its action rather than trailing off. */}
+          <div className="section-foot book">
             <input
               className="sr-only"
               aria-hidden="true"
               tabIndex={-1}
               onKeyDown={(event) => event.key === 'Enter' && book()}
             />
+            <p className="hint">
+              Entered at shift end. The Expect Date adjusts automatically.
+            </p>
             <Button variant="primary" disabled={closed} onClick={book}>
               Save entry
             </Button>
           </div>
-          {entryMessage && <p className="hint action-message" role="status">{entryMessage}</p>}
-          <p className="hint">
-            Entered at shift end. The Expect Date adjusts automatically.
-          </p>
         </section>
       </div>
     </div>
