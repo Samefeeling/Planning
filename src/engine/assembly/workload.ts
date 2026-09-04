@@ -17,8 +17,6 @@ import { addCalendarDays, isWeekend, startOfDay } from './dates';
 import type { OrderRow } from './board';
 import { toDayKey } from '@/lib/time';
 
-export { isWeekend };
-
 /** Days a person's popup covers — "one week". */
 export const LOAD_WINDOW_DAYS = 7;
 

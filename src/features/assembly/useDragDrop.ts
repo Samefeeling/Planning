@@ -31,13 +31,10 @@ import { shiftTimelineDays } from './boardView';
 import { planGroupMove, type MarkedMove } from './groupMove';
 import { toDayKey } from '@/lib/time';
 
-/** Prefer the specific card target, then a lane/pool, then the nearest. */
+/** Prefer whatever the pointer is actually inside, then the nearest. */
 const collisionDetection: CollisionDetection = (args) => {
   const hits = pointerWithin(args);
-  const cards = hits.filter((h) => String(h.id).startsWith('card:'));
-  if (cards.length) return cards;
-  if (hits.length) return hits;
-  return closestCenter(args);
+  return hits.length ? hits : closestCenter(args);
 };
 
 export function useDragDrop() {
@@ -165,27 +162,9 @@ export function useDragDrop() {
 
     if (!over) return;
 
-    const activeJob = JobId(String(active.id));
-    const overId = String(over.id);
-    const { containers, containerOf, moveJob } = usePlanStore.getState();
-
-    if (overId.startsWith('card:')) {
-      const overJob = JobId(overId.slice(5));
-      const container = containerOf(overJob) ?? POOL_ID;
-      const arr = containers[container] ?? [];
-      let index = arr.indexOf(overJob);
-      // Removing the active job first shifts later indices left by one when it
-      // came from above the target in the same lane — compensate.
-      if (containerOf(activeJob) === container) {
-        const fromIndex = arr.indexOf(activeJob);
-        if (fromIndex !== -1 && fromIndex < index) index -= 1;
-      }
-      moveJob(activeJob, container, index);
-      return;
-    }
-
-    // Dropped on a lane or the pool → append.
-    moveJob(activeJob, overId);
+    // Dropped on a lane or the pool → append. Ordering within a lane is the
+    // planner's own, set by dragging a bar, not by dropping a card on another.
+    usePlanStore.getState().moveJob(JobId(String(active.id)), String(over.id));
   };
 
   return {

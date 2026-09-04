@@ -103,8 +103,6 @@ interface PlanState {
   progressBaselines: Record<string, ProgressBaseline>;
   production: Record<string, ProductionEntry[]>;
 
-  /** Seed lanes from each job's home work centre; the rest go to the pool. */
-  initFromDataset: (workCenters: WorkCenter[], jobs: Job[]) => void;
   /**
    * Merge a refreshed dataset into the current layout: keep every placement the
    * planner made, drop jobs that disappeared, and file genuinely new jobs onto
@@ -144,8 +142,6 @@ interface PlanState {
   startOrder: (jobId: JobId, record: ActualStartRecord) => void;
   /** Approve, or withdraw, weekend working on one order. */
   setOvertime: (jobId: JobId, approved: boolean) => void;
-  /** Record the quantity finished on a given day (replaces that day's entry). */
-  recordProgress: (jobId: JobId, isoDay: string, qty: number) => void;
   recordProduction: (jobId: JobId, entry: ProductionEntry) => void;
   /** Save the shift and its progress atomically; completion also releases crew. */
   saveProductionEntry: (
@@ -169,10 +165,6 @@ interface PlanState {
   }) => void;
   /** Move a job into `toContainer` at `toIndex` (end if omitted). */
   moveJob: (jobId: JobId, toContainer: string, toIndex?: number) => void;
-  /** Send a job back to the un-scheduled pool. */
-  sendToPool: (jobId: JobId) => void;
-  /** Clear the board and re-seed from the dataset. */
-  reset: (workCenters: WorkCenter[], jobs: Job[]) => void;
   /** Which container currently holds the job, or null. */
   containerOf: (jobId: JobId) => string | null;
 }
@@ -190,13 +182,6 @@ function emptyContainers(workCenters: WorkCenter[]): Containers {
 function homeContainer(job: Job, known: Set<string>): string {
   const target = job.department === 'assembly' ? job.line : job.preferredMachine;
   return target && known.has(String(target)) ? String(target) : POOL_ID;
-}
-
-function seed(workCenters: WorkCenter[], jobs: Job[]): Containers {
-  const containers = emptyContainers(workCenters);
-  const known = new Set(workCenters.map((w) => String(w.id)));
-  for (const job of jobs) containers[homeContainer(job, known)].push(job.id);
-  return containers;
 }
 
 /** Remove a job id from every container (returns a new map). */
@@ -254,10 +239,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   production: {},
   initialized: false,
 
-  initFromDataset(workCenters, jobs) {
-    if (get().initialized) return;
-    set({ containers: seed(workCenters, jobs), initialized: true });
-  },
 
   reconcile(workCenters, jobs) {
     set((state) => {
@@ -445,11 +426,10 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         for (const jobId of jobIds) containerByJob.set(String(jobId), container);
       }
 
+      // Started work has already returned above, so every remaining order is
+      // unstarted — asking again here could only ever answer yes.
       const affected = Object.keys(state.orderCrewAssignments).filter(
-        (jobId) =>
-          hasWorker(jobId) &&
-          !state.orderActualStarts[jobId] &&
-          containerByJob.get(jobId) !== line,
+        (jobId) => hasWorker(jobId) && containerByJob.get(jobId) !== line,
       );
       const orderCrewAssignments = { ...state.orderCrewAssignments };
       const orderDoubleBooked = { ...state.orderDoubleBooked };
@@ -461,14 +441,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         if (next.length > 0) orderCrewAssignments[jobId] = next;
         else delete orderCrewAssignments[jobId];
       }
-      for (const [jobId, workers] of Object.entries(orderDoubleBooked)) {
-        // An approval may be stored against either side of the old overlap.
-        // Once a line move removes any assignment, expire every approval for
-        // this worker so a future clash always needs a fresh decision.
-        if (affected.length === 0) continue;
-        const next = workers.filter((id) => id !== workerId);
-        if (next.length > 0) orderDoubleBooked[jobId] = next;
-        else delete orderDoubleBooked[jobId];
+      // An approval may be stored against either side of the old overlap.
+      // Once a line move removes any assignment, expire every approval for
+      // this worker so a future clash always needs a fresh decision.
+      if (affected.length > 0) {
+        for (const [jobId, workers] of Object.entries(orderDoubleBooked)) {
+          const next = workers.filter((id) => id !== workerId);
+          if (next.length > 0) orderDoubleBooked[jobId] = next;
+          else delete orderDoubleBooked[jobId];
+        }
       }
 
       return {
@@ -511,18 +492,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     });
   },
 
-  recordProgress(jobId, isoDay, qty) {
-    set((state) => {
-      const key = String(jobId);
-      const entries = (state.progress[key] ?? []).filter(
-        (e) => e.date !== isoDay,
-      );
-      const next = [...entries, { date: isoDay, qty: Math.max(0, qty) }].sort(
-        (a, b) => a.date.localeCompare(b.date),
-      );
-      return { progress: { ...state.progress, [key]: next } };
-    });
-  },
 
   recordProduction(jobId, entry) {
     set((state) => {
@@ -632,25 +601,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     });
   },
 
-  sendToPool(jobId) {
-    get().moveJob(jobId, POOL_ID);
-  },
 
-  reset(workCenters, jobs) {
-    set({
-      containers: seed(workCenters, jobs),
-      workerLines: {},
-      orderCrewAssignments: {},
-      orderStarts: {},
-      orderActualStarts: {},
-      orderOvertime: {},
-      orderDoubleBooked: {},
-      progress: {},
-      progressBaselines: {},
-      production: {},
-      initialized: true,
-    });
-  },
 
   containerOf(jobId) {
     for (const [key, ids] of Object.entries(get().containers)) {

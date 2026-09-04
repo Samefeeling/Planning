@@ -2,9 +2,11 @@
  * Day-scale crew capacity for one order.
  *
  * Assembly reports once per shift, so a date-bounded assignment is the
- * smallest honest planning unit. Each open day consumes up to 7.25 standard
- * hours per active person; a person can therefore help an earlier order for a
- * few days and leave automatically when their next assignment begins.
+ * smallest honest planning unit. Each open day consumes up to
+ * `PRODUCTIVE_HOURS_PER_PERSON` standard hours per active person — 7.5, and
+ * named rather than repeated here so the two cannot drift. A person can help
+ * an earlier order for a few days and leave automatically when their next
+ * assignment begins.
  */
 
 import {

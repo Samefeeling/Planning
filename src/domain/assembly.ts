@@ -144,12 +144,6 @@ export const LINES: LineDef[] = [
 
 export const LINE_BY_ID = new Map(LINES.map((l) => [String(l.id), l]));
 
-export const ORDER_TYPE_LABEL: Record<OrderType, string> = {
-  'cutting-sewing': 'Cutting / Sewing',
-  upholstery: 'Upholstery',
-  'final-assembly': 'Final Assembly',
-};
-
 /** Short label for the tight left-hand table. */
 export const ORDER_TYPE_SHORT: Record<OrderType, string> = {
   'cutting-sewing': 'C/S',
@@ -212,7 +206,7 @@ export interface CrewAssignment {
   toDayExclusive: string | null;
 }
 
-/** Nobody is allocated to more than this many orders' worth of work at once. */
+/** The most people that may be on one order at the same time. */
 export const MAX_WORKERS_PER_ORDER = 4;
 
 // ---------------------------------------------------------------------------
@@ -245,13 +239,6 @@ export const BREAK_HOURS = MORNING_TEA_HOURS + LUNCH_HOURS;
  * Date was worked back from — see `latestStart`.
  */
 export const PRODUCTIVE_HOURS_PER_PERSON = SHIFT_HOURS - BREAK_HOURS;
-
-/**
- * The schedule runs Monday to Friday: bars step over Saturday and Sunday, and
- * a weekend only carries work when the supervisor has approved overtime on
- * that order. See `engine/assembly/dates` for the arithmetic.
- */
-export const WORKING_DAYS_ONLY = true;
 
 /** How many days the timeline shows by default. */
 export const DEFAULT_HORIZON_DAYS = 14;

@@ -308,37 +308,3 @@ export function addWorkingDays(from: Date, days: number): Date {
   return cursor;
 }
 
-/**
- * `days` of open days *before* `from` — `addWorkingDays` run backwards.
- *
- * This is how a start date is worked back from a due date: an order needing
- * three days and due on a Tuesday has to be on the bench by the Thursday
- * before, because the weekend between them is not work. See `latestStart`.
- *
- * End-of-Friday and start-of-Monday are the same point in the work calendar
- * but different instants; this returns the earlier one, so a caller wanting a
- * day somebody can start on should pass the result through `nextWorkingDay`.
- */
-export function subWorkingDays(from: Date, days: number): Date {
-  if (days <= 0) return new Date(from);
-  let cursor = new Date(from);
-  let left = days;
-
-  for (let guard = 0; guard < MAX_SPAN_DAYS; guard++) {
-    const midnight = startOfDay(cursor);
-    // Open time between the last midnight and where the cursor stands.
-    const behind = isWeekend(midnight) ? 0 : 1 - openFraction(cursor);
-    if (left <= behind && behind > 0) return addDays(cursor, -left);
-    left -= behind;
-    if (left <= 0) return midnight;
-
-    // Nothing else open in this day, so the next thing behind is the whole of
-    // the previous open day.
-    let previous = prevMidnight(midnight);
-    while (isWeekend(previous)) previous = prevMidnight(previous);
-    if (left <= 1) return addDays(previous, 1 - left);
-    left -= 1;
-    cursor = previous;
-  }
-  return cursor;
-}

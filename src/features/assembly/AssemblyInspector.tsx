@@ -18,7 +18,7 @@ import {
 } from '@/domain/assembly';
 import { remainingQty } from '@/engine/assembly/duration';
 import { startEligibility } from '@/engine/assembly/release';
-import { formatDay } from '@/lib/time';
+import { formatDay, formatTime } from '@/lib/time';
 import { Badge, Button } from '@/ui';
 import type { PauseReason, ProductionEntry } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
@@ -186,17 +186,28 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   // Closed by the supervisor: the bar greys out and there is nothing left to
   // book, but the history stays readable.
   const closed = row.completedToday;
-  const activeCrewIds =
-    row.crewDays.find((day) => day.day === today)?.workerIds ?? [];
-  const activeCrew = row.workers.filter((worker) =>
-    activeCrewIds.includes(String(worker.id)),
+  /*
+   * Who to record against today's shift.
+   *
+   * The day plan first — that is the crew the board has on it today. An order
+   * planned to begin later in the week has nobody on it *today* and is still
+   * fully crewed, so it falls back to the order's own people rather than
+   * reading as unstaffed. The start gate below asks the second question, not
+   * the first: it used to refuse an order with three people on it because
+   * none of their days had come round yet.
+   */
+  const todayCrew = row.workers.filter((worker) =>
+    (row.crewDays.find((day) => day.day === today)?.workerIds ?? []).includes(
+      String(worker.id),
+    ),
   );
+  const activeCrew = todayCrew.length > 0 ? todayCrew : row.workers;
   const picks = row.pickList ?? [];
 
   const eligibility = startEligibility(
     job.released,
     row.release,
-    activeCrew.length,
+    row.workers.length,
   );
 
   const beginProduction = () => {
@@ -503,9 +514,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             {row.actualStart ? (
               <div className="production-history">
                 <strong>Started</strong>{' '}
-                {new Date(row.actualStart.startedAt).toLocaleString('en-AU', {
-                  timeZone: 'Australia/Sydney',
-                })}
+                {formatDay(new Date(row.actualStart.startedAt))}{' '}
+                {formatTime(new Date(row.actualStart.startedAt))}
                 {row.actualStart.overrideReason &&
                   ` · Override: ${row.actualStart.overrideReason}`}
               </div>
@@ -569,12 +579,6 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           {/* The note that explains the form sits with the button that submits
               it, so the section ends on its action rather than trailing off. */}
           <div className="section-foot book">
-            <input
-              className="sr-only"
-              aria-hidden="true"
-              tabIndex={-1}
-              onKeyDown={(event) => event.key === 'Enter' && book()}
-            />
             <p className="hint">
               Entered at shift end. The Expect Date adjusts automatically.
             </p>

@@ -115,7 +115,6 @@ const row = (
     predecessors: [],
     waitingOn: null,
     booked: [],
-    crewToHitShip: null,
     completedToday: false,
     ...over,
   };

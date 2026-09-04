@@ -74,7 +74,6 @@ import { materialAvailability } from '@/engine/materialAvailability';
 import { releaseCheck, type ReleaseCheck } from './release';
 import { buildDependencies, type Dependency } from './dependencies';
 import {
-  crewNeededFor,
   dailyTargetQty,
   hoursPerUnit,
   latestStart,
@@ -178,8 +177,6 @@ export interface OrderRow {
    * output that was recorded, not work that was planned.
    */
   booked: BookedDay[];
-  /** Smallest crew that would hit the ship date, when one exists. */
-  crewToHitShip: number | null;
   /**
    * Last day work can begin and still be finished by the Due Date, at this
    * crew — the due date less the work, over open days. Epicor's own Start Date
@@ -344,7 +341,6 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
     predecessors: [],
     waitingOn: null,
     booked: [],
-    crewToHitShip: null,
     mustStartBy: null,
     completedToday: false,
   };
@@ -500,13 +496,30 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
    * build position and the people: the order that runs out of slack first.
    * Orders with no due date go last, because nothing says they are urgent.
    */
-  const crewSizeOf = (id: string): number =>
-    new Set((orderCrewAssignments[id] ?? []).map((a) => a.workerId)).size;
+  /**
+   * The crew a deadline is counted back at.
+   *
+   * People the roster does not know are not a rate, so they do not count. And
+   * one person when nobody is on it at all: an order still has a day by which
+   * somebody has to pick it up, and one is both the smallest crew that could
+   * and the reading that leaves the least room — a bigger crew only ever moves
+   * the answer later. `urgency` and `mustStartBy` are the same question asked
+   * at two moments, and used to answer it with two different counts.
+   */
+  const countBackCrew = (id: string): number =>
+    Math.max(
+      1,
+      new Set(
+        (orderCrewAssignments[id] ?? [])
+          .map((a) => String(a.workerId))
+          .filter((workerId) => workersById.has(workerId)),
+      ).size,
+    );
   const urgency = (id: string): number => {
     const job = jobsById.get(id);
     if (!job?.dueDate) return Number.MAX_SAFE_INTEGER;
     return (
-      latestStart(job, crewSizeOf(id), job.dueDate) ?? job.dueDate
+      latestStart(job, countBackCrew(id), job.dueDate) ?? job.dueDate
     ).getTime();
   };
 
@@ -902,21 +915,8 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       predecessors,
       waitingOn,
       booked: bookedDays(job),
-      crewToHitShip: job.shipDate
-        ? crewNeededFor(
-            job,
-            Math.max(
-              0.25,
-              (job.shipDate.getTime() - start.getTime()) / 86_400_000,
-            ),
-          )
-        : null,
-      // At the crew on the order, or at one person when it has none: an order
-      // nobody is on still has a date by which somebody has to pick it up, and
-      // one person is both the smallest crew that could and the reading that
-      // leaves the least room — a bigger crew only ever moves this later.
       mustStartBy: job.dueDate
-        ? latestStart(job, Math.max(1, workers.length), job.dueDate)
+        ? latestStart(job, countBackCrew(id), job.dueDate)
         : null,
       completedToday,
     };

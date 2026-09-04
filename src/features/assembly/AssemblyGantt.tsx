@@ -29,7 +29,6 @@ import { addCalendarDays, isWeekend, shiftFraction } from '@/engine/assembly/dat
 import { remainingHours } from '@/engine/assembly/duration';
 import {
   boardDayLoads,
-  lineLoad,
   rosterLoad,
   type WorkerLoad,
 } from '@/engine/assembly/workload';
@@ -513,21 +512,21 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const orderedGroups = useStableBoardOrder(board.groups, sort);
   const visibleGroups = useMemo(
     () =>
-      orderedGroups.map((group) => {
-        const filteredRows =
+      orderedGroups.map((group) => ({
+        ...group,
+        rows:
           orderWindow === 'next-five'
-            ? group.rows.filter((row) =>
-                isInNextWorkingDays(row, board.today),
-              )
+            ? group.rows.filter((row) => isInNextWorkingDays(row, board.today))
             : orderWindow === 'day' && orderDay
-              ? group.rows.filter((row) => isRunningOnDay(row, fromDayKey(orderDay)))
-              : group.rows;
-        return {
-          ...group,
-          rows: filteredRows,
-          load: lineLoad(filteredRows),
-        };
-      }),
+              ? group.rows.filter((row) =>
+                  isRunningOnDay(row, fromDayKey(orderDay)),
+                )
+              : group.rows,
+        // The line keeps its own load. How much work is standing on a line
+        // does not change because somebody narrowed the view to one day, and
+        // the engine has already worked it out over all of them — this used
+        // to throw that away and count the filtered rows instead.
+      })),
     [orderedGroups, board.today, orderWindow, orderDay],
   );
   const visibleRows = useMemo(
