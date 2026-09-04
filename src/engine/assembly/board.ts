@@ -537,6 +537,16 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   }
 
   /**
+   * Which line each order sits on — and, by its absence, which orders sit on
+   * none. Built once: looking it up by scanning every line's list turned the
+   * resolve pass into a walk of the whole board per order.
+   */
+  const lineOf = new Map<string, LineDef>();
+  for (const { line, ids } of pending) {
+    for (const id of ids) lineOf.set(id, line);
+  }
+
+  /**
    * `worker|day` → the moment that person comes off the work already booked
    * on that day. Filled from each row's day plan as it is resolved.
    *
@@ -666,11 +676,20 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     if (existing) return existing;
     const job = jobsById.get(id);
     if (!job) return null;
+    /*
+     * An order on no line is not planned here, and gets no row.
+     *
+     * It used to be scheduled onto UPL — whichever line happened to be second
+     * in the list — whenever something waiting on it reached this far. That
+     * gave it a build position, took UPL's people for it, and handed its
+     * successor a finish date to start from, none of which the board drew
+     * anywhere. What the successor is actually waiting for is somebody to put
+     * this order on a line, and the predecessor loop below now says so.
+     */
+    const line = lineOf.get(id);
+    if (!line) return null;
     if (seen.has(id)) return null; // dependency cycle — treat as unconstrained
     seen.add(id);
-
-    const line =
-      pending.find((p) => p.ids.includes(id))?.line ?? LINES[1];
 
     const actualStart = orderActualStarts[id] ?? null;
     const latestCrew = (production[id] ?? [])
@@ -745,6 +764,17 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       ) {
         // A component with uncovered work has no honest finish date. Do not
         // let its successor slip through merely because that date is null.
+        predecessorBlocked = true;
+        waitingOn = dep;
+      } else if (
+        !actualStart &&
+        !pred &&
+        jobsById.has(predId) &&
+        !lineOf.has(predId)
+      ) {
+        // The component is a live order that is on no line yet. Nothing has
+        // been planned for it, so there is no date to wait for — and coming
+        // free because the date is missing is the one answer that is wrong.
         predecessorBlocked = true;
         waitingOn = dep;
       }

@@ -93,6 +93,15 @@ export function useDragDrop() {
       const key = String(jobId);
       if (usePlanStore.getState().orderActualStarts[key]) return;
 
+      // Dropped on the strip at the bottom: off the schedule altogether. The
+      // strip says so, and it was the one thing it said that a bar could not
+      // actually do. Nothing else is written — an order with no line has no
+      // day to be pinned to.
+      if (over?.data.current?.type === 'pool') {
+        if (containerOf(jobId) !== POOL_ID) moveJob(jobId, POOL_ID);
+        return;
+      }
+
       const droppedOn =
         over?.data.current?.type === 'line'
           ? String(over.data.current.lineId)

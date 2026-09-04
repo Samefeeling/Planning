@@ -113,13 +113,16 @@ button {
 .app-body {
   position: relative;
   flex: 1;
-  display: block;
+  /* The schedule takes what is left after the pool strip, which is usually
+     nothing at all: a column, not a block, so the two can share the height. */
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 
 .board-pane {
   min-width: 0;
-  height: 100%;
+  flex: 1;
   overflow: auto;
   background: var(--bg);
 }
@@ -231,8 +234,18 @@ button {
 }
 
 /* ---- job pool ---------------------------------------------------------- */
+/*
+ * A strip along the bottom, not a column down the side — the board owns the
+ * width. Capped, so a big pile of unplaced orders scrolls inside itself
+ * instead of pushing the schedule off screen.
+ */
 .pool {
-  padding: 10px;
+  flex: 0 0 auto;
+  max-height: 28vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 .pool h2,
 .section-title {
@@ -244,9 +257,17 @@ button {
 }
 .pool-list {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 6px;
-  min-height: 60px;
+}
+/* The heading spans the row above the cards; the cards then wrap beneath. */
+.pool-list h2 {
+  flex: 1 0 100%;
+}
+.pool-list .ord {
+  flex: 0 0 auto;
+  width: 220px;
 }
 .pool.drop-active {
   outline: 1px dashed var(--accent);

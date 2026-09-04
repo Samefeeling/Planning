@@ -1,11 +1,16 @@
 /**
- * Assembly orders not on a line yet — the day's new work. Drop an order here
- * to take it off the schedule.
+ * Assembly orders not on a line yet. Drop an order here to take it off the
+ * schedule, and drag one out of here onto a line to put it back.
  *
  * It shows nothing at all when every order is on a line, which is the normal
- * state of a working board: a heading over an empty box was only taking room
- * from the order detail underneath. The drop zone reappears the moment
- * something is being dragged, so an order can still be taken off a line.
+ * state of a working board — the drop zone reappears the moment something is
+ * being dragged, so an order can still be taken off a line. A strip along the
+ * bottom rather than a column down the side: the schedule owns the width.
+ *
+ * Something ends up here for two reasons, and both need a way out of it. The
+ * planner put it here; or the export named a line the board does not know, in
+ * which case the order is not merely unplaced but invisible — and anything
+ * waiting on its parts is held with no date at all until it is placed.
  */
 
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
@@ -75,6 +80,10 @@ export function AssemblyPool({ board }: { board: AssemblyGanttView }) {
         <div className="pool-target">Drop here to take the order off its line</div>
       ) : (
         <div className="pool-list">
+          <h2>
+            {board.pool.length} order{board.pool.length === 1 ? '' : 's'} on no
+            line — drag one onto a line to schedule it
+          </h2>
           {board.pool.map((job) => (
             <PoolCard
               key={String(job.id)}

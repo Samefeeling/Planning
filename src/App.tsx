@@ -14,6 +14,7 @@ import { useDragDrop } from '@/features/assembly/useDragDrop';
 import { AssemblyGantt } from '@/features/assembly/AssemblyGantt';
 import { BoardTools } from '@/features/assembly/BoardTools';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
+import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { OvertimePrompt } from '@/features/assembly/OvertimePrompt';
 import { ClashPrompt } from '@/features/assembly/ClashPrompt';
 import { SupervisorLock } from '@/features/assembly/SupervisorLock';
@@ -248,6 +249,13 @@ export default function App() {
               </div>
             )}
           </div>
+          {/*
+            Orders on no line. Renders nothing at all while there are none and
+            nothing is being dragged, so on a working board it costs no room —
+            but an order that lands here is otherwise unreachable, and the
+            board holds everything waiting on its parts.
+          */}
+          {board && <AssemblyPool board={board} />}
           {board && <AssemblyInspector board={board} />}
         </div>
 

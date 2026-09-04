@@ -289,6 +289,15 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
 
   const values: Job[] = [];
   const seen = new Set<string>();
+  /**
+   * Line values the parser did not recognise, and how many rows carried each.
+   *
+   * An order whose line is not read lands on no line at all, which on the
+   * board is indistinguishable from one that was never exported: it simply is
+   * not there. Said once at the end with the values themselves, because the
+   * fix is either a new alias here or a corrected cell in the BAQ.
+   */
+  const unknownLines = new Map<string, number>();
 
   body.forEach((row, i) => {
     const jobNum = cell(row, col.jobNum);
@@ -297,7 +306,11 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
     if (seen.has(jobNum)) return; // first occurrence wins
     seen.add(jobNum);
 
-    const placement = readPlacement(cell(row, col.line));
+    const lineCell = cell(row, col.line);
+    const placement = readPlacement(lineCell);
+    if (!placement && lineCell) {
+      unknownLines.set(lineCell, (unknownLines.get(lineCell) ?? 0) + 1);
+    }
     const prodQty = num(cell(row, col.prodQty));
     const remainingQty = num(cell(row, col.remainingQty)) ?? prodQty ?? 0;
     const explicitDone = num(cell(row, col.completedQty));
@@ -376,6 +389,16 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
       assignedWorkers: [],
     });
   });
+
+  if (unknownLines.size > 0) {
+    const rows = [...unknownLines.values()].reduce((a, b) => a + b, 0);
+    const shown = [...unknownLines.keys()].sort().slice(0, 4).join(', ');
+    errors.push(
+      `Planning1.csv: ${rows} order${rows === 1 ? '' : 's'} name a line this ` +
+        `board does not know (${shown}${unknownLines.size > 4 ? ', …' : ''}) — ` +
+        'they are on no line and are not scheduled.',
+    );
+  }
 
   return { values, errors };
 }

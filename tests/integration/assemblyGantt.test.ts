@@ -10,7 +10,7 @@ import { buildIndexes } from '@/engine/indexes';
 import { computeAssemblyGantt, type OrderRow } from '@/engine/assembly/board';
 import { workerLoad } from '@/engine/assembly/workload';
 import { remainingHours } from '@/engine/assembly/duration';
-import { usePlanStore } from '@/store/planStore';
+import { POOL_ID, usePlanStore } from '@/store/planStore';
 import { DEFAULT_HORIZON_DAYS, LINES, canWorkKind } from '@/domain/assembly';
 import { overlapsOnBoard, suggestCrew } from '@/engine/assembly/crew';
 import { addDays } from '@/engine/assembly/dates';
@@ -441,6 +441,65 @@ describe('assembly Gantt (mock data)', () => {
         );
       }
     }
+  });
+
+  it('holds a successor whose component is on no line, and draws neither', () => {
+    /*
+     * An order can end up on no line: the planner took it off one, or the
+     * export named a line this board does not know. It used to be scheduled
+     * onto whichever line came second in the list the moment something waiting
+     * on it was resolved — taking a build position and that line's people for
+     * a bar nothing drew, and handing its successor a finish date to start
+     * from. The successor is really waiting for somebody to place it.
+     */
+    const indexes = buildIndexes(dataset);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
+    const state = usePlanStore.getState();
+
+    const settled = build();
+    const successor = [...settled.rowsByJob.values()].find(
+      (row) => row.line.schedulable && row.predecessors.length > 0 &&
+        settled.rowsByJob.has(String(row.predecessors[0].onJobId)),
+    );
+    expect(successor).toBeDefined();
+    const componentId = String(successor!.predecessors[0].onJobId);
+
+    // Take the component off its line, leaving everything else alone.
+    const containers = Object.fromEntries(
+      Object.entries(state.containers).map(([key, ids]) => [
+        key,
+        key === POOL_ID
+          ? [...ids, componentId as unknown as (typeof ids)[number]]
+          : ids.filter((id) => String(id) !== componentId),
+      ]),
+    );
+    const b = computeAssemblyGantt({
+      dataset,
+      indexes,
+      containers,
+      orderWorkers: state.orderWorkers,
+      orderStarts: {},
+      orderActualStarts: {},
+      progress: {},
+      progressBaselines: {},
+      production: {},
+      workers: dataset.workers,
+      today: TODAY,
+    });
+
+    // The component is in the pool and has no row anywhere on the board.
+    expect(b.pool.map((job) => String(job.id))).toContain(componentId);
+    expect(b.rowsByJob.has(componentId)).toBe(false);
+    expect(
+      b.groups.flatMap((g) => g.rows).map((r) => String(r.job.id)),
+    ).not.toContain(componentId);
+
+    // And its successor is held, naming it, rather than coming free because
+    // the date it was waiting for went missing.
+    const held = b.rowsByJob.get(String(successor!.job.id))!;
+    expect(held.expectDate).toBeNull();
+    expect(held.start).toBeNull();
+    expect(String(held.waitingOn?.onJobId)).toBe(componentId);
   });
 
   it('carries a work load on every line group and on the board total', () => {
