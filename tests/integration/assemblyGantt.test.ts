@@ -11,7 +11,12 @@ import { computeAssemblyGantt, type OrderRow } from '@/engine/assembly/board';
 import { workerLoad } from '@/engine/assembly/workload';
 import { remainingHours } from '@/engine/assembly/duration';
 import { POOL_ID, usePlanStore } from '@/store/planStore';
-import { DEFAULT_HORIZON_DAYS, LINES, canWorkKind } from '@/domain/assembly';
+import {
+  DEFAULT_HORIZON_DAYS,
+  LINES,
+  canWorkKind,
+  type CrewAssignment,
+} from '@/domain/assembly';
 import { overlapsOnBoard, suggestCrew } from '@/engine/assembly/crew';
 import { addDays } from '@/engine/assembly/dates';
 import { activeWorkerIdsOnDay } from '@/features/assembly/boardView';
@@ -32,8 +37,19 @@ beforeAll(async () => {
 
 const TODAY = new Date('2026-09-11T00:00:00');
 
+/** Whole-order allocations, the shape most of these cases want. */
+const crewOf = (
+  byJob: Record<string, string[]>,
+): Record<string, CrewAssignment[]> =>
+  Object.fromEntries(
+    Object.entries(byJob).map(([jobId, ids]) => [
+      jobId,
+      ids.map((workerId) => ({ workerId, fromDay: null, toDayExclusive: null })),
+    ]),
+  );
+
 function build(over: {
-  orderWorkers?: Record<string, string[]>;
+  orderCrewAssignments?: Record<string, CrewAssignment[]>;
   orderStarts?: Record<string, string>;
   orderActualStarts?: Record<string, ActualStartRecord>;
   progress?: Record<string, { date: string; qty: number }[]>;
@@ -47,7 +63,8 @@ function build(over: {
     dataset,
     indexes,
     containers: state.containers,
-    orderWorkers: over.orderWorkers ?? state.orderWorkers,
+    orderCrewAssignments:
+      over.orderCrewAssignments ?? state.orderCrewAssignments,
     orderStarts: over.orderStarts ?? {},
     orderActualStarts: over.orderActualStarts ?? {},
     progress: over.progress ?? {},
@@ -102,7 +119,10 @@ describe('assembly Gantt (mock data)', () => {
     const id = String(row!.job.id);
 
     const more = build({
-      orderWorkers: { ...usePlanStore.getState().orderWorkers, [id]: ['W01', 'W03', 'W12'] },
+      orderCrewAssignments: {
+        ...usePlanStore.getState().orderCrewAssignments,
+        ...crewOf({ [id]: ['W01', 'W03', 'W12'] }),
+      },
     });
     const after = more.rowsByJob.get(id)!;
 
@@ -252,7 +272,7 @@ describe('assembly Gantt (mock data)', () => {
       dataset: { ...dataset, jobLinks: [], jobs: dataset.jobs.map((j) => ({ ...j, predecessors: [] })) },
       indexes,
       containers: state.containers,
-      orderWorkers: state.orderWorkers,
+      orderCrewAssignments: state.orderCrewAssignments,
       orderStarts: {},
       orderActualStarts: {},
       progress: {},
@@ -308,7 +328,7 @@ describe('assembly Gantt (mock data)', () => {
   });
 
   it('leaves an order unschedulable when nobody is on it', () => {
-    const b = build({ orderWorkers: {} });
+    const b = build({ orderCrewAssignments: {} });
     const rows = b.groups.filter((g) => g.line.schedulable).flatMap((g) => g.rows);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.days === null && r.expectDate === null)).toBe(
@@ -359,7 +379,7 @@ describe('assembly Gantt (mock data)', () => {
       dataset: refreshed,
       indexes: buildIndexes(refreshed),
       containers: state.containers,
-      orderWorkers: state.orderWorkers,
+      orderCrewAssignments: state.orderCrewAssignments,
       orderStarts: {},
       progress: { [id]: [{ date: '2026-09-11', qty }] },
       progressBaselines: { [id]: baseline },
@@ -413,7 +433,7 @@ describe('assembly Gantt (mock data)', () => {
       dataset,
       indexes: buildIndexes(dataset),
       containers: usePlanStore.getState().containers,
-      orderWorkers: usePlanStore.getState().orderWorkers,
+      orderCrewAssignments: usePlanStore.getState().orderCrewAssignments,
       orderStarts: {},
       progress: {},
       production: { [String(row.job.id)]: [completed] },
@@ -477,7 +497,7 @@ describe('assembly Gantt (mock data)', () => {
       dataset,
       indexes,
       containers,
-      orderWorkers: state.orderWorkers,
+      orderCrewAssignments: state.orderCrewAssignments,
       orderStarts: {},
       orderActualStarts: {},
       progress: {},
@@ -711,9 +731,9 @@ describe('the UPL benches and the chain through them', () => {
 
   it('offers auto-fill only from the operator current line roster', () => {
     // Nothing crewed at all, so every order is filled from scratch.
-    const bare = build({ orderWorkers: {} });
+    const bare = build({ orderCrewAssignments: {} });
     const { allocations } = suggestCrew(bare, (soFar) =>
-      build({ orderWorkers: soFar }),
+      build({ orderCrewAssignments: crewOf(soFar) }),
     );
     const byId = new Map(bare.workers.map((w) => [String(w.id), w]));
     let checked = 0;

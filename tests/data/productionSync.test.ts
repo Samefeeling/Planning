@@ -368,7 +368,7 @@ describe('orderFactsFromBoard', () => {
       dataset,
       indexes: buildIndexes(dataset),
       containers: state.containers,
-      orderWorkers: state.orderWorkers,
+      orderCrewAssignments: state.orderCrewAssignments,
       orderStarts: {},
       progress: {},
       production: {},

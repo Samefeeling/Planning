@@ -37,7 +37,6 @@ export default function App() {
   const sourceName = useDataStore((s) => s.source.name);
 
   const containers = usePlanStore((s) => s.containers);
-  const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const workerLines = usePlanStore((s) => s.workerLines);
   const orderCrewAssignments = usePlanStore((s) => s.orderCrewAssignments);
   const orderStarts = usePlanStore((s) => s.orderStarts);
@@ -144,7 +143,6 @@ export default function App() {
           savedAt: new Date().toISOString(),
           containers,
           assembly: {
-            orderWorkers,
             workerLines,
             orderCrewAssignments,
             orderStarts,
@@ -163,7 +161,6 @@ export default function App() {
   }, [
     stored,
     containers,
-    orderWorkers,
     workerLines,
     orderCrewAssignments,
     orderStarts,

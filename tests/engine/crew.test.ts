@@ -28,6 +28,7 @@ import {
   canWorkKind,
   type LineKey,
   type Worker,
+  type CrewAssignment,
 } from '@/domain/assembly';
 import { WorkerId } from '@/domain/ids';
 import type { PlanningDataset } from '@/domain/types';
@@ -42,9 +43,20 @@ beforeAll(async () => {
 
 const TODAY = new Date('2026-09-11T00:00:00');
 
+/** Whole-order allocations, which is what most of these cases want. */
+const crewOf = (
+  byJob: Record<string, string[]>,
+): Record<string, CrewAssignment[]> =>
+  Object.fromEntries(
+    Object.entries(byJob).map(([jobId, ids]) => [
+      jobId,
+      ids.map((workerId) => ({ workerId, fromDay: null, toDayExclusive: null })),
+    ]),
+  );
+
 /** The board as it comes off an import: orders on lines, nobody on them. */
 function board(
-  orderWorkers: Record<string, string[]> = {},
+  crew: Record<string, string[]> = {},
   orderStarts: Record<string, string> = {},
 ) {
   const indexes = buildIndexes(dataset);
@@ -53,7 +65,7 @@ function board(
     dataset,
     indexes,
     containers: usePlanStore.getState().containers,
-    orderWorkers,
+    orderCrewAssignments: crewOf(crew),
     orderStarts,
     progress: {},
     production: {},
@@ -169,7 +181,7 @@ describe('suggestCrew', () => {
       dataset: noRoster,
       indexes,
       containers: usePlanStore.getState().containers,
-      orderWorkers: {},
+      orderCrewAssignments: {},
       orderStarts: {},
       progress: {},
       production: {},

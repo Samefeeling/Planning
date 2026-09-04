@@ -16,7 +16,6 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
   const dataset = useDataStore((s) => s.dataset);
   const indexes = useDataStore((s) => s.indexes);
   const containers = usePlanStore((s) => s.containers);
-  const orderWorkers = usePlanStore((s) => s.orderWorkers);
   const orderCrewAssignments = usePlanStore((s) => s.orderCrewAssignments);
   const orderDoubleBooked = usePlanStore((s) => s.orderDoubleBooked);
   const orderStarts = usePlanStore((s) => s.orderStarts);
@@ -33,7 +32,6 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
             dataset,
             indexes,
             containers,
-            orderWorkers,
             orderCrewAssignments,
             orderDoubleBooked,
             orderStarts,
@@ -50,7 +48,6 @@ export function useAssemblyGantt(): AssemblyGanttView | null {
       dataset,
       indexes,
       containers,
-      orderWorkers,
       orderCrewAssignments,
       orderDoubleBooked,
       orderStarts,
@@ -85,7 +82,6 @@ export function recomputeAssemblyGantt(
     dataset,
     indexes,
     containers: plan.containers,
-    orderWorkers: { ...plan.orderWorkers, ...extraCrew },
     orderCrewAssignments: {
       ...plan.orderCrewAssignments,
       ...Object.fromEntries(

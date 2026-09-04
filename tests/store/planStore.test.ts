@@ -1,6 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { JobId } from '@/domain/ids';
 import { usePlanStore, type ProductionEntry } from '@/store/planStore';
+import type { CrewAssignment } from '@/domain/assembly';
+
+/** Whole-order allocations — the plain case, with no day windows. */
+const crewOf = (
+  byJob: Record<string, string[]>,
+): Record<string, CrewAssignment[]> =>
+  Object.fromEntries(
+    Object.entries(byJob).map(([jobId, ids]) => [
+      jobId,
+      ids.map((workerId) => ({ workerId, fromDay: null, toDayExclusive: null })),
+    ]),
+  );
 
 const entry = (complete: number): ProductionEntry => ({
   date: '2026-08-31',
@@ -20,7 +32,6 @@ describe('ASSY_Production bookings', () => {
       production: {},
       progress: {},
       progressBaselines: {},
-      orderWorkers: {},
       workerLines: {},
       orderCrewAssignments: {},
       orderDoubleBooked: {},
@@ -31,7 +42,6 @@ describe('ASSY_Production bookings', () => {
   it('saves progress and releases crew atomically only on completion', () => {
     const job = JobId('ASSY-102');
     usePlanStore.setState({
-      orderWorkers: { [String(job)]: ['W01', 'W02'] },
       orderCrewAssignments: {
         [String(job)]: [
           { workerId: 'W01', fromDay: null, toDayExclusive: null },
@@ -67,13 +77,16 @@ describe('ASSY_Production bookings', () => {
 
     const state = usePlanStore.getState();
     expect(state.progress[String(job)]).toEqual([{ date: '2026-08-31', qty: 7 }]);
-    expect(state.orderWorkers[String(job)]).toBeUndefined();
+    expect(state.orderCrewAssignments[String(job)]).toBeUndefined();
     expect(state.orderCrewAssignments[String(job)]).toBeUndefined();
     expect(state.orderDoubleBooked[String(job)]).toBeUndefined();
     expect(state.production[String(job)][0].operatorIds).toEqual(['W01', 'W02']);
   });
 
-  it('keeps a bounded allocation separate from the legacy whole-order crew', () => {
+  it('keeps each person\u2019s own days on the one record of the crew', () => {
+    // This used to prove that a bounded allocation stayed out of the
+    // window-less mirror the store kept alongside it. There is no mirror now,
+    // so what is worth proving is that one record carries both shapes at once.
     const job = JobId('SFM507569');
     usePlanStore.getState().assignWorkerWindow(
       job,
@@ -81,6 +94,7 @@ describe('ASSY_Production bookings', () => {
       '2026-09-02',
       '2026-09-04',
     );
+    usePlanStore.getState().assignWorker(job, 'Jones');
 
     expect(usePlanStore.getState().orderCrewAssignments[String(job)]).toEqual([
       {
@@ -88,13 +102,15 @@ describe('ASSY_Production bookings', () => {
         fromDay: '2026-09-02',
         toDayExclusive: '2026-09-04',
       },
+      { workerId: 'Jones', fromDay: null, toDayExclusive: null },
     ]);
-    expect(usePlanStore.getState().orderWorkers[String(job)]).toEqual([]);
   });
 
   it('keeps the crew allocated after a normal save', () => {
     const job = JobId('ASSY-103');
-    usePlanStore.setState({ orderWorkers: { [String(job)]: ['W01'] } });
+    usePlanStore.setState({
+      orderCrewAssignments: crewOf({ [String(job)]: ['W01'] }),
+    });
     usePlanStore.getState().startOrder(job, {
       startedAt: '2026-08-31T00:00:00.000Z',
       overrideReason: null,
@@ -106,7 +122,9 @@ describe('ASSY_Production bookings', () => {
       entry(2),
       { remainingQty: 10, completedQty: 0 },
     );
-    expect(usePlanStore.getState().orderWorkers[String(job)]).toEqual(['W01']);
+    expect(
+      usePlanStore.getState().orderCrewAssignments[String(job)],
+    ).toEqual(crewOf({ x: ['W01'] }).x);
   });
 
   it('records the first actual start once and preserves its crew snapshot', () => {
@@ -140,11 +158,10 @@ describe('operator production-line placement', () => {
         TABLE: [JobId('TABLE-1')],
       },
       workerLines: {},
-      orderWorkers: {
+      orderCrewAssignments: crewOf({
         'UPL-1': ['Bill'],
         'ASSY-1': ['Bill'],
-      },
-      orderCrewAssignments: {},
+      }),
       orderActualStarts: {},
       orderDoubleBooked: { 'UPL-1': ['Bill'] },
     });
@@ -154,8 +171,8 @@ describe('operator production-line placement', () => {
     usePlanStore.getState().moveWorkerToLine('Bill', 'ASSY');
     const state = usePlanStore.getState();
     expect(state.workerLines.Bill).toBe('ASSY');
-    expect(state.orderWorkers['UPL-1']).toBeUndefined();
-    expect(state.orderWorkers['ASSY-1']).toEqual(['Bill']);
+    expect(state.orderCrewAssignments['UPL-1']).toBeUndefined();
+    expect(state.orderCrewAssignments['ASSY-1']).toEqual(crewOf({ x: ['Bill'] }).x);
     expect(state.orderDoubleBooked['UPL-1']).toBeUndefined();
   });
 
@@ -172,7 +189,9 @@ describe('operator production-line placement', () => {
     });
     usePlanStore.getState().moveWorkerToLine('Bill', 'ASSY');
     expect(usePlanStore.getState().workerLines.Bill).toBeUndefined();
-    expect(usePlanStore.getState().orderWorkers['UPL-1']).toEqual(['Bill']);
+    expect(
+      usePlanStore.getState().orderCrewAssignments['UPL-1'],
+    ).toEqual(crewOf({ x: ['Bill'] }).x);
   });
 });
 

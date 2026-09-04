@@ -69,11 +69,17 @@ interface PlanState {
   containers: Containers;
   initialized: boolean;
 
-  /** Legacy mirror of whole-order allocations; bounded windows live below. */
-  orderWorkers: Record<string, string[]>;
   /** Supervisor-owned current production line for each operator. */
   workerLines: Record<string, LineKey>;
-  /** Canonical, date-bounded crew plan. Old `orderWorkers` migrate into this. */
+  /**
+   * Who is on each order, and between which days.
+   *
+   * The only record of it. There used to be a second, `orderWorkers`, holding
+   * the same people without their windows, and every mutation had to write
+   * both — so the two disagreed the moment anyone was given a window, and
+   * every reader had to know which of them to believe. Plans stored in the
+   * older shape are migrated on the way in; see `setAssemblyPlan`.
+   */
   orderCrewAssignments: Record<string, CrewAssignment[]>;
   /** Job id → ISO day the planner dragged the bar to. */
   orderStarts: Record<string, string>;
@@ -149,6 +155,7 @@ interface PlanState {
   ) => void;
   /** Replace the assembly plan wholesale (e.g. loaded from persistence). */
   setAssemblyPlan: (plan: {
+    /** Only read, never written: the older shape, migrated on the way in. */
     orderWorkers?: Record<string, string[]>;
     workerLines?: Record<string, LineKey>;
     orderCrewAssignments?: Record<string, CrewAssignment[]>;
@@ -234,17 +241,8 @@ const withinCrewLimit = (assignments: CrewAssignment[]): boolean => {
   );
 };
 
-const legacyWorkers = (assignments: CrewAssignment[]): string[] =>
-  assignments
-    .filter(
-      (assignment) =>
-        assignment.fromDay === null && assignment.toDayExclusive === null,
-    )
-    .map((assignment) => assignment.workerId);
-
 export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
-  orderWorkers: {},
   workerLines: {},
   orderCrewAssignments: {},
   orderStarts: {},
@@ -296,21 +294,18 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
       // Crew is the supervisor's to set, but a brand-new order starts with
       // whatever allocation the source system already has on it.
-      const orderWorkers = keep(state.orderWorkers);
       const orderCrewAssignments = keep(state.orderCrewAssignments);
       for (const job of jobs) {
         const key = String(job.id);
-        if (!orderWorkers[key] && job.assignedWorkers.length > 0) {
-          orderWorkers[key] = job.assignedWorkers.map(String);
-        }
-        if (!orderCrewAssignments[key] && (orderWorkers[key] ?? []).length > 0) {
-          orderCrewAssignments[key] = fullAssignments(orderWorkers[key]);
+        if (!orderCrewAssignments[key] && job.assignedWorkers.length > 0) {
+          orderCrewAssignments[key] = fullAssignments(
+            job.assignedWorkers.map(String),
+          );
         }
       }
 
       return {
         containers: next,
-        orderWorkers,
         orderCrewAssignments,
         orderStarts: keep(state.orderStarts),
         orderActualStarts: keep(state.orderActualStarts),
@@ -337,9 +332,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const key = String(jobId);
       if (state.orderActualStarts[key]) return state;
       if (fromDay && toDayExclusive && fromDay >= toDayExclusive) return state;
-      const current =
-        state.orderCrewAssignments[key] ??
-        fullAssignments(state.orderWorkers[key] ?? []);
+      const current = state.orderCrewAssignments[key] ?? [];
       const proposed: CrewAssignment = { workerId, fromDay, toDayExclusive };
       if (
         current.some(
@@ -351,14 +344,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const next = [...current, proposed];
       if (!withinCrewLimit(next)) return state;
       return {
-        orderCrewAssignments: {
-          ...state.orderCrewAssignments,
-          [key]: next,
-        },
-        orderWorkers: {
-          ...state.orderWorkers,
-          [key]: legacyWorkers(next),
-        },
+        orderCrewAssignments: { ...state.orderCrewAssignments, [key]: next },
       };
     });
   },
@@ -368,9 +354,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const key = String(jobId);
       if (state.orderActualStarts[key]) return state;
       if (fromDay && toDayExclusive && fromDay >= toDayExclusive) return state;
-      const current =
-        state.orderCrewAssignments[key] ??
-        fullAssignments(state.orderWorkers[key] ?? []);
+      const current = state.orderCrewAssignments[key] ?? [];
       const proposed: CrewAssignment = { workerId, fromDay, toDayExclusive };
       const next = [
         ...current.filter((assignment) => assignment.workerId !== workerId),
@@ -379,7 +363,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       if (!withinCrewLimit(next)) return state;
       return {
         orderCrewAssignments: { ...state.orderCrewAssignments, [key]: next },
-        orderWorkers: { ...state.orderWorkers, [key]: legacyWorkers(next) },
       };
     });
   },
@@ -388,10 +371,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set((state) => {
       const key = String(jobId);
       if (state.orderActualStarts[key]) return state;
-      const current = state.orderWorkers[key] ?? [];
-      const assignments =
-        state.orderCrewAssignments[key] ??
-        fullAssignments(current);
+      const assignments = state.orderCrewAssignments[key] ?? [];
       // Any approval to double-book them here goes with them: put the same
       // person back later and the overlap is a fresh decision, not an old one.
       const approved = (state.orderDoubleBooked[key] ?? []).filter(
@@ -402,12 +382,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       else delete orderDoubleBooked[key];
 
       return {
-        orderWorkers: {
-          ...state.orderWorkers,
-          [key]: legacyWorkers(
-            assignments.filter((assignment) => assignment.workerId !== workerId),
-          ),
-        },
         orderCrewAssignments: {
           ...state.orderCrewAssignments,
           [key]: assignments.filter(
@@ -435,29 +409,24 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   assignCrews(allocations) {
     set((state) => {
-      const orderWorkers = { ...state.orderWorkers };
       const orderCrewAssignments = { ...state.orderCrewAssignments };
       let changed = false;
       for (const [jobId, crew] of Object.entries(allocations)) {
         if (state.orderActualStarts[jobId]) continue;
-        if (
-          (orderCrewAssignments[jobId] ?? []).length > 0 ||
-          (orderWorkers[jobId] ?? []).length > 0 ||
-          crew.length === 0
-        ) continue;
-        orderWorkers[jobId] = crew.slice(0, MAX_WORKERS_PER_ORDER);
-        orderCrewAssignments[jobId] = fullAssignments(orderWorkers[jobId]);
+        if ((orderCrewAssignments[jobId] ?? []).length > 0 || crew.length === 0) {
+          continue;
+        }
+        orderCrewAssignments[jobId] = fullAssignments(crew);
         changed = true;
       }
-      return changed ? { orderWorkers, orderCrewAssignments } : state;
+      return changed ? { orderCrewAssignments } : state;
     });
   },
 
   moveWorkerToLine(workerId, line) {
     set((state) => {
       const assignmentsFor = (jobId: string): CrewAssignment[] =>
-        state.orderCrewAssignments[jobId] ??
-        fullAssignments(state.orderWorkers[jobId] ?? []);
+        state.orderCrewAssignments[jobId] ?? [];
       const hasWorker = (jobId: string): boolean =>
         assignmentsFor(jobId).some(
           (assignment) => assignment.workerId === workerId,
@@ -476,16 +445,12 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         for (const jobId of jobIds) containerByJob.set(String(jobId), container);
       }
 
-      const affected = Object.keys({
-        ...state.orderWorkers,
-        ...state.orderCrewAssignments,
-      }).filter(
+      const affected = Object.keys(state.orderCrewAssignments).filter(
         (jobId) =>
           hasWorker(jobId) &&
           !state.orderActualStarts[jobId] &&
           containerByJob.get(jobId) !== line,
       );
-      const orderWorkers = { ...state.orderWorkers };
       const orderCrewAssignments = { ...state.orderCrewAssignments };
       const orderDoubleBooked = { ...state.orderDoubleBooked };
 
@@ -495,9 +460,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         );
         if (next.length > 0) orderCrewAssignments[jobId] = next;
         else delete orderCrewAssignments[jobId];
-        const legacy = legacyWorkers(next);
-        if (legacy.length > 0) orderWorkers[jobId] = legacy;
-        else delete orderWorkers[jobId];
       }
       for (const [jobId, workers] of Object.entries(orderDoubleBooked)) {
         // An approval may be stored against either side of the old overlap.
@@ -511,7 +473,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
       return {
         workerLines: { ...state.workerLines, [workerId]: line },
-        orderWorkers,
         orderCrewAssignments,
         orderDoubleBooked,
       };
@@ -604,11 +565,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const progressEntries = (state.progress[key] ?? []).filter(
         (existing) => existing.date !== savedEntry.date,
       );
-      const orderWorkers = { ...state.orderWorkers };
       const orderCrewAssignments = { ...state.orderCrewAssignments };
       const orderDoubleBooked = { ...state.orderDoubleBooked };
       if (savedEntry.jobCompleted) {
-        delete orderWorkers[key];
         delete orderCrewAssignments[key];
         delete orderDoubleBooked[key];
       }
@@ -628,7 +587,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         progressBaselines: state.progressBaselines[key]
           ? state.progressBaselines
           : { ...state.progressBaselines, [key]: source },
-        orderWorkers,
         orderCrewAssignments,
         orderDoubleBooked,
       };
@@ -637,17 +595,19 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   setAssemblyPlan(plan) {
     set((state) => {
-      const orderWorkers = plan.orderWorkers ?? state.orderWorkers;
+      // A plan stored before crew had windows carries `orderWorkers` and no
+      // assignments. Read once, here, and never written back.
       const orderCrewAssignments =
         plan.orderCrewAssignments ??
-        Object.fromEntries(
-          Object.entries(orderWorkers).map(([jobId, workers]) => [
-            jobId,
-            fullAssignments(workers),
-          ]),
-        );
+        (plan.orderWorkers
+          ? Object.fromEntries(
+              Object.entries(plan.orderWorkers).map(([jobId, workers]) => [
+                jobId,
+                fullAssignments(workers),
+              ]),
+            )
+          : state.orderCrewAssignments);
       return {
-        orderWorkers,
         workerLines: plan.workerLines ?? state.workerLines,
         orderCrewAssignments,
         orderStarts: plan.orderStarts ?? state.orderStarts,
@@ -679,7 +639,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   reset(workCenters, jobs) {
     set({
       containers: seed(workCenters, jobs),
-      orderWorkers: {},
       workerLines: {},
       orderCrewAssignments: {},
       orderStarts: {},

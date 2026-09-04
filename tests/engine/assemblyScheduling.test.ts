@@ -17,6 +17,7 @@ import {
   PARALLEL_ORDERS_PER_LINE,
   PRODUCTIVE_HOURS_PER_PERSON,
   type Worker,
+  type CrewAssignment,
 } from '@/domain/assembly';
 import { isWeekend } from '@/engine/assembly/dates';
 import type { Job, JobMaterialLink, PlanningDataset } from '@/domain/types';
@@ -60,12 +61,23 @@ const job = (id: string, days: number, over: Partial<Job> = {}): Job => ({
   ...over,
 });
 
+/** Whole-order allocations, which is what most of these cases want. */
+const crewOf = (
+  byJob: Record<string, string[]>,
+): Record<string, CrewAssignment[]> =>
+  Object.fromEntries(
+    Object.entries(byJob).map(([jobId, ids]) => [
+      jobId,
+      ids.map((workerId) => ({ workerId, fromDay: null, toDayExclusive: null })),
+    ]),
+  );
+
 function board(
   jobs: Job[],
   over: {
     orderStarts?: Record<string, string>;
     orderOvertime?: Record<string, boolean>;
-    orderWorkers?: Record<string, string[]>;
+    crew?: Record<string, string[]>;
     orderDoubleBooked?: Record<string, string[]>;
     jobLinks?: JobMaterialLink[];
     today?: Date;
@@ -103,9 +115,10 @@ function board(
         .map((j) => j.id),
     },
     // One person each, so a bar is exactly as long as the order's days.
-    orderWorkers:
-      over.orderWorkers ??
-      Object.fromEntries(jobs.map((j, i) => [String(j.id), [`W${i}`]])),
+    orderCrewAssignments: crewOf(
+      over.crew ??
+        Object.fromEntries(jobs.map((j, i) => [String(j.id), [`W${i}`]])),
+    ),
     orderDoubleBooked: over.orderDoubleBooked ?? {},
     orderStarts: over.orderStarts ?? {},
     orderOvertime: over.orderOvertime ?? {},
@@ -390,7 +403,7 @@ describe('the crew hand-over', () => {
   const bothOnBill = { FIRST: ['W0'], SECOND: ['W0'] };
 
   it('starts an order the shift after its crew finishes the last one', () => {
-    const b = board(pair(day(28)), { orderWorkers: bothOnBill });
+    const b = board(pair(day(28)), { crew: bothOnBill });
     const first = b.rowsByJob.get('FIRST')!;
     const second = b.rowsByJob.get('SECOND')!;
 
@@ -403,7 +416,7 @@ describe('the crew hand-over', () => {
   });
 
   it('never has one person on two orders at once', () => {
-    const b = board(pair(day(11)), { orderWorkers: bothOnBill });
+    const b = board(pair(day(11)), { crew: bothOnBill });
     const first = b.rowsByJob.get('FIRST')!;
     const second = b.rowsByJob.get('SECOND')!;
 
@@ -416,7 +429,7 @@ describe('the crew hand-over', () => {
     // Different people, so nothing holds SECOND back and it runs alongside
     // FIRST rather than waiting for the day Epicor worked back to.
     const b = board(pair(day(28)), {
-      orderWorkers: { FIRST: ['W0'], SECOND: ['W1'] },
+      crew: { FIRST: ['W0'], SECOND: ['W1'] },
     });
     expect(b.rowsByJob.get('SECOND')!.start).toEqual(THU);
     expect(b.rowsByJob.get('FIRST')!.start).toEqual(THU);
@@ -428,7 +441,7 @@ describe('the crew hand-over', () => {
     // are free, and W1 joins when they arrive.
     const jobs = [job('SHORT', 2), job('LONG', 4), job('BOTH', 3)];
     const b = board(jobs, {
-      orderWorkers: { SHORT: ['W0'], LONG: ['W1'], BOTH: ['W0', 'W1'] },
+      crew: { SHORT: ['W0'], LONG: ['W1'], BOTH: ['W0', 'W1'] },
     });
     const short = b.rowsByJob.get('SHORT')!;
     const long = b.rowsByJob.get('LONG')!;
@@ -447,7 +460,7 @@ describe('the crew hand-over', () => {
   it('fills the gap in front of an order dragged out', () => {
     const jobs = pair(day(28));
     const after = board(jobs, {
-      orderWorkers: bothOnBill,
+      crew: bothOnBill,
       orderStarts: { FIRST: day(16).toISOString() },
     });
     // Dragging FIRST to the Wednesday leaves Bill with nothing until then.
@@ -467,11 +480,11 @@ describe('the crew hand-over', () => {
   it('gives back the days when that order is dragged earlier again', () => {
     const jobs = pair(day(28));
     const late = board(jobs, {
-      orderWorkers: bothOnBill,
+      crew: bothOnBill,
       orderStarts: { FIRST: day(18).toISOString() },
     });
     const early = board(jobs, {
-      orderWorkers: bothOnBill,
+      crew: bothOnBill,
       orderStarts: { FIRST: day(14).toISOString() },
     });
 
@@ -493,7 +506,7 @@ describe('the crew hand-over', () => {
   it('lets the pair the supervisor approved run side by side', () => {
     const jobs = pair(day(11));
     const b = board(jobs, {
-      orderWorkers: bothOnBill,
+      crew: bothOnBill,
       orderDoubleBooked: { SECOND: ['W0'] },
     });
     // Explicitly allowed, so SECOND is not held back for W0 and the two run
@@ -532,7 +545,7 @@ describe('one order against the next', () => {
         link('COVER1', 'COVER', 'FABRIC'),
       ],
       // Different people, so only the component holds the chair back.
-      orderWorkers: { COVER1: ['W0'], CHAIR1: ['W1'] },
+      crew: { COVER1: ['W0'], CHAIR1: ['W1'] },
     });
     const first = b.rowsByJob.get('COVER1')!;
     const next = b.rowsByJob.get('CHAIR1')!;
@@ -551,7 +564,7 @@ describe('one order against the next', () => {
         link('CHAIR1', 'CHAIR', 'COVER'),
         link('COVER1', 'COVER', 'FABRIC'),
       ],
-      orderWorkers: { COVER1: ['W0'], CHAIR1: ['W1'] },
+      crew: { COVER1: ['W0'], CHAIR1: ['W1'] },
     });
     const next = b.rowsByJob.get('CHAIR1')!;
 
@@ -567,7 +580,7 @@ describe('one order against the next', () => {
     // One person, two orders: the second starts where the first ended, and
     // the day they share is one shift between them.
     const b = board([job('A', 1.5), job('B', 1)], {
-      orderWorkers: { A: ['W0'], B: ['W0'] },
+      crew: { A: ['W0'], B: ['W0'] },
     });
     const a = b.rowsByJob.get('A')!;
     const bRow = b.rowsByJob.get('B')!;

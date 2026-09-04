@@ -241,9 +241,7 @@ export interface AssemblyInputs {
   indexes: DataIndexes;
   /** Line id → ordered job ids. */
   containers: Record<string, unknown[]>;
-  /** Job id → allocated worker ids. */
-  orderWorkers: Record<string, string[]>;
-  /** Job id → date-bounded allocation windows. */
+  /** Job id → who is on it, and between which days. */
   orderCrewAssignments?: Record<string, CrewAssignment[]>;
   /**
    * Job id → the people the supervisor has said may work it while they are on
@@ -379,8 +377,7 @@ function mouldingContextRows(
 }
 
 export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
-  const { dataset, indexes, containers, orderWorkers, orderStarts, today } =
-    input;
+  const { dataset, indexes, containers, orderStarts, today } = input;
   const orderOvertime = input.orderOvertime ?? {};
   const progress = input.progress ?? {};
   const progressBaselines = input.progressBaselines ?? {};
@@ -508,11 +505,8 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
    * build position and the people: the order that runs out of slack first.
    * Orders with no due date go last, because nothing says they are urgent.
    */
-  const crewSizeOf = (id: string): number => {
-    const bounded = orderCrewAssignments[id];
-    if (bounded) return new Set(bounded.map((a) => a.workerId)).size;
-    return (orderWorkers[id] ?? []).length;
-  };
+  const crewSizeOf = (id: string): number =>
+    new Set((orderCrewAssignments[id] ?? []).map((a) => a.workerId)).size;
   const urgency = (id: string): number => {
     const job = jobsById.get(id);
     if (!job?.dueDate) return Number.MAX_SAFE_INTEGER;
@@ -702,15 +696,17 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
       .sort((a, b) => a.date.localeCompare(b.date))
       .at(-1)?.operatorIds;
     const completedToday = completionDate(job) === todayKey;
-    const legacyWorkerIds = (orderWorkers[id] ?? []).length > 0
-      ? orderWorkers[id]
-      : actualStart?.operatorIds ?? latestCrew ?? [];
+    // Who the shift said was on it. Save Entry releases the crew when an
+    // order is closed, so for a completed row this is the only record left of
+    // who actually built it — and for a started one it is what the operator
+    // confirmed, which outranks anything allocated afterwards.
+    const recordedCrew = actualStart?.operatorIds ?? latestCrew ?? [];
     const configuredAssignments = orderCrewAssignments[id];
     const crewAssignments: CrewAssignment[] = configuredAssignments
       ? configuredAssignments
       : completedToday
         ? []
-        : legacyWorkerIds.map((workerId) => ({
+        : recordedCrew.map((workerId) => ({
             workerId,
             fromDay: null,
             toDayExclusive: null,
@@ -720,7 +716,7 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     const displayWorkerIds = crewAssignments.length > 0
       ? [...new Set(crewAssignments.map((assignment) => assignment.workerId))]
       : completedToday
-        ? legacyWorkerIds
+        ? recordedCrew
         : [];
     const workers = displayWorkerIds
       .map((w) => workersById.get(String(w)))
