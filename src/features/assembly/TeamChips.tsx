@@ -143,15 +143,8 @@ export function TeamChips({
     const closeOutside = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) setCrewPicker(null);
     };
-    const closeEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setCrewPicker(null);
-    };
     document.addEventListener('pointerdown', closeOutside);
-    document.addEventListener('keydown', closeEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside);
-      document.removeEventListener('keydown', closeEscape);
-    };
+    return () => document.removeEventListener('pointerdown', closeOutside);
   }, [picking, setCrewPicker]);
 
   const onIt = new Set(row.workers.map((w) => String(w.id)));

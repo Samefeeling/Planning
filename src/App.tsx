@@ -81,6 +81,23 @@ export default function App() {
     void load();
   }, [load]);
 
+  /*
+   * One Escape closes one thing.
+   *
+   * Each thing that can be open used to listen for Escape itself, so one
+   * press closed all of them at once: dismissing an order's detail also let
+   * go of a run of orders somebody had spent a minute marking. The layers are
+   * ordered in `dismissTop` instead, and this is the only listener.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (useUiStore.getState().dismissTop()) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Bootstrap the plan from persistence on first ready; reconcile thereafter.
   useEffect(() => {
     if (status !== 'ready' || !dataset) return;

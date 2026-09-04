@@ -92,6 +92,8 @@ interface UiState {
   clashRequest: ClashRequest | null;
   /** The only employee picker allowed to be open on the board. */
   crewPickerJobId: string | null;
+  /** The one person's week open on the board, by worker id. */
+  workerLoadId: string | null;
   lastRefresh: Date | null;
   /**
    * Timeline zoom. It lives here rather than in the board because the zoom
@@ -117,6 +119,17 @@ interface UiState {
   toggleMark: (jobId: string) => void;
   clearMarks: () => void;
   setCrewPicker: (jobId: string | null) => void;
+  setWorkerLoad: (workerId: string | null) => void;
+  /**
+   * Close the topmost thing that is open, and say whether there was one.
+   *
+   * Escape used to be five separate listeners, one per thing that could be
+   * open, and they all fired at once: closing the order detail also let go of
+   * a run of orders the planner had spent a minute marking. So the layers are
+   * ordered here instead — worst interruption first — and one press closes
+   * one of them.
+   */
+  dismissTop: () => boolean;
   setDayWidth: (px: number) => void;
   setOrderWidth: (px: number) => void;
   toggleDateCol: (key: DateCol) => void;
@@ -132,13 +145,14 @@ interface UiState {
   setLastRefresh: (when: Date) => void;
 }
 
-export const useUiStore = create<UiState>((set) => ({
+export const useUiStore = create<UiState>((set, get) => ({
   selectedJobId: null,
   marked: [],
   selectedAt: null,
   overtimeRequest: null,
   clashRequest: null,
   crewPickerJobId: null,
+  workerLoadId: null,
   lastRefresh: null,
   dayWidth: DEFAULT_DAY_WIDTH,
   orderWidth: DEFAULT_ORDER_WIDTH,
@@ -155,6 +169,7 @@ export const useUiStore = create<UiState>((set) => ({
       selectedJobId,
       selectedAt: at ?? state.selectedAt,
       crewPickerJobId: null,
+      workerLoadId: null,
     })),
   toggleMark: (jobId) =>
     set((state) => ({
@@ -163,7 +178,28 @@ export const useUiStore = create<UiState>((set) => ({
         : [...state.marked, jobId],
     })),
   clearMarks: () => set({ marked: [] }),
-  setCrewPicker: (crewPickerJobId) => set({ crewPickerJobId }),
+  // The two popups that sit over the board are mutually exclusive, the way
+  // opening an order's detail already closes the picker.
+  setCrewPicker: (crewPickerJobId) =>
+    set({ crewPickerJobId, workerLoadId: null }),
+  setWorkerLoad: (workerLoadId) => set({ workerLoadId, crewPickerJobId: null }),
+
+  dismissTop: () => {
+    const state = get();
+    // A question waiting on an answer first, then what sits over the board,
+    // then the board's own state. Marking a run of orders is last: it is the
+    // slowest thing here to rebuild and the least like a thing that is "open".
+    const top =
+      (state.overtimeRequest && { overtimeRequest: null }) ||
+      (state.clashRequest && { clashRequest: null }) ||
+      (state.crewPickerJobId && { crewPickerJobId: null }) ||
+      (state.workerLoadId && { workerLoadId: null }) ||
+      (state.selectedJobId && { selectedJobId: null }) ||
+      (state.marked.length > 0 && { marked: [] });
+    if (!top) return false;
+    set(top);
+    return true;
+  },
   setDayWidth: (px) =>
     set({ dayWidth: clamp(px, MIN_DAY_WIDTH, MAX_DAY_WIDTH) }),
   setOrderWidth: (px) =>

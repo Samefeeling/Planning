@@ -91,3 +91,96 @@ describe('the marked set', () => {
     expect(useUiStore.getState().marked).toEqual([]);
   });
 });
+
+/**
+ * Escape used to be five listeners that all fired at once, so closing the
+ * order detail also let go of a run of orders somebody had marked. One press
+ * now closes one layer, worst interruption first.
+ */
+describe('what Escape closes', () => {
+  const everythingOpen = () =>
+    useUiStore.setState({
+      overtimeRequest: {
+        jobId: 'ASM8001',
+        isoDay: '2026-09-12',
+        nextWorkingIsoDay: '2026-09-14',
+      },
+      clashRequest: {
+        jobId: 'ASM8002',
+        workerId: 'W01',
+        workerName: 'Mary',
+        withJobIds: ['ASM8003'],
+        withLabels: ['ASM8003 · UPL · 4 Sep – 8 Sep'],
+      },
+      crewPickerJobId: 'ASM8004',
+      workerLoadId: 'W02',
+      selectedJobId: 'ASM8005',
+      marked: ['ASM8006', 'ASM8007'],
+    });
+
+  const dismiss = () => useUiStore.getState().dismissTop();
+  const state = () => useUiStore.getState();
+
+  beforeEach(everythingOpen);
+
+  it('takes one layer at a time, in order', () => {
+    expect(dismiss()).toBe(true);
+    expect(state().overtimeRequest).toBeNull();
+    // Everything under it is untouched.
+    expect(state().clashRequest).not.toBeNull();
+    expect(state().marked).toEqual(['ASM8006', 'ASM8007']);
+
+    expect(dismiss()).toBe(true);
+    expect(state().clashRequest).toBeNull();
+    expect(dismiss()).toBe(true);
+    expect(state().crewPickerJobId).toBeNull();
+    expect(dismiss()).toBe(true);
+    expect(state().workerLoadId).toBeNull();
+
+    // The detail goes before the marked set, which is the pairing that used
+    // to cost somebody their selection.
+    expect(dismiss()).toBe(true);
+    expect(state().selectedJobId).toBeNull();
+    expect(state().marked).toEqual(['ASM8006', 'ASM8007']);
+
+    expect(dismiss()).toBe(true);
+    expect(state().marked).toEqual([]);
+  });
+
+  it('says when there was nothing to close', () => {
+    while (dismiss()) {
+      /* down to a bare board */
+    }
+    expect(dismiss()).toBe(false);
+  });
+
+  it('closes the detail without letting go of the set', () => {
+    useUiStore.setState({
+      overtimeRequest: null,
+      clashRequest: null,
+      crewPickerJobId: null,
+      workerLoadId: null,
+    });
+    expect(dismiss()).toBe(true);
+    expect(state().selectedJobId).toBeNull();
+    expect(state().marked).toEqual(['ASM8006', 'ASM8007']);
+  });
+});
+
+describe('the two popups over the board', () => {
+  it('never has both open at once', () => {
+    useUiStore.getState().setCrewPicker('ASM8001');
+    useUiStore.getState().setWorkerLoad('W01');
+    expect(useUiStore.getState().crewPickerJobId).toBeNull();
+    expect(useUiStore.getState().workerLoadId).toBe('W01');
+
+    useUiStore.getState().setCrewPicker('ASM8002');
+    expect(useUiStore.getState().workerLoadId).toBeNull();
+
+    // Opening an order's detail closes whichever was showing.
+    useUiStore.getState().setWorkerLoad('W02');
+    useUiStore.getState().select('ASM8003', { x: 0, y: 0 });
+    expect(useUiStore.getState().workerLoadId).toBeNull();
+    expect(useUiStore.getState().crewPickerJobId).toBeNull();
+  });
+});

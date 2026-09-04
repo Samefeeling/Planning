@@ -116,21 +116,15 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     });
   }, [selectedAt, selectedJobId, row]);
 
-  // Escape or a click anywhere outside closes the transient detail panel.
+  // A click anywhere outside closes the transient detail panel. Escape does
+  // too, through the one handler in App that knows what else is open.
   useEffect(() => {
     if (!selectedJobId) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') select(null);
-    };
     const onOutside = (e: PointerEvent) => {
       if (!panel.current?.contains(e.target as Node)) select(null);
     };
-    document.addEventListener('keydown', onKey);
     document.addEventListener('pointerdown', onOutside);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('pointerdown', onOutside);
-    };
+    return () => document.removeEventListener('pointerdown', onOutside);
   }, [selectedJobId, select]);
   // Every row on the board, moulding included — an order can be waiting on a
   // press job, which is not among the scheduled assembly rows.

@@ -11,6 +11,7 @@
 import { useDraggable } from '@dnd-kit/core';
 import { createPortal } from 'react-dom';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useUiStore } from '@/store/uiStore';
 import type { LineKey, Worker } from '@/domain/assembly';
 import {
   dayBand,
@@ -38,7 +39,11 @@ export function WorkerLoadChip({
   line: LineKey;
   dragDisabled: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  // One person's week at a time, and in the store rather than here: Escape
+  // has to know this is open to decide whether it is the thing to close.
+  const openWorkerId = useUiStore((s) => s.workerLoadId);
+  const setWorkerLoad = useUiStore((s) => s.setWorkerLoad);
+  const open = openWorkerId === String(worker.id);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const wrap = useRef<HTMLSpanElement>(null);
   const anchor = useRef<HTMLButtonElement | null>(null);
@@ -100,18 +105,11 @@ export function WorkerLoadChip({
       if (
         !wrap.current?.contains(target) &&
         !popup.current?.contains(target)
-      ) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      ) setWorkerLoad(null);
     };
     document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open, setWorkerLoad]);
 
   const pct = capacityHours
     ? Math.round((totalHours / capacityHours) * 100)
@@ -157,7 +155,7 @@ export function WorkerLoadChip({
             ? `${worker.name} — load details; unlock Supervisor and finish started work before moving lines`
             : `${worker.name} — click for load, drag to another production line`
         }
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setWorkerLoad(open ? null : String(worker.id))}
         {...listeners}
         {...attributes}
       >
@@ -194,7 +192,7 @@ export function WorkerLoadChip({
               type="button"
               className="wl-close"
               aria-label="Close"
-              onClick={() => setOpen(false)}
+              onClick={() => setWorkerLoad(null)}
             >
               ×
             </button>

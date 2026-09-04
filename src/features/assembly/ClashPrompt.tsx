@@ -16,7 +16,6 @@
  *   Cancel          leave them where they are and put someone else on it
  */
 
-import { useEffect } from 'react';
 import { JobId } from '@/domain/ids';
 import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
@@ -33,15 +32,6 @@ export function ClashPrompt() {
   // heavier one than most.
   const unlocked = useSupervisorStore((s) => s.unlocked);
   const gated = useSupervisorStore((s) => s.required) && !unlocked;
-
-  useEffect(() => {
-    if (!request) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') clear();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [request, clear]);
 
   if (!request) return null;
 

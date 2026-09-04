@@ -467,7 +467,6 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const changeSort = useUiStore((s) => s.changeOrderSort);
   const marked = useUiStore((s) => s.marked);
   const toggleMark = useUiStore((s) => s.toggleMark);
-  const clearMarks = useUiStore((s) => s.clearMarks);
   const workerLineOverrides = usePlanStore((s) => s.workerLines);
   const unlocked = useSupervisorStore((s) => s.unlocked);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
@@ -537,15 +536,6 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       ),
     [markedIds, board.groups, board.today],
   );
-  // Esc lets go of the set, the way it closes anything else on the board.
-  useEffect(() => {
-    if (marked.length === 0) return;
-    const drop = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') clearMarks();
-    };
-    window.addEventListener('keydown', drop);
-    return () => window.removeEventListener('keydown', drop);
-  }, [marked.length, clearMarks]);
 
   const dependencyFocusId = selectedJobId ?? hoveredJobId;
   const relatedJobIds = useMemo(() => {

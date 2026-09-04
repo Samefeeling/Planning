@@ -74,7 +74,12 @@ export function SupervisorLock() {
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit();
-              if (e.key === 'Escape') setAsking(false);
+              if (e.key === 'Escape') {
+                // Handled here, so the board's own Escape does not also close
+                // whatever is open behind this.
+                e.stopPropagation();
+                setAsking(false);
+              }
             }}
           />
           {error && <span className="supervisor-error">{error}</span>}
