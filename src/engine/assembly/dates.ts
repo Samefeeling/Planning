@@ -98,7 +98,12 @@ export const isWeekend = (d: Date): boolean =>
   d.getDay() === 0 || d.getDay() === 6;
 
 /** Midnight of the next day, robust across daylight-saving shifts. */
-const nextMidnight = (d: Date): Date => startOfDay(addDays(startOfDay(d), 1));
+const nextMidnight = (d: Date): Date => {
+  const out = startOfDay(d);
+  // Advance the local calendar date: a DST day can contain 23 or 25 hours.
+  out.setDate(out.getDate() + 1);
+  return out;
+};
 
 /**
  * `d` itself when the factory runs that day, otherwise the following Monday.
