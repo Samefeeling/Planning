@@ -38,7 +38,10 @@ export function OrderBar({
   readOnly = false,
   selected,
   dependencyRelated,
+  marked = false,
+  moveWith,
   onSelect,
+  onMark,
   onDependencyHover,
 }: {
   row: OrderRow;
@@ -51,7 +54,16 @@ export function OrderBar({
   readOnly?: boolean;
   selected: boolean;
   dependencyRelated: boolean;
+  /** Ticked with Ctrl held, to be moved with the rest of the marked set. */
+  marked?: boolean;
+  /**
+   * Every marked order and the day its bar is drawn on, so a drag can move the
+   * whole set by the same number of columns. Only the bar being dragged reads
+   * it, but it has to travel in the drag payload, which is set up here.
+   */
+  moveWith?: { jobId: string; startISO: string | null }[];
   onSelect: (jobId: string, at?: { x: number; y: number }) => void;
+  onMark: (jobId: string) => void;
   onDependencyHover: (jobId: string | null) => void;
 }) {
   const id = String(row.job.id);
@@ -72,6 +84,9 @@ export function OrderBar({
         // the drag rather than assume the default column width.
         dayWidth,
         showWeekends,
+        // Only meaningful when this bar is one of the marked ones; the drop
+        // handler checks that before moving anything but this order.
+        moveWith,
       },
     });
 
@@ -193,7 +208,7 @@ export function OrderBar({
         pieces.length > 1 ? 'split' : ''
       } ${tag.stub ? 'stub' : ''} ${tag.outside ? 'tagged' : ''} ${
         tag.flip ? 'tag-left' : ''
-      }`}
+      } ${marked ? 'marked' : ''}`}
       style={{
         left,
         width,
@@ -201,6 +216,13 @@ export function OrderBar({
       }}
       onClick={(e) => {
         e.stopPropagation();
+        // Ctrl (or Cmd on a Mac) ticks the bar into the set being moved
+        // together, and deliberately does not open the detail: marking a run
+        // of orders and reading one of them are different jobs.
+        if (e.ctrlKey || e.metaKey) {
+          onMark(id);
+          return;
+        }
         onSelect(id, { x: e.clientX, y: e.clientY });
       }}
       onMouseEnter={() => onDependencyHover(id)}

@@ -88,6 +88,7 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
           + {DATE_COL_LABEL[key]}
         </button>
       ))}
+      <MarkedSet />
       <MaterialLinks board={board} />
       <span className="order-window dependency-mode" aria-label="Dependency link visibility">
         {(['focus', 'all', 'off'] as const).map((mode) => (
@@ -114,6 +115,31 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * The orders ticked to move together, and the way out of it.
+ *
+ * Marking is otherwise invisible from the header — the bars carry an outline,
+ * but they may all be scrolled off — and a set left ticked by accident would
+ * make the next drag move things the planner had forgotten about.
+ */
+function MarkedSet() {
+  const marked = useUiStore((s) => s.marked);
+  const clearMarks = useUiStore((s) => s.clearMarks);
+  if (marked.length === 0) return null;
+  return (
+    <button
+      className="marked-set"
+      onClick={clearMarks}
+      title={
+        `Moving together — drag any one of them:\n${marked.join('\n')}` +
+        '\n\nClick here, or press Esc, to let go.'
+      }
+    >
+      {marked.length} marked ×
+    </button>
   );
 }
 

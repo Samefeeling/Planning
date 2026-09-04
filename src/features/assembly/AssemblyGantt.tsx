@@ -111,6 +111,9 @@ function OrderRowView({
   showWeekends,
   workerLines,
   dependencyRelated,
+  marked,
+  moveWith,
+  onMark,
   onDependencyHover,
 }: {
   row: OrderRow;
@@ -126,6 +129,9 @@ function OrderRowView({
   showWeekends: boolean;
   workerLines: ReadonlyMap<string, LineKey>;
   dependencyRelated: boolean;
+  marked: boolean;
+  moveWith: { jobId: string; startISO: string | null }[];
+  onMark: (id: string) => void;
   onDependencyHover: (id: string | null) => void;
 }) {
   const isContext = !row.line.schedulable;
@@ -236,7 +242,10 @@ function OrderRowView({
           readOnly={isContext}
           selected={selected}
           dependencyRelated={dependencyRelated}
+          marked={marked}
+          moveWith={moveWith}
           onSelect={onSelect}
+          onMark={onMark}
           onDependencyHover={onDependencyHover}
         />
       </div>
@@ -274,6 +283,9 @@ function LineGroupView({
   filtered,
   unlocked,
   relatedJobIds,
+  markedIds,
+  moveWith,
+  onMark,
   onDependencyHover,
 }: {
   group: LineGroup;
@@ -295,6 +307,9 @@ function LineGroupView({
   filtered: boolean;
   unlocked: boolean;
   relatedJobIds: ReadonlySet<string>;
+  markedIds: ReadonlySet<string>;
+  moveWith: { jobId: string; startISO: string | null }[];
+  onMark: (id: string) => void;
   onDependencyHover: (id: string | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -421,6 +436,9 @@ function LineGroupView({
             showWeekends={showWeekends}
             workerLines={todayLine}
             dependencyRelated={relatedJobIds.has(String(row.job.id))}
+            marked={markedIds.has(String(row.job.id))}
+            moveWith={moveWith}
+            onMark={onMark}
             onDependencyHover={onDependencyHover}
           />
         ))
@@ -441,6 +459,9 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const orderWindow = useUiStore((s) => s.orderWindow);
   const showWeekends = useUiStore((s) => s.showWeekends);
   const dependencyMode = useUiStore((s) => s.dependencyMode);
+  const marked = useUiStore((s) => s.marked);
+  const toggleMark = useUiStore((s) => s.toggleMark);
+  const clearMarks = useUiStore((s) => s.clearMarks);
   const workerLineOverrides = usePlanStore((s) => s.workerLines);
   const unlocked = useSupervisorStore((s) => s.unlocked);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
@@ -493,6 +514,33 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     () => visibleGroups.flatMap((group) => group.rows),
     [visibleGroups],
   );
+  const markedIds = useMemo(() => new Set(marked), [marked]);
+  /*
+   * The marked set and where each of its bars is drawn, so dragging any one of
+   * them can move the rest by the same number of columns. The day a bar sits on
+   * is not the day it was pinned to — a predecessor or a full line may have
+   * pushed it out — so the drawn day is what a relative move has to start from.
+   */
+  const moveWith = useMemo(
+    () =>
+      visibleRows
+        .filter((row) => markedIds.has(String(row.job.id)) && row.start)
+        .map((row) => ({
+          jobId: String(row.job.id),
+          startISO: row.start!.toISOString(),
+        })),
+    [visibleRows, markedIds],
+  );
+  // Esc lets go of the set, the way it closes anything else on the board.
+  useEffect(() => {
+    if (marked.length === 0) return;
+    const drop = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') clearMarks();
+    };
+    window.addEventListener('keydown', drop);
+    return () => window.removeEventListener('keydown', drop);
+  }, [marked.length, clearMarks]);
+
   const dependencyFocusId = selectedJobId ?? hoveredJobId;
   const relatedJobIds = useMemo(() => {
     if (dependencyMode === 'off') return new Set<string>();
@@ -724,11 +772,16 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
             {unallocated.length > 0 ? (
               <span
                 className="team-free"
-                title={`Nothing allocated today: ${unallocated
-                  .map((worker) => worker.name)
-                  .join(', ')}`}
+                title={
+                  `On site with no work on them today: ${unallocated
+                    .map((worker) => worker.name)
+                    .join(', ')}` +
+                  '\nThey may still be crewed on orders that start later.'
+                }
               >
-                <b className="team-free-count">Free {unallocated.length}</b>
+                <b className="team-free-count">
+                  Free today {unallocated.length}
+                </b>
                 {unallocated.map((worker) => (
                   <span key={String(worker.id)} className="team-free-name">
                     {worker.name}
@@ -801,6 +854,9 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           filtered={orderWindow === 'next-five'}
           unlocked={unlocked}
           relatedJobIds={relatedJobIds}
+          markedIds={markedIds}
+          moveWith={moveWith}
+          onMark={toggleMark}
           onDependencyHover={setHoveredJobId}
         />
       ))}

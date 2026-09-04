@@ -77,6 +77,12 @@ interface UiState {
   /** Order shown in the inspector. */
   selectedJobId: string | null;
   /**
+   * Orders ticked with Ctrl (or Cmd) held, to be moved as one. Separate from
+   * `selectedJobId`, which is the single order the detail panel is showing:
+   * marking a run of orders is a different act from opening one to read it.
+   */
+  marked: string[];
+  /**
    * Where the pointer was when it was picked. The detail opens there rather
    * than in a fixed column: the supervisor is already looking at that row, and
    * the schedule keeps the whole width.
@@ -105,6 +111,9 @@ interface UiState {
 
   /** Show an order's detail; `at` moves the panel, omitting it leaves it. */
   select: (jobId: string | null, at?: ClickPoint) => void;
+  /** Add or remove one order from the set being moved together. */
+  toggleMark: (jobId: string) => void;
+  clearMarks: () => void;
   setCrewPicker: (jobId: string | null) => void;
   setDayWidth: (px: number) => void;
   setOrderWidth: (px: number) => void;
@@ -121,6 +130,7 @@ interface UiState {
 
 export const useUiStore = create<UiState>((set) => ({
   selectedJobId: null,
+  marked: [],
   selectedAt: null,
   overtimeRequest: null,
   clashRequest: null,
@@ -141,6 +151,13 @@ export const useUiStore = create<UiState>((set) => ({
       selectedAt: at ?? state.selectedAt,
       crewPickerJobId: null,
     })),
+  toggleMark: (jobId) =>
+    set((state) => ({
+      marked: state.marked.includes(jobId)
+        ? state.marked.filter((id) => id !== jobId)
+        : [...state.marked, jobId],
+    })),
+  clearMarks: () => set({ marked: [] }),
   setCrewPicker: (crewPickerJobId) => set({ crewPickerJobId }),
   setDayWidth: (px) =>
     set({ dayWidth: clamp(px, MIN_DAY_WIDTH, MAX_DAY_WIDTH) }),

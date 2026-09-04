@@ -444,18 +444,27 @@ describe('the crew hand-over', () => {
     expect(both.crewDays!.at(-1)!.workerIds).toEqual(['W0', 'W1']);
   });
 
-  it('takes the whole chain with an order dragged out', () => {
+  it('fills the gap in front of an order dragged out', () => {
     const jobs = pair(day(28));
     const after = board(jobs, {
       orderWorkers: bothOnBill,
       orderStarts: { FIRST: day(16).toISOString() },
     });
-    // FIRST runs Wed–Thu, so SECOND now begins on the Friday.
-    expect(after.rowsByJob.get('FIRST')!.expectDate).toEqual(day(18));
-    expect(after.rowsByJob.get('SECOND')!.start).toEqual(day(18));
+    // Dragging FIRST to the Wednesday leaves Bill with nothing until then.
+    // He spends it on SECOND and steps off the day FIRST is due to start:
+    // these are two independent orders that happen to share one person, so
+    // there is no reason for the week in front of the drag to go to waste.
+    const first = after.rowsByJob.get('FIRST')!;
+    const second = after.rowsByJob.get('SECOND')!;
+    expect(first.start).toEqual(day(16));
+    expect(second.start).toEqual(day(10));
+    // And Bill is never on both at once: SECOND is done before FIRST opens.
+    expect(second.expectDate!.getTime()).toBeLessThanOrEqual(
+      first.start!.getTime(),
+    );
   });
 
-  it('brings the chain back in when that order is dragged earlier again', () => {
+  it('gives back the days when that order is dragged earlier again', () => {
     const jobs = pair(day(28));
     const late = board(jobs, {
       orderWorkers: bothOnBill,
@@ -466,10 +475,19 @@ describe('the crew hand-over', () => {
       orderStarts: { FIRST: day(14).toISOString() },
     });
 
-    expect(late.rowsByJob.get('SECOND')!.start!.getTime()).toBeGreaterThan(
-      early.rowsByJob.get('SECOND')!.start!.getTime(),
-    );
-    expect(early.rowsByJob.get('SECOND')!.start).toEqual(day(16));
+    // Wherever FIRST is dragged to, SECOND takes the room in front of it and
+    // stops before it — the drag moves the wall, not the work behind it.
+    for (const [name, b] of [
+      ['late', late],
+      ['early', early],
+    ] as const) {
+      const first = b.rowsByJob.get('FIRST')!;
+      const second = b.rowsByJob.get('SECOND')!;
+      expect(second.start, name).toEqual(day(10));
+      expect(second.expectDate!.getTime(), name).toBeLessThanOrEqual(
+        first.start!.getTime(),
+      );
+    }
   });
 
   it('lets the pair the supervisor approved run side by side', () => {

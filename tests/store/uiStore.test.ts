@@ -41,3 +41,37 @@ describe('board display defaults', () => {
     useUiStore.getState().setDependencyMode('focus');
   });
 });
+
+/**
+ * Marking a run of orders with Ctrl to shift them together. Kept apart from
+ * the single selection that opens the detail: they answer different questions.
+ */
+describe('the marked set', () => {
+  beforeEach(() => {
+    useUiStore.setState({ marked: [], selectedJobId: null });
+  });
+
+  it('starts empty and ticks orders on and off', () => {
+    expect(useUiStore.getInitialState().marked).toEqual([]);
+    useUiStore.getState().toggleMark('ASM8018');
+    useUiStore.getState().toggleMark('ASM8019');
+    expect(useUiStore.getState().marked).toEqual(['ASM8018', 'ASM8019']);
+    useUiStore.getState().toggleMark('ASM8018');
+    expect(useUiStore.getState().marked).toEqual(['ASM8019']);
+  });
+
+  it('keeps the open order and the marked set apart', () => {
+    useUiStore.getState().toggleMark('ASM8018');
+    useUiStore.getState().select('ASM8021', { x: 1, y: 2 });
+    // Opening one to read it does not tick it, nor let go of what is ticked.
+    expect(useUiStore.getState().marked).toEqual(['ASM8018']);
+    expect(useUiStore.getState().selectedJobId).toBe('ASM8021');
+  });
+
+  it('lets go of the whole set at once', () => {
+    useUiStore.getState().toggleMark('A');
+    useUiStore.getState().toggleMark('B');
+    useUiStore.getState().clearMarks();
+    expect(useUiStore.getState().marked).toEqual([]);
+  });
+});

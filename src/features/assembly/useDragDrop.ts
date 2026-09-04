@@ -100,6 +100,38 @@ export function useDragDrop() {
         moveJob(jobId, droppedOn);
       }
       if (dayShift === 0) return;
+
+      /*
+       * A set marked with Ctrl moves as one.
+       *
+       * Every marked order shifts by the same number of columns as the bar
+       * under the pointer, each from where its own bar is drawn. One landing on
+       * a weekend is pulled to the Monday rather than asking: a bulk move is a
+       * re-plan of a run of work, not a decision about overtime on one order,
+       * and a prompt per order would be unanswerable. Only the dragged bar can
+       * change line — dropping a set on a lane and having all of it jump there
+       * is not what the pointer said.
+       */
+      const marks = (active.data.current.moveWith ?? []) as {
+        jobId: string;
+        startISO: string | null;
+      }[];
+      if (marks.length > 1 && marks.some((m) => m.jobId === key)) {
+        const { orderActualStarts } = usePlanStore.getState();
+        for (const mark of marks) {
+          if (orderActualStarts[mark.jobId] || !mark.startISO) continue;
+          const to = shiftTimelineDays(
+            startOfDay(new Date(mark.startISO)),
+            dayShift,
+            showWeekends,
+          );
+          const landed = startOfDay(isWeekend(to) ? nextWorkingDay(to) : to);
+          setOvertime(JobId(mark.jobId), false);
+          setOrderStart(JobId(mark.jobId), landed.toISOString());
+        }
+        return;
+      }
+
       // Move from where the bar is drawn. The pinned day is only a request —
       // the line's capacity, a predecessor or a weekend may have pushed the
       // bar past it, and dragging from the pin would then snap it backwards.

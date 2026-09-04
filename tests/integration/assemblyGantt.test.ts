@@ -13,6 +13,8 @@ import { remainingHours } from '@/engine/assembly/duration';
 import { usePlanStore } from '@/store/planStore';
 import { DEFAULT_HORIZON_DAYS, LINES, canWorkKind } from '@/domain/assembly';
 import { overlapsOnBoard, suggestCrew } from '@/engine/assembly/crew';
+import { addDays } from '@/engine/assembly/dates';
+import { activeWorkerIdsOnDay } from '@/features/assembly/boardView';
 import type { PlanningDataset } from '@/domain/types';
 import type {
   ActualStartRecord,
@@ -208,6 +210,101 @@ describe('assembly Gantt (mock data)', () => {
     expect(
       rows.flatMap((row) => row.predecessors).every((dep) => dep.part !== null),
     ).toBe(true);
+  });
+
+  /**
+   * The board must not wear a name it does not use.
+   *
+   * A crew ledger that recorded only "free after" read someone booked three
+   * weeks out as unavailable for all three weeks. An order starting today then
+   * either ran short-handed or, when their supposed release fell past its end,
+   * dropped them from the plan entirely — while still showing their chip on the
+   * row. On screen that is a person crewed on a bar running today whom the
+   * header calls free.
+   */
+  /**
+   * The moulding lane is context: press work the assembly side is waiting for.
+   * It used to be padded out with the next few press jobs by date, which put
+   * work nothing on the board depended on at the top of the screen.
+   */
+  it('shows only the press work something on the board is waiting for', () => {
+    const b = build();
+    const pmd = b.groups.find((g) => !g.line.schedulable);
+    const needed = new Set(
+      [...b.rowsByJob.values()]
+        .flatMap((r) => r.predecessors)
+        .map((d) => String(d.onJobId)),
+    );
+    expect(pmd).toBeDefined();
+    expect(pmd!.rows.length).toBeGreaterThan(0);
+    for (const row of pmd!.rows) {
+      expect(needed.has(String(row.job.id)), String(row.job.id)).toBe(true);
+    }
+  });
+
+  it('drops the moulding lane when nothing is waiting on a press', () => {
+    // The same board with the material links taken away: no assembly order
+    // waits for a press job, so the lane has nothing to say and is not drawn.
+    const indexes = buildIndexes(dataset);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
+    const state = usePlanStore.getState();
+    const bare = computeAssemblyGantt({
+      dataset: { ...dataset, jobLinks: [], jobs: dataset.jobs.map((j) => ({ ...j, predecessors: [] })) },
+      indexes,
+      containers: state.containers,
+      orderWorkers: state.orderWorkers,
+      orderStarts: {},
+      orderActualStarts: {},
+      progress: {},
+      progressBaselines: {},
+      production: {},
+      workers: dataset.workers,
+      today: TODAY,
+    });
+    expect(bare.groups.every((g) => g.line.schedulable)).toBe(true);
+  });
+
+  it('names anyone it shows on a crew but never plans a day for', () => {
+    const b = build();
+    const rows = b.groups.flatMap((g) => g.rows).filter((r) => r.line.schedulable);
+    for (const row of rows) {
+      if (!row.crewDays || row.crewDays.length === 0) continue;
+      const unused = row.workers.filter(
+        (worker) =>
+          !row.crewDays!.some((day) =>
+            day.workerIds.includes(String(worker.id)),
+          ),
+      );
+      // Whoever the plan could not fit in is reported, never silently dropped:
+      // an order quietly running a person short is the one thing a supervisor
+      // cannot see by looking at the row.
+      expect(
+        (row.crewWithoutRoom ?? []).map((w) => String(w.id)).sort(),
+        String(row.job.id),
+      ).toEqual(unused.map((w) => String(w.id)).sort());
+    }
+  });
+
+  it('counts a crewed order running today as work for the people on it', () => {
+    const b = build();
+    const rows = b.groups.flatMap((g) => g.rows);
+    const busy = activeWorkerIdsOnDay(rows, TODAY);
+    const missed: string[] = [];
+    for (const row of rows) {
+      if (!row.line.schedulable || row.completedToday) continue;
+      const runsToday =
+        row.start !== null &&
+        row.expectDate !== null &&
+        row.start <= addDays(TODAY, 1) &&
+        row.expectDate >= TODAY;
+      if (!runsToday) continue;
+      for (const worker of row.workers) {
+        if (!busy.has(String(worker.id))) {
+          missed.push(`${worker.name} on ${String(row.job.id)}`);
+        }
+      }
+    }
+    expect(missed).toEqual([]);
   });
 
   it('leaves an order unschedulable when nobody is on it', () => {
