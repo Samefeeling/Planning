@@ -29,6 +29,9 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
 
   if (!board) return null;
   const hidden = DATE_COLS.filter((key) => !dateCols[key]);
+  const running = orderWindow === 'day' && orderDay
+    ? countRunningOrders(board.groups.flatMap((group) => group.rows), new Date(`${orderDay}T00:00:00`))
+    : null;
 
   return (
     <div className="board-tools">
@@ -82,7 +85,7 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
       </button>
       {orderWindow === 'day' && orderDay && (
         <span className="board-load" role="status">
-          {countRunningOrders(board.groups.flatMap((group) => group.rows), new Date(`${orderDay}T00:00:00`))} orders running
+          {running} {running === 1 ? 'order' : 'orders'} running
         </span>
       )}
       <button

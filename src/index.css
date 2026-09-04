@@ -69,13 +69,12 @@ button {
 }
 
 /*
- * Three columns, not a flex row with spacers: two equal `1fr` sides put the
- * timeline controls in the true centre of the bar whatever the two ends happen
- * to weigh. `minmax(0, …)` keeps a long source name from stealing the middle.
+ * Keep action buttons clear of the date controls. The middle column wraps
+ * within the remaining space rather than overlapping either side.
  */
 .app-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px;
   padding: 10px 16px;
@@ -90,6 +89,11 @@ button {
 }
 .head-side.end {
   justify-content: flex-end;
+}
+@media (max-width: 1100px) {
+  .app-header { grid-template-columns: minmax(0, 1fr) auto; }
+  .app-header > .board-tools { grid-column: 1 / -1; grid-row: 2; }
+  .head-side.end { grid-column: 2; grid-row: 1; flex-wrap: wrap; }
 }
 .app-header h1 {
   font-size: 15px;
@@ -1567,6 +1571,9 @@ body.col-resizing {
 /* Timeline controls — in the title bar, centred between two equal spacers. */
 .board-tools {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   font-size: 12px;

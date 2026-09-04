@@ -779,6 +779,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           <div className="acell track" style={{ width: gridWidth }}>
             {days.map((d, i) => {
               const load = dayLoads[i];
+              const running = countRunningOrders(allRows, d);
               const pct = Math.round(load.pct);
               // A closed day still shows what landed on it — that is the case
               // for overtime — but muted, so it never reads as normal capacity.
@@ -813,7 +814,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
                       orderWindow === 'day' && orderDay === crewDayKey(d) ? null : crewDayKey(d),
                     )}
                   >
-                    {countRunningOrders(allRows, d)} orders
+                    {running} {running === 1 ? 'order' : 'orders'}
                   </button>
                 </div>
               );
