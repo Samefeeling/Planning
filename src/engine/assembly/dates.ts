@@ -72,6 +72,13 @@ export function scheduleStatus(
 export const addDays = (d: Date, days: number): Date =>
   new Date(d.getTime() + days * MS_PER_DAY);
 
+/** Move whole local calendar days without drifting across DST boundaries. */
+export function addCalendarDays(d: Date, days: number): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() + days);
+  return out;
+}
+
 /** Midnight at the start of the given day. */
 export function startOfDay(d: Date): Date {
   const r = new Date(d);
@@ -129,7 +136,7 @@ export function nextWorkingDay(d: Date): Date {
 export function prevWorkingDay(d: Date): Date {
   let out = startOfDay(d);
   do {
-    out = startOfDay(addDays(out, -1));
+    out = startOfDay(addCalendarDays(out, -1));
   } while (isWeekend(out));
   return out;
 }

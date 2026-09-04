@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { OrderRow } from '@/engine/assembly/board';
-import type { DependencyDisplayMode } from '@/store/uiStore';
 import {
   dependencyFocus,
   routeDependencies,
@@ -35,13 +34,11 @@ const boxOf = (
 export function DependencyArrows({
   root,
   rows,
-  mode,
   focusJobId,
   labelWidth,
 }: {
   root: RefObject<HTMLDivElement | null>;
   rows: OrderRow[];
-  mode: DependencyDisplayMode;
   focusJobId: string | null;
   /** Where the day grid starts — everything left of it is frozen columns. */
   labelWidth: number;
@@ -51,7 +48,7 @@ export function DependencyArrows({
 
   useLayoutEffect(() => {
     const host = root.current;
-    if (!host || mode === 'off') {
+    if (!host) {
       setDrawing(EMPTY);
       return;
     }
@@ -87,16 +84,12 @@ export function DependencyArrows({
       // Iterative traversal expands every ancestor and descendant, not just
       // the first two levels visible around the selected job.
       const focus = dependencyFocus(edges, focusJobId);
-      const visible =
-        mode === 'all'
-          ? edges
-          : edges.filter((edge) => focus.edgeKeys.has(edge.key));
-      const arrows = routeDependencies(visible, {
+      const arrows = routeDependencies(edges, {
         minX: labelWidth,
         maxX: host.scrollWidth - 2,
       }).map((arrow) => ({
         ...arrow,
-        focused: mode === 'focus' || focus.edgeKeys.has(arrow.key),
+        focused: focus.edgeKeys.has(arrow.key),
       }));
       setDrawing({
         width: host.scrollWidth,
@@ -121,7 +114,7 @@ export function DependencyArrows({
       observer.disconnect();
       window.removeEventListener('resize', queueMeasure);
     };
-  }, [focusJobId, labelWidth, mode, root, rows]);
+  }, [focusJobId, labelWidth, root, rows]);
 
   /*
    * Keep the arrows out from under the frozen columns.

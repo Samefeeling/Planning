@@ -1611,31 +1611,6 @@ body.col-resizing {
   background: var(--accent);
   color: #fff;
 }
-.attendance-row {
-  min-height: 38px;
-  border-bottom: 1px solid var(--border);
-  background: #eff6ff;
-  color: #1e3a8a;
-  overflow: visible;
-}
-/* The counts pin to the left edge; the row spans the grid to carry the
-   colour. Same shape as `.agroup-head-in`, and for the same reason. */
-.attendance-in {
-  position: sticky;
-  left: 0;
-  /* Above the frozen head cells below it, or a person's week opens behind
-     the Start Date column. */
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: max-content;
-  max-width: 100%;
-  min-height: 38px;
-  padding: 6px 12px;
-  background: #eff6ff;
-}
-.attendance-count { padding: 2px 8px; border-radius: 999px; background: #dbeafe; font-weight: 700; }
 /* No `margin-left: auto` — the board is far wider than the viewport, so that
    would push this off the right-hand edge of a scrolled-left page. */
 .board-load {

@@ -22,5 +22,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Check board defaults across Australia and New Zealand time zones
+        run: |
+          TZ=Australia/Sydney npx vitest run tests/features/assemblyBoardView.test.ts tests/store/uiStore.test.ts
+          TZ=Pacific/Auckland npx vitest run tests/features/assemblyBoardView.test.ts tests/store/uiStore.test.ts
       - run: npm run build
       - run: npm audit --omit=dev

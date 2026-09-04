@@ -25,7 +25,7 @@ import {
   WORK_KIND_SHORT,
   type LineKey,
 } from '@/domain/assembly';
-import { addDays, isWeekend, shiftFraction } from '@/engine/assembly/dates';
+import { addCalendarDays, isWeekend, shiftFraction } from '@/engine/assembly/dates';
 import { remainingHours } from '@/engine/assembly/duration';
 import {
   boardDayLoads,
@@ -49,11 +49,10 @@ import { WorkerLoadChip } from './WorkerLoadChip';
 import { DependencyArrows } from './DependencyArrows';
 import { dependencyFocus } from './dependencyRouter';
 import {
-  activeWorkerIdsOnDay,
+  teamSummary,
   isInNextWorkingDays,
   lineOfWorkerToday,
   sortLineRows,
-  type OrderSort,
   type OrderSortKey,
 } from './boardView';
 import type { MarkedMove } from './groupMove';
@@ -416,7 +415,7 @@ function LineGroupView({
           <div className="acell order">
             {group.line.schedulable
               ? filtered
-                ? 'No orders from yesterday through the next five working days'
+                ? 'No orders in the next five working days'
                 : 'Drop an order here'
               : 'No orders on this line'}
           </div>
@@ -459,16 +458,16 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const toggleDate = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
   const showWeekends = useUiStore((s) => s.showWeekends);
-  const dependencyMode = useUiStore((s) => s.dependencyMode);
+  const sort = useUiStore((s) => s.orderSort);
+  const changeSort = useUiStore((s) => s.changeOrderSort);
   const marked = useUiStore((s) => s.marked);
   const toggleMark = useUiStore((s) => s.toggleMark);
   const clearMarks = useUiStore((s) => s.clearMarks);
   const workerLineOverrides = usePlanStore((s) => s.workerLines);
   const unlocked = useSupervisorStore((s) => s.unlocked);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-    PMD: true,
+    PMD: false,
   });
-  const [sort, setSort] = useState<OrderSort | null>(null);
   const [hoveredJobId, setHoveredJobId] = useState<string | null>(null);
 
   // The clock behind the "now" line. Five minutes is as fine as the line is
@@ -480,7 +479,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   }, []);
 
   const calendarDays = Array.from({ length: board.horizonDays }, (_, i) =>
-    addDays(board.horizonStart, i),
+    addCalendarDays(board.horizonStart, i),
   );
   const days = showWeekends
     ? calendarDays
@@ -489,7 +488,6 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const dateCount = Object.values(visibleDates).filter(Boolean).length;
   const labelWidth =
     orderWidth + QTY_W + HOURS_W + DATE_W * dateCount + TEAM_W;
-  const attendance = board.workers.filter((worker) => worker.onShift);
   const allRows = useMemo(
     () => board.groups.flatMap((group) => group.rows),
     [board],
@@ -568,7 +566,6 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
 
   const dependencyFocusId = selectedJobId ?? hoveredJobId;
   const relatedJobIds = useMemo(() => {
-    if (dependencyMode === 'off') return new Set<string>();
     const edges = visibleRows.flatMap((row) =>
       row.predecessors.map((dependency) => ({
         key: `${String(dependency.onJobId)}->${String(row.job.id)}`,
@@ -577,7 +574,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       })),
     );
     return dependencyFocus(edges, dependencyFocusId).nodeIds;
-  }, [dependencyFocusId, dependencyMode, visibleRows]);
+  }, [dependencyFocusId, visibleRows]);
   // Every name in the header carries five load squares, so the whole roster's
   // week is worked out once here rather than once per chip on every render.
   // From today: the week to come is what a supervisor allocates against.
@@ -585,7 +582,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     () => rosterLoad(board.workers, allRows, board.today),
     [board, allRows],
   );
-  const allocated = activeWorkerIdsOnDay(allRows, board.today);
+  const team = teamSummary(board.workers, allRows, board.today);
   // One row per person: an explicit drag wins; source data supplies only the
   // initial line for plans that have never placed that person.
   const todayLine = useMemo(
@@ -598,14 +595,6 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       ),
     [board.workers, allRows, board.today, workerLineOverrides],
   );
-  const attendanceIds = new Set(attendance.map((worker) => String(worker.id)));
-  const allocatedOnSite = [...allocated].filter((id) => attendanceIds.has(id)).length;
-  const unallocated = attendance.filter(
-    (worker) => !allocated.has(String(worker.id)),
-  );
-  const allocationCoverage = attendance.length
-    ? Math.round((allocatedOnSite / attendance.length) * 100)
-    : 0;
   let headerOffset = orderWidth + QTY_W + HOURS_W;
   const headerLeft = () => {
     const left = headerOffset;
@@ -652,12 +641,6 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       : (todayIndex + shiftFraction(now, SHIFT_START_HOUR, SHIFT_END_HOUR)) *
         dayWidth;
 
-  const changeSort = (key: OrderSortKey) =>
-    setSort((current) => ({
-      key,
-      direction:
-        current?.key === key && current.direction === 'asc' ? 'desc' : 'asc',
-    }));
 
   const dateHead = (
     key: DateCol,
@@ -732,25 +715,11 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       <DependencyArrows
         root={root}
         rows={visibleRows}
-        mode={dependencyMode}
         focusJobId={dependencyFocusId}
         labelWidth={labelWidth}
       />
 
       <div className="assy-sticky">
-        {/* Who is in, and how much of them is spoken for. The names themselves
-            sit on the line they work — see LineGroupView — because one roster
-            across the top could not say which of them mattered to the line
-            being read. */}
-        <div className="attendance-row">
-          <div className="attendance-in">
-            <strong>Today on site</strong>
-            <span className="attendance-count">{attendance.length} / {board.workers.length}</span>
-            <span className="attendance-count">{allocatedOnSite} allocated · {allocationCoverage}% coverage</span>
-            {attendance.length === 0 && <span>Attendance awaiting API</span>}
-          </div>
-        </div>
-
         <div className="assy-head">
           <div className="acell order">
             Order
@@ -790,37 +759,13 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
             style={{ left: headerOffset }}
           >
             <span>Team</span>
-            {/* Everyone in today with no work on them — the people a
-                supervisor can still reach for. Named in full and wrapped
-                rather than cut off at the column's edge: a list ending in
-                "Pet…" is the one name you needed. */}
-            {unallocated.length > 0 ? (
-              <span
-                className="team-free"
-                title={
-                  `On site with no work on them today: ${unallocated
-                    .map((worker) => worker.name)
-                    .join(', ')}` +
-                  '\nThey may still be crewed on orders that start later.'
-                }
-              >
-                <b className="team-free-count">
-                  Free today {unallocated.length}
-                </b>
-                {unallocated.map((worker) => (
-                  <span key={String(worker.id)} className="team-free-name">
-                    {worker.name}
-                  </span>
-                ))}
-              </span>
-            ) : (
-              <span
-                className="team-free none"
-                title="Everyone on site is allocated today"
-              >
-                All allocated
-              </span>
-            )}
+            <span
+              className={`team-free ${team.free.length === 0 ? 'none' : ''}`}
+              title="Allocated today / staff on site; includes orders outside the current view"
+              aria-live="polite"
+            >
+              {team.label}
+            </span>
           </div>
           {/* Load histogram: one column per day, coloured by band. */}
           <div className="acell track" style={{ width: gridWidth }}>

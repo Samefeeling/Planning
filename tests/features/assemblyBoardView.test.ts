@@ -15,6 +15,7 @@ import {
   nextWorkingDaysWindow,
   shiftTimelineDays,
   sortLineRows,
+  teamSummary,
   timelineDayOffset,
 } from '@/features/assembly/boardView';
 
@@ -52,13 +53,64 @@ describe('assembly board view controls', () => {
 
   it('uses five working days and keeps bars that overlap the window', () => {
     const window = nextWorkingDaysWindow(new Date('2026-09-03T00:00:00'));
-    expect(window.from).toEqual(new Date('2026-09-02T00:00:00'));
+    expect(window.from).toEqual(new Date('2026-09-03T00:00:00'));
     expect(window.toExclusive).toEqual(new Date('2026-09-10T00:00:00'));
 
     const active = row('active', { start: '2026-09-01', due: '2026-09-04' });
     const later = row('later', { start: '2026-09-10', due: '2026-09-11' });
     expect(isInNextWorkingDays(active, new Date('2026-09-03'))).toBe(true);
     expect(isInNextWorkingDays(later, new Date('2026-09-03'))).toBe(false);
+  });
+
+  it('sorts by when work starts, not the must-start deadline, after a crew change', () => {
+    const a = row('A', { start: '2026-09-08', due: '2026-09-09' });
+    const b = row('B', { start: '2026-09-04', due: '2026-09-20' });
+    a.mustStartBy = new Date('2026-09-01');
+    b.mustStartBy = new Date('2026-09-15');
+    const sort = { key: 'start', direction: 'asc' } as const;
+    const rows = [a, b];
+    expect(sortLineRows(rows, sort).map((r) => r.job.id)).toEqual(['B', 'A']);
+    // The scheduler returns an earlier bar when the crew has changed.
+    const changed = { ...a, start: new Date('2026-09-03') };
+    expect(sortLineRows([changed, b], sort).map((r) => r.job.id)).toEqual(['A', 'B']);
+    expect(rows.map((r) => r.job.id)).toEqual(['A', 'B']);
+    b.actualStart = { startedAt: '2026-09-02T07:00:00', operatorIds: [], operatorNames: [], overrideReason: null };
+    expect(sortLineRows([changed, b], sort).map((r) => r.job.id)).toEqual(['B', 'A']);
+  });
+
+  it('excludes yesterday-only work and the sixth working day', () => {
+    const today = new Date('2026-09-04T00:00:00');
+    const ended = row('ended', { start: '2026-09-03T00:00:00', due: '2026-09-04T00:00:00' });
+    const fifth = row('fifth', { start: '2026-09-10T00:00:00' });
+    const sixth = row('sixth', { start: '2026-09-11T00:00:00' });
+    expect(isInNextWorkingDays(ended, today)).toBe(false);
+    expect(isInNextWorkingDays(fifth, today)).toBe(true);
+    expect(isInNextWorkingDays(sixth, today)).toBe(false);
+  });
+
+  it('advances the five-day window and timeline through a DST weekend', () => {
+    const friday = new Date('2027-04-02T00:00:00');
+    expect(nextWorkingDaysWindow(friday).toExclusive).toEqual(new Date('2027-04-09T00:00:00'));
+    expect(shiftTimelineDays(friday, 1, false)).toEqual(new Date('2027-04-05T00:00:00'));
+    expect(timelineDayOffset(new Date('2027-04-05T00:00:00'), friday, false)).toBe(1);
+  });
+
+  it('summarises unique staff working today, excluding absence, leave and future work', () => {
+    const today = new Date('2026-09-04T00:00:00');
+    const people: Worker[] = Array.from({ length: 15 }, (_, i) => ({
+      id: WorkerId(`W${i}`), name: i === 13 ? 'Tom' : `Person ${i}`,
+      skills: ['ASSY'], onShift: i < 14,
+    }));
+    const active = row('active');
+    active.workers = people.slice(0, 13);
+    const later = row('future');
+    later.crewDays = [{ day: '2026-09-07', date: new Date('2026-09-07'), from: 0, used: 1, workerIds: ['W13'], hours: 7.5, perWorkerHours: 7.5 }];
+    expect(teamSummary(people, [active, active, later], today).label).toBe('13/14 Free 1: Tom');
+    active.workers = people;
+    expect(teamSummary(people, [active], today).label).toBe('14/14 All allocated');
+    people[13].plannedLeave = ['2026-09-04'];
+    expect(teamSummary(people, [active], today).label).toBe('13/13 All allocated');
+    expect(teamSummary([], [active], today).label).toBe('0/0 No staff on site');
   });
 
   it('removes weekend width and drags by visible working-day columns', () => {

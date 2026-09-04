@@ -25,20 +25,22 @@ describe('single employee picker', () => {
 });
 
 describe('board display defaults', () => {
-  it('opens on five working days plus yesterday with weekends hidden', () => {
+  it('opens on five working days with weekends hidden and starts ascending', () => {
     const state = useUiStore.getState();
     expect(state.orderWindow).toBe('next-five');
     expect(state.showWeekends).toBe(false);
-    expect(state.dependencyMode).toBe('focus');
+    expect(state.orderSort).toEqual({ key: 'start', direction: 'asc' });
     state.toggleWeekends();
     expect(useUiStore.getState().showWeekends).toBe(true);
     useUiStore.getState().toggleWeekends();
   });
 
-  it('switches dependency visibility without changing the plan', () => {
-    useUiStore.getState().setDependencyMode('all');
-    expect(useUiStore.getState().dependencyMode).toBe('all');
-    useUiStore.getState().setDependencyMode('focus');
+  it('restores earliest-start ordering when Refresh resets a custom sort', () => {
+    useUiStore.getState().changeOrderSort('due');
+    useUiStore.getState().changeOrderSort('due');
+    expect(useUiStore.getState().orderSort).toEqual({ key: 'due', direction: 'desc' });
+    useUiStore.getState().resetOrderSort();
+    expect(useUiStore.getState().orderSort).toEqual({ key: 'start', direction: 'asc' });
   });
 });
 

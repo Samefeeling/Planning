@@ -2,9 +2,8 @@
 
 import type { OrderRow } from '@/engine/assembly/board';
 import {
-  addDays,
+  addCalendarDays,
   isWeekend,
-  prevWorkingDay,
   startOfDay,
   wholeDaysBetween,
 } from '@/engine/assembly/dates';
@@ -21,8 +20,11 @@ export interface OrderSort {
 }
 
 const sortDate = (row: OrderRow, key: OrderSortKey): Date | null => {
-  // The board's own back-scheduled start, which is what the column shows.
-  if (key === 'start') return row.mustStartBy ?? row.job.startDate;
+  // Crew changes move the planned bar. A confirmed production start wins;
+  // the latest permissible start (mustStartBy) is a deadline, not this order.
+  if (key === 'start') return row.actualStart
+    ? new Date(row.actualStart.startedAt)
+    : row.start ?? row.plannedStart ?? row.job.startDate;
   if (key === 'due') return row.job.dueDate;
   return row.job.shipDate;
 };
@@ -45,20 +47,20 @@ export function sortLineRows(
     .map(({ row }) => row);
 }
 
-/** Previous working day through the end of today's fifth working day. */
+/** Today through the end of the fifth working day, including today if open. */
 export function nextWorkingDaysWindow(
   today: Date,
   count = 5,
 ): { from: Date; toExclusive: Date } {
   const todayStart = startOfDay(today);
-  const from = prevWorkingDay(todayStart);
+  const from = todayStart;
   let cursor = todayStart;
   let found = 0;
   while (found < Math.max(1, count)) {
     if (!isWeekend(cursor)) found++;
-    if (found < Math.max(1, count)) cursor = startOfDay(addDays(cursor, 1));
+    if (found < Math.max(1, count)) cursor = addCalendarDays(cursor, 1);
   }
-  return { from, toExclusive: startOfDay(addDays(cursor, 1)) };
+  return { from, toExclusive: addCalendarDays(cursor, 1) };
 }
 
 /**
@@ -80,7 +82,7 @@ export function timelineDayOffset(
     for (
       let cursor = origin;
       cursor < target;
-      cursor = startOfDay(addDays(cursor, 1))
+      cursor = startOfDay(addCalendarDays(cursor, 1))
     ) {
       if (!isWeekend(cursor)) offset++;
     }
@@ -88,7 +90,7 @@ export function timelineDayOffset(
     for (
       let cursor = target;
       cursor < origin;
-      cursor = startOfDay(addDays(cursor, 1))
+      cursor = startOfDay(addCalendarDays(cursor, 1))
     ) {
       if (!isWeekend(cursor)) offset--;
     }
@@ -102,11 +104,11 @@ export function shiftTimelineDays(
   days: number,
   showWeekends: boolean,
 ): Date {
-  if (showWeekends || days === 0) return startOfDay(addDays(from, days));
+  if (showWeekends || days === 0) return startOfDay(addCalendarDays(from, days));
   const direction = days < 0 ? -1 : 1;
   let cursor = startOfDay(from);
   for (let left = Math.abs(days); left > 0; ) {
-    cursor = startOfDay(addDays(cursor, direction));
+    cursor = startOfDay(addCalendarDays(cursor, direction));
     if (!isWeekend(cursor)) left--;
   }
   return cursor;
@@ -122,7 +124,25 @@ export function isInNextWorkingDays(
   const from = row.start ?? row.plannedStart ?? row.job.startDate;
   if (!from) return false;
   const to = row.expectDate ?? row.planThrough ?? from;
-  return from < window.toExclusive && to >= window.from;
+  return from < window.toExclusive &&
+    (to > window.from || (to.getTime() === from.getTime() && from >= window.from));
+}
+
+/** Today's available roster and unique allocations, across the whole board. */
+export function teamSummary(workers: Worker[], rows: OrderRow[], today: Date) {
+  const key = crewDayKey(today);
+  const attendance = workers.filter(
+    (worker) => worker.onShift && !worker.plannedLeave?.includes(key),
+  );
+  const active = activeWorkerIdsOnDay(rows, today);
+  const free = attendance.filter((worker) => !active.has(String(worker.id)));
+  const allocated = attendance.length - free.length;
+  const label = attendance.length === 0
+    ? '0/0 No staff on site'
+    : `${allocated}/${attendance.length} ${free.length === 0
+      ? 'All allocated'
+      : `Free ${free.length}: ${free.map((worker) => worker.name).join(', ')}`}`;
+  return { allocated, total: attendance.length, free, label };
 }
 
 /** Workers actually allocated on one day; future allocations do not count. */

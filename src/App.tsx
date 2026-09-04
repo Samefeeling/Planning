@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { useDataStore } from '@/store/dataStore';
 import { usePlanStore } from '@/store/planStore';
+import { useUiStore } from '@/store/uiStore';
 import { useAssemblyGantt } from '@/store/assemblySelectors';
 import { createPlanRepository, CURRENT_PLAN_ID } from '@/persistence';
 import { useDragDrop } from '@/features/assembly/useDragDrop';
@@ -50,6 +51,7 @@ export default function App() {
   const board = useAssemblyGantt();
   const dnd = useDragDrop();
   const refresh = useScheduledRefresh();
+  const resetOrderSort = useUiStore((s) => s.resetOrderSort);
   // Crew and dragged starts go back to SharePoint; a refreshed CSV carries
   // DueDate and RemainingQty in the other direction.
   const sync = usePlanSync(board);
@@ -147,7 +149,10 @@ export default function App() {
           <SuggestCrew board={board} />
           <SupervisorLock />
           <CsvLoader />
-          <RefreshControl onRefresh={() => void refresh()} />
+          <RefreshControl onRefresh={() => {
+            resetOrderSort();
+            void refresh();
+          }} />
         </div>
       </header>
 

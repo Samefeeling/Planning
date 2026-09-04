@@ -22,8 +22,6 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
   const setOrderWindow = useUiStore((s) => s.setOrderWindow);
   const showWeekends = useUiStore((s) => s.showWeekends);
   const toggleWeekends = useUiStore((s) => s.toggleWeekends);
-  const dependencyMode = useUiStore((s) => s.dependencyMode);
-  const setDependencyMode = useUiStore((s) => s.setDependencyMode);
 
   if (!board) return null;
   const hidden = DATE_COLS.filter((key) => !dateCols[key]);
@@ -61,9 +59,9 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
         <button
           className={orderWindow === 'next-five' ? 'active' : ''}
           onClick={() => setOrderWindow('next-five')}
-          title="Orders touching yesterday or the next five working days"
+          title="Orders running today or during the next five working days"
         >
-          5 days + yesterday
+          5 working days
         </button>
       </span>
       <button
@@ -90,24 +88,6 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
       ))}
       <MarkedSet />
       <MaterialLinks board={board} />
-      <span className="order-window dependency-mode" aria-label="Dependency link visibility">
-        {(['focus', 'all', 'off'] as const).map((mode) => (
-          <button
-            key={mode}
-            className={dependencyMode === mode ? 'active' : ''}
-            onClick={() => setDependencyMode(mode)}
-            title={
-              mode === 'focus'
-                ? 'Show the complete parent and child chain for the hovered or selected order'
-                : mode === 'all'
-                  ? 'Show every visible dependency link'
-                  : 'Hide dependency links'
-            }
-          >
-            {mode === 'focus' ? 'Links: Focus' : mode === 'all' ? 'All' : 'Off'}
-          </button>
-        ))}
-      </span>
       {board.dependencyWarnings.length > 0 && (
         <span className="board-warn" title={board.dependencyWarnings.join('\n')}>
           {board.dependencyWarnings.length} material link
