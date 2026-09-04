@@ -145,8 +145,9 @@ export function orderFactsFromBoard(
       group.rows.map((row) => {
         const anchorDay = day(row.start) ?? day(board.horizonStart)!;
         const anchorIds =
-          row.crewDays?.find((crewDay) => crewDay.day === anchorDay)?.workerIds ??
-          row.crewDays?.[0]?.workerIds ??
+          row.crewDays.find((crewDay) => crewDay.day === anchorDay)
+            ?.workerIds ??
+          row.crewDays[0]?.workerIds ??
           row.workers.map((worker) => String(worker.id));
         const anchorCrew = row.workers.filter((worker) =>
           anchorIds.includes(String(worker.id)),

@@ -16,6 +16,8 @@ const DAY = PRODUCTIVE_HOURS_PER_PERSON;
 import type { Job } from '@/domain/types';
 import type { OrderRow } from '@/engine/assembly/board';
 import { addDays, addWorkingDays } from '@/engine/assembly/dates';
+import { planVariableCrew } from '@/engine/assembly/crewSchedule';
+import { remainingHours } from '@/engine/assembly/duration';
 import {
   LOAD_PREVIEW_DAYS,
   boardDayLoads,
@@ -76,31 +78,48 @@ const row = (
   startDay: number,
   days: number,
   over: Partial<OrderRow> = {},
-): OrderRow => ({
-  job: j,
-  line: UPL,
-  kind: 'general',
-  mustStartBy: null,
-  workers,
-  start: addDays(MON, startDay),
-  plannedStart: addDays(MON, startDay),
-  expectDate: over.overtime
-    ? addDays(MON, startDay + days)
-    : addWorkingDays(addDays(MON, startDay), days),
-  days,
-  slot: 0,
-  overtime: false,
-  dailyTarget: 0,
-  status: { color: 'green', shipSlackDays: null, dueSlackDays: null, reason: '' },
-  material: { level: 'ok', earliestStart: null, shortages: [] },
-  release: { level: 'ready', releasable: true, needsOverride: false, reason: '' },
-  predecessors: [],
-  waitingOn: null,
-  booked: [],
-  crewToHitShip: null,
-  completedToday: false,
-  ...over,
-});
+): OrderRow => {
+  const from = addDays(MON, startDay);
+  // Planned the way the board plans it, rather than described alongside it.
+  // These rows used to be hand-built without a day plan, which sent the load
+  // through a second, simpler spreading rule that no real row ever took.
+  const plan = planVariableCrew(
+    from,
+    remainingHours(j),
+    workers.map((worker) => ({
+      workerId: String(worker.id),
+      fromDay: null,
+      toDayExclusive: null,
+    })),
+    Boolean(over.overtime),
+  );
+  return {
+    job: j,
+    line: UPL,
+    kind: 'general',
+    mustStartBy: null,
+    workers,
+    start: plan.start ?? from,
+    plannedStart: from,
+    expectDate: over.overtime
+      ? addDays(from, days)
+      : addWorkingDays(from, days),
+    days,
+    crewDays: plan.crewDays,
+    slot: 0,
+    overtime: false,
+    dailyTarget: 0,
+    status: { color: 'green', shipSlackDays: null, dueSlackDays: null, reason: '' },
+    material: { level: 'ok', earliestStart: null, shortages: [] },
+    release: { level: 'ready', releasable: true, needsOverride: false, reason: '' },
+    predecessors: [],
+    waitingOn: null,
+    booked: [],
+    crewToHitShip: null,
+    completedToday: false,
+    ...over,
+  };
+};
 
 describe('workerLoad', () => {
   it('spreads an order’s hours over the days its bar covers', () => {

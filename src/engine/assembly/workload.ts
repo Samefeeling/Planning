@@ -12,9 +12,8 @@
 
 import { PRODUCTIVE_HOURS_PER_PERSON, type Worker } from '@/domain/assembly';
 import type { JobId } from '@/domain/ids';
-import { MS_PER_DAY } from '@/lib/time';
 import { remainingHours } from './duration';
-import { addCalendarDays, isWeekend, nextMidnight, startOfDay } from './dates';
+import { addCalendarDays, isWeekend, startOfDay } from './dates';
 import type { OrderRow } from './board';
 
 export { isWeekend };
@@ -220,32 +219,10 @@ function hoursOnDay(
   from: Date,
   workerId?: string,
 ): number {
-  if (row.crewDays) {
-    const plan = row.crewDays.find((day) => day.day === dayKey(from));
-    if (!plan) return 0;
-    if (workerId && !plan.workerIds.includes(workerId)) return 0;
-    return workerId ? plan.perWorkerHours : plan.hours;
-  }
-
-  // Compatibility for hand-built rows in older integrations and tests. New
-  // board rows always carry `crewDays`, which is the source of truth.
-  if (!row.start || !row.expectDate || row.days === null || row.days <= 0) {
-    return 0;
-  }
-  const crew = row.workers.length;
-  if (crew === 0) return 0;
-  if (isWeekend(from) && !row.overtime) return 0;
-
-  const to = nextMidnight(from);
-  const overlapMs =
-    Math.min(row.expectDate.getTime(), to.getTime()) -
-    Math.max(row.start.getTime(), from.getTime());
-  if (overlapMs <= 0) return 0;
-
-  const total = remainingHours(row.job) * (overlapMs / MS_PER_DAY / row.days);
-  if (!workerId) return total;
-  if (!row.workers.some((worker) => String(worker.id) === workerId)) return 0;
-  return total / crew;
+  const plan = row.crewDays.find((day) => day.day === dayKey(from));
+  if (!plan) return 0;
+  if (workerId && !plan.workerIds.includes(workerId)) return 0;
+  return workerId ? plan.perWorkerHours : plan.hours;
 }
 
 /**
@@ -407,23 +384,21 @@ export function lineLoad(rows: OrderRow[]): LineLoad {
   const hours = rows.reduce((s, r) => s + remainingHours(r.job), 0);
   const byDay = new Map<string, Set<string>>();
   for (const row of rows) {
-    for (const day of row.crewDays ?? []) {
+    for (const day of row.crewDays) {
       const active = byDay.get(day.day) ?? new Set<string>();
       day.workerIds.forEach((workerId) => active.add(workerId));
       byDay.set(day.day, active);
     }
   }
+  // Nobody planned on any day is a line with no crew, not a line whose crew
+  // is merely idle: the names on a row that never runs cost the line nothing.
   const dayCrews = [...byDay.values()].map((active) => active.size);
-  const legacyCrew = new Set(
-    rows.flatMap((row) => row.workers.map((worker) => String(worker.id))),
-  ).size;
-  const crew = dayCrews.length > 0 ? Math.max(...dayCrews) : legacyCrew;
+  const crew = dayCrews.length > 0 ? Math.max(...dayCrews) : 0;
   const capacityPerDay =
     dayCrews.length > 0
-      ? (dayCrews.reduce((sum, count) => sum + count, 0) /
-          dayCrews.length) *
+      ? (dayCrews.reduce((sum, count) => sum + count, 0) / dayCrews.length) *
         PRODUCTIVE_HOURS_PER_PERSON
-      : legacyCrew * PRODUCTIVE_HOURS_PER_PERSON;
+      : 0;
 
   return {
     hours,

@@ -35,6 +35,7 @@ const row = (
     },
     line: { schedulable: true },
     workers: [],
+    crewDays: [],
     plannedStart: dates.start ? new Date(dates.start) : new Date('2026-09-30'),
     start: dates.start ? new Date(dates.start) : null,
     expectDate: dates.due ? new Date(dates.due) : null,
@@ -80,11 +81,31 @@ describe('assembly board view controls', () => {
 
   it('handles midnight, overtime and local DST boundaries in source bars', () => {
     const active = row('A', { start: '2027-04-02T00:00:00', due: '2027-04-05T00:00:00' });
+    // A line this board schedules is read off its day plan, and an empty plan
+    // means the order runs on no day — whatever its bar happens to span.
     expect(isRunningOnDay(active, new Date('2027-04-05T00:00:00'))).toBe(false);
     expect(isRunningOnDay(active, new Date('2027-04-04T00:00:00'))).toBe(false);
-    active.overtime = true;
-    expect(isRunningOnDay(active, new Date('2027-04-04T23:30:00'))).toBe(true);
-    const pmd = { ...active, crewDays: [], overtime: false, line: { ...active.line, schedulable: false } };
+    // Approved for the weekend means a day planned on the Sunday, which is
+    // what says it runs — not the fact that the bar reaches across it.
+    const weekend = {
+      ...active,
+      overtime: true,
+      crewDays: [
+        {
+          day: '2027-04-04',
+          date: new Date('2027-04-04T00:00:00'),
+          from: 0,
+          used: 1,
+          workerIds: ['W1'],
+          hours: PRODUCTIVE_HOURS_PER_PERSON,
+          perWorkerHours: PRODUCTIVE_HOURS_PER_PERSON,
+        },
+      ],
+    } as unknown as OrderRow;
+    expect(isRunningOnDay(weekend, new Date('2027-04-04T23:30:00'))).toBe(true);
+    // PMD keeps its source bar: its crew is managed off this board, so there
+    // is no day plan to read in its place.
+    const pmd = { ...active, line: { ...active.line, schedulable: false } };
     expect(isRunningOnDay(pmd, new Date('2027-04-04T00:00:00'))).toBe(true);
     expect(isRunningOnDay(row('no-crew'), new Date('2026-09-30T00:00:00'))).toBe(false);
   });
@@ -151,12 +172,23 @@ describe('assembly board view controls', () => {
       id: WorkerId(`W${i}`), name: i === 13 ? 'Tom' : `Person ${i}`,
       skills: ['ASSY'], onShift: i < 14,
     }));
+    const onToday = (ids: string[]) => ({
+      day: '2026-09-04',
+      date: new Date('2026-09-04T00:00:00'),
+      from: 0,
+      used: 1,
+      workerIds: ids,
+      hours: PRODUCTIVE_HOURS_PER_PERSON * ids.length,
+      perWorkerHours: PRODUCTIVE_HOURS_PER_PERSON,
+    });
     const active = row('active');
     active.workers = people.slice(0, 13);
+    active.crewDays = [onToday(active.workers.map((w) => String(w.id)))];
     const later = row('future');
     later.crewDays = [{ day: '2026-09-07', date: new Date('2026-09-07'), from: 0, used: 1, workerIds: ['W13'], hours: 7.5, perWorkerHours: 7.5 }];
     expect(teamSummary(people, [active, active, later], today).label).toBe('13/14 Free 1: Tom');
     active.workers = people;
+    active.crewDays = [onToday(people.map((w) => String(w.id)))];
     expect(teamSummary(people, [active], today).label).toBe('14/14 All allocated');
     people[13].plannedLeave = ['2026-09-04'];
     expect(teamSummary(people, [active], today).label).toBe('13/13 All allocated');

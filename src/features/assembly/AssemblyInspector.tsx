@@ -187,8 +187,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   // book, but the history stays readable.
   const closed = row.completedToday;
   const activeCrewIds =
-    row.crewDays?.find((day) => day.day === today)?.workerIds ??
-    (row.crewDays ? [] : row.workers.map((worker) => String(worker.id)));
+    row.crewDays.find((day) => day.day === today)?.workerIds ?? [];
   const activeCrew = row.workers.filter((worker) =>
     activeCrewIds.includes(String(worker.id)),
   );

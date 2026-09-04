@@ -127,8 +127,13 @@ export interface OrderRow {
   workers: Worker[];
   /** Date-bounded crew membership; null bounds mean the whole order. */
   crewAssignments?: CrewAssignment[];
-  /** Exact future shift capacity used to derive Expect Date and workload. */
-  crewDays?: CrewDayPlan[];
+  /**
+   * Exact future shift capacity: which people this order has on which day, and
+   * how much of each shift it takes. This is what the board plans with, and
+   * every row carries it — empty on a row nobody is on, and on a moulding row,
+   * whose crew is managed off this board entirely.
+   */
+  crewDays: CrewDayPlan[];
   /** End of the last covered shift when a bounded crew leaves work unfinished. */
   planThrough?: Date | null;
   /** Remaining standard hours with no crew currently assigned to cover them. */

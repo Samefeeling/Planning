@@ -73,7 +73,7 @@ export function retainLineRows(
 export function isRunningOnDay(row: OrderRow, day: Date): boolean {
   const key = crewDayKey(day);
   if (row.booked?.some((entry) => entry.day === key && entry.qty > 0)) return true;
-  if (row.line.schedulable && row.crewDays) {
+  if (row.line.schedulable) {
     return row.crewDays.some((entry) => entry.day === key && entry.hours > 0);
   }
   if (row.completedToday || !row.start || !row.expectDate) return false;
@@ -194,13 +194,9 @@ export function activeWorkerIdsOnDay(
   const active = new Set<string>();
   for (const row of rows) {
     if (!row.line.schedulable || row.completedToday) continue;
-    if (row.crewDays) {
-      row.crewDays
-        .find((crewDay) => crewDay.day === key)
-        ?.workerIds.forEach((workerId) => active.add(workerId));
-    } else {
-      row.workers.forEach((worker) => active.add(String(worker.id)));
-    }
+    row.crewDays
+      .find((crewDay) => crewDay.day === key)
+      ?.workerIds.forEach((workerId) => active.add(workerId));
   }
   return active;
 }
@@ -290,9 +286,8 @@ export function lineOfWorkerToday(
   const at = new Map<string, LineKey>();
   for (const row of rows) {
     if (!row.line.schedulable || row.completedToday) continue;
-    const onDay = row.crewDays
-      ? (row.crewDays.find((day) => day.day === key)?.workerIds ?? [])
-      : row.workers.map((worker) => String(worker.id));
+    const onDay =
+      row.crewDays.find((day) => day.day === key)?.workerIds ?? [];
     // First order of the day wins. There should only be one — the schedule
     // will not put anyone on two at once unless a supervisor said so.
     for (const id of onDay) {

@@ -149,10 +149,8 @@ export function TeamChips({
 
   const onIt = new Set(row.workers.map((w) => String(w.id)));
   const full =
-    (row.crewDays?.length ?? 0) > 0 &&
-    row.crewDays!.every(
-      (day) => day.workerIds.length >= MAX_WORKERS_PER_ORDER,
-    );
+    row.crewDays.length > 0 &&
+    row.crewDays.every((day) => day.workerIds.length >= MAX_WORKERS_PER_ORDER);
   const LOCKED = 'Unlock Supervisor in the header to change the crew';
 
   // What the schedule actually planned — a chip marks a real overlap, not one
@@ -243,7 +241,7 @@ export function TeamChips({
       (other) =>
         String(other.job.id) !== jobId &&
         !other.completedToday &&
-        (other.crewDays ?? []).some(
+        other.crewDays.some(
           (day) =>
             day.workerIds.includes(workerId) &&
             window.fromDay <= day.day &&

@@ -103,7 +103,7 @@ export function clashesOnBoard(
   row: OrderRow,
   workerId: string,
 ): OrderRow[] {
-  const mine = (row.crewDays ?? []).filter((day) =>
+  const mine = row.crewDays.filter((day) =>
     day.workerIds.includes(workerId),
   );
   if (mine.length === 0) return [];
@@ -112,7 +112,7 @@ export function clashesOnBoard(
   for (const other of rows) {
     if (String(other.job.id) === id) continue;
     if (!other.line.schedulable || other.completedToday) continue;
-    const clashes = (other.crewDays ?? []).some(
+    const clashes = other.crewDays.some(
       (theirs) =>
         theirs.workerIds.includes(workerId) &&
         mine.some((day) => sharesShift(day, theirs)),
@@ -129,7 +129,7 @@ export function overlapsOnBoard(
 ): boolean {
   const all = [...rows];
   const onIt = new Set(
-    (row.crewDays ?? []).flatMap((day) => day.workerIds),
+    row.crewDays.flatMap((day) => day.workerIds),
   );
   return [...onIt].some(
     (workerId) => clashesOnBoard(all, row, workerId).length > 0,
@@ -183,20 +183,11 @@ export function clashesFor(
       r.line.schedulable &&
       !r.completedToday &&
       r.workers.some((w) => String(w.id) === workerId) &&
-      (r.crewDays
-        ? r.crewDays.some(
-            (day) =>
-              day.workerIds.includes(workerId) &&
-              mineDays.some((mineDay) => sharesShift(mineDay, day)),
-          )
-        : (() => {
-            const legacy = span(r, Math.max(1, r.workers.length));
-            return legacy
-              ? mine.crewDays.some(
-                  (day) => day.date >= legacy.from && day.date < legacy.to,
-                )
-              : false;
-          })()),
+      r.crewDays.some(
+        (day) =>
+          day.workerIds.includes(workerId) &&
+          mineDays.some((mineDay) => sharesShift(mineDay, day)),
+      ),
   );
 }
 
@@ -248,7 +239,7 @@ export function freeCrewWindow(
   );
   const busy = new Map<string, { plan: CrewDayPlan; jobId: string }[]>();
   for (const row of otherRows) {
-    for (const day of row.crewDays ?? []) {
+    for (const day of row.crewDays) {
       if (!day.workerIds.includes(workerId)) continue;
       const held = busy.get(day.day) ?? [];
       held.push({ plan: day, jobId: String(row.job.id) });

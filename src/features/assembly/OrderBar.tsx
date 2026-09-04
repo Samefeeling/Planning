@@ -139,11 +139,11 @@ export function OrderBar({
   // for the weekend, and a moulding row — the presses keep their own calendar,
   // and this lane mirrors their plan rather than restating it in our hours.
   const continuous = row.overtime || readOnly;
-  const plannedSpans = row.crewDays?.map((day) => ({
+  const plannedSpans = row.crewDays.map((day) => ({
     from: addDays(day.date, day.from),
     to: addDays(day.date, day.from + day.used),
   }));
-  const merged = (plannedSpans ?? []).reduce<{ from: Date; to: Date }[]>(
+  const merged = plannedSpans.reduce<{ from: Date; to: Date }[]>(
     (out, next) => {
       const previous = out.at(-1);
       if (previous && previous.to.getTime() === next.from.getTime()) {
@@ -157,7 +157,7 @@ export function OrderBar({
   );
   let workedBefore = 0;
   const spans =
-    row.crewDays && !readOnly
+    !readOnly
       ? merged.map((piece) => {
           const worked =
             (piece.to.getTime() - piece.from.getTime()) / MS_PER_DAY;
