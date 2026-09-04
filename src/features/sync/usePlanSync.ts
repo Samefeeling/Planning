@@ -87,11 +87,14 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
       try {
         outcome = await syncProduction(cfg, list, JSON.parse(fingerprint));
       } catch (error) {
+        // An exception out of the sync itself never reached an answer, so it
+        // reads like the transport failures the sync reports for itself.
         outcome = {
           created: 0,
           updated: 0,
           unchanged: 0,
           errors: [error instanceof Error ? error.message : String(error)],
+          retryable: true,
         };
       }
 
@@ -107,11 +110,11 @@ export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
         stale.current = false;
         retryAttempt.current = 0;
         void run();
-      } else if (
-        outcome.errors.some((error) =>
-          /\b(429|5\d\d)\b|fetch|network|timeout|temporar/i.test(error),
-        )
-      ) {
+      } else if (outcome.retryable) {
+        // Only what Graph might answer differently next time. This used to
+        // match the error text, and every message here contains the word
+        // "fetch", so a bad token was retried every minute until the tab was
+        // closed — and the banner never stopped saying so.
         const at = Math.min(retryAttempt.current, RETRY_MS.length - 1);
         retryAttempt.current += 1;
         window.clearTimeout(retryTimer.current);

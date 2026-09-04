@@ -19,6 +19,38 @@ export interface ListItem {
   fields: ListItemFields;
 }
 
+/**
+ * Why a write did not happen, and whether trying again could help.
+ *
+ * `message` is what the banner shows. `status` is what decides the retry, and
+ * it has to be carried rather than read back out of the text: every message
+ * here contains the word "fetch", so matching on the words retried a 401
+ * every minute for as long as the tab was open.
+ */
+export interface WriteError {
+  /** Graph's status, 0 for a request that never got an answer, null for one
+   *  that was never sent because the site or the token is not configured. */
+  status: number | null;
+  message: string;
+}
+
+/**
+ * Worth another go: nothing was answered, the caller was throttled, or the
+ * far end had a bad moment. A 401, 403 or 404 will say the same thing forever.
+ */
+export const isTransient = (e: WriteError): boolean =>
+  e.status === 0 || e.status === 429 || (e.status ?? 0) >= 500;
+
+const failed = (status: number, message: string): WriteError => ({
+  status,
+  message,
+});
+const unreachable = (message: string): WriteError => ({ status: 0, message });
+const unconfigured = (message: string): WriteError => ({
+  status: null,
+  message,
+});
+
 /** `https://graph.microsoft.com/v1.0/sites/{host}:{/sites/PMD}:` */
 function sitePrefix(cfg: SharePointConfig): string {
   const u = new URL(cfg.siteUrl);
@@ -28,9 +60,11 @@ function sitePrefix(cfg: SharePointConfig): string {
 const listUrl = (cfg: SharePointConfig, list: string): string =>
   `${sitePrefix(cfg)}/lists/${encodeURIComponent(list)}`;
 
-function configured(cfg: SharePointConfig): string | null {
-  if (!cfg.siteUrl) return 'SharePoint site URL not configured.';
-  if (!cfg.token) return 'Missing Graph access token (VITE_GRAPH_TOKEN).';
+function configured(cfg: SharePointConfig): WriteError | null {
+  if (!cfg.siteUrl) return unconfigured('SharePoint site URL not configured.');
+  if (!cfg.token) {
+    return unconfigured('Missing Graph access token (VITE_GRAPH_TOKEN).');
+  }
   return null;
 }
 
@@ -46,7 +80,7 @@ const message = (e: unknown): string =>
 export async function fetchListItemsWithIds(
   cfg: SharePointConfig,
   list: string,
-): Promise<Result<ListItem[], string>> {
+): Promise<Result<ListItem[], WriteError>> {
   const missing = configured(cfg);
   if (missing) return err(missing);
 
@@ -60,7 +94,12 @@ export async function fetchListItemsWithIds(
         headers: { Authorization: `Bearer ${cfg.token}` },
       });
       if (!res.ok) {
-        return err(`Graph list "${list}" read failed: ${res.status} ${res.statusText}`);
+        return err(
+          failed(
+            res.status,
+            `Graph list "${list}" read failed: ${res.status} ${res.statusText}`,
+          ),
+        );
       }
       const body = (await res.json()) as {
         value?: { id?: string; fields?: ListItemFields }[];
@@ -73,7 +112,7 @@ export async function fetchListItemsWithIds(
     }
     return ok(items);
   } catch (e) {
-    return err(`Graph list "${list}" read error: ${message(e)}`);
+    return err(unreachable(`Graph list "${list}" read error: ${message(e)}`));
   }
 }
 
@@ -82,7 +121,7 @@ export async function createListItem(
   cfg: SharePointConfig,
   list: string,
   fields: ListItemFields,
-): Promise<Result<string, string>> {
+): Promise<Result<string, WriteError>> {
   const missing = configured(cfg);
   if (missing) return err(missing);
 
@@ -97,13 +136,18 @@ export async function createListItem(
     });
     if (!res.ok) {
       return err(
-        `Graph list "${list}" create failed: ${res.status} ${res.statusText}`,
+        failed(
+          res.status,
+          `Graph list "${list}" create failed: ${res.status} ${res.statusText}`,
+        ),
       );
     }
     const body = (await res.json()) as { id?: string };
     return ok(body.id ?? '');
   } catch (e) {
-    return err(`Graph list "${list}" create error: ${message(e)}`);
+    return err(
+      unreachable(`Graph list "${list}" create error: ${message(e)}`),
+    );
   }
 }
 
@@ -113,7 +157,7 @@ export async function updateListItem(
   list: string,
   itemId: string,
   fields: ListItemFields,
-): Promise<Result<void, string>> {
+): Promise<Result<void, WriteError>> {
   const missing = configured(cfg);
   if (missing) return err(missing);
 
@@ -131,11 +175,16 @@ export async function updateListItem(
     );
     if (!res.ok) {
       return err(
-        `Graph list "${list}" update failed: ${res.status} ${res.statusText}`,
+        failed(
+          res.status,
+          `Graph list "${list}" update failed: ${res.status} ${res.statusText}`,
+        ),
       );
     }
     return ok(undefined);
   } catch (e) {
-    return err(`Graph list "${list}" update error: ${message(e)}`);
+    return err(
+      unreachable(`Graph list "${list}" update error: ${message(e)}`),
+    );
   }
 }

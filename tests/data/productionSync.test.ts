@@ -89,8 +89,12 @@ interface Call {
 }
 
 /** Stub Graph: one page of `items`, then record every write. */
-function stubGraph(items: ReturnType<typeof stored>[], readOk = true): Call[] {
+function stubGraph(
+  items: ReturnType<typeof stored>[],
+  readOk: boolean | number = true,
+): Call[] {
   const calls: Call[] = [];
+  const status = readOk === true ? 200 : readOk === false ? 503 : readOk;
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push({
@@ -99,9 +103,9 @@ function stubGraph(items: ReturnType<typeof stored>[], readOk = true): Call[] {
       body: init?.body ? JSON.parse(String(init.body)) : null,
     });
     if (method === 'GET') {
-      return readOk
+      return status === 200
         ? new Response(JSON.stringify({ value: items }), { status: 200 })
-        : new Response('nope', { status: 503, statusText: 'Service Unavailable' });
+        : new Response('nope', { status, statusText: 'Refused' });
     }
     return new Response(JSON.stringify({ id: '99' }), { status: 200 });
   });
@@ -385,5 +389,94 @@ describe('orderFactsFromBoard', () => {
       // Every order can open a row, even one with nobody on it yet.
       expect(f.anchorDay).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
+  });
+});
+
+/**
+ * Which failures are worth trying again.
+ *
+ * The retry used to be decided by matching the error text, and every message
+ * out of the Graph client contains the word "fetch" — so a bad token was
+ * retried every minute for as long as the tab stayed open, and the banner
+ * never stopped saying the same thing.
+ */
+describe('what a failed sync asks for', () => {
+  const failWith = async (status: number) => {
+    stubGraph([], status);
+    return syncProduction(CFG, 'ASSY_Production', [order()]);
+  };
+
+  it('asks to try again when the far end had a bad moment', async () => {
+    for (const status of [500, 502, 503, 429]) {
+      const out = await failWith(status);
+      expect(out.retryable, `status ${status}`).toBe(true);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not ask again for an answer that will not change', async () => {
+    for (const status of [400, 401, 403, 404]) {
+      const out = await failWith(status);
+      expect(out.retryable, `status ${status}`).toBe(false);
+      expect(out.errors[0]).toContain(String(status));
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not ask again when nothing is configured to try', async () => {
+    const out = await syncProduction(
+      { ...CFG, token: '' },
+      'ASSY_Production',
+      [order()],
+    );
+    expect(out.retryable).toBe(false);
+    expect(out.errors[0]).toContain('token');
+  });
+
+  it('asks again when the request never got an answer', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const out = await syncProduction(CFG, 'ASSY_Production', [order()]);
+    expect(out.retryable).toBe(true);
+  });
+});
+
+/**
+ * The Date column names a shift, not a moment. What SharePoint hands back
+ * depends on how the column was made: date-only gives midnight UTC, datetime
+ * gives the site's own midnight, which is the previous day in UTC. Reading it
+ * with the UTC getters answered a day early for the second, so every refresh
+ * opened the row again and then refused to write, having made the duplicate it
+ * was complaining about.
+ */
+describe('matching a stored row to its shift', () => {
+  const dayOnly = '2026-09-14T00:00:00Z';
+  // Sydney's own midnight on the 14th, which is the 13th in UTC.
+  const siteMidnight = '2026-09-13T14:00:00Z';
+
+  it('recognises its own row however the column stores the day', async () => {
+    for (const value of ['2026-09-14', dayOnly, siteMidnight]) {
+      const calls = stubGraph([stored({ [C.date]: value })]);
+      const out = await syncProduction(CFG, 'ASSY_Production', [order()]);
+      expect(writes(calls), `date stored as ${value}`).toEqual([]);
+      expect(out.unchanged, `date stored as ${value}`).toBe(1);
+      expect(out.created).toBe(0);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not read a note with a weekday in it as a date', async () => {
+    // "Tue" parses on its own in some engines; the Notes column is text and
+    // must be compared as text whatever it happens to contain.
+    const calls = stubGraph([stored({ [C.notes]: 'Tue: waiting on trim' })]);
+    await syncProduction(CFG, 'ASSY_Production', [
+      order({ shifts: [shift({ notes: 'Wed: trim arrived' })] }),
+    ]);
+    // An update patches the fields directly, so the note is at the top level.
+    const written = writes(calls);
+    expect(written).toHaveLength(1);
+    expect(written[0].method).toBe('PATCH');
+    expect(written[0].body).toMatchObject({ [C.notes]: 'Wed: trim arrived' });
   });
 });

@@ -34,7 +34,9 @@ import type { ListItemFields } from './lists.client';
 import {
   createListItem,
   fetchListItemsWithIds,
+  isTransient,
   updateListItem,
+  type WriteError,
 } from './lists.write';
 
 /** Default list name; override with `VITE_PRODUCTION_LIST`. */
@@ -111,6 +113,12 @@ export interface SyncOutcome {
   updated: number;
   unchanged: number;
   errors: string[];
+  /**
+   * At least one failure was worth trying again — throttled, unanswered, or a
+   * bad moment at the far end. Nothing that stays broken sets this, so a bad
+   * token stops rather than being retried for as long as the tab is open.
+   */
+  retryable: boolean;
 }
 
 const iso = (d: Date | null | undefined): string | null =>
@@ -218,12 +226,42 @@ function rowFields(facts: OrderFacts, shift: ProductionEntry): ListItemFields {
 }
 
 /**
- * True when the row already says what we would write.
- *
- * Dates are compared as instants, not strings: SharePoint hands back
- * `2026-09-10T00:00:00Z` for what we sent as `2026-09-10T00:00:00.000Z`, and a
- * string compare would rewrite every row on every refresh.
+ * Columns holding an instant, which have to be compared as instants: Graph
+ * hands back `2026-09-10T00:00:00Z` for what we sent as
+ * `2026-09-10T00:00:00.000Z`, and a string compare would rewrite every row on
+ * every refresh. Named rather than guessed — the guess was "the value has a T
+ * in it", which a note reading "Tue: waiting on trim" could satisfy.
  */
+const INSTANT_COLUMNS = new Set<string>([
+  PRODUCTION_COLUMNS.startDate,
+  PRODUCTION_COLUMNS.actualStartAt,
+  PRODUCTION_COLUMNS.dueDate,
+  PRODUCTION_COLUMNS.expectDate,
+  PRODUCTION_COLUMNS.completedAt,
+]);
+
+/**
+ * The local `YYYY-MM-DD` a stored Date value stands for.
+ *
+ * We write the day as plain text. What comes back depends on how the column
+ * was created: a date-only column returns midnight UTC, a datetime column
+ * returns the site's own midnight, which is the day before in UTC. Reading it
+ * with the UTC getters answered a day early for the second kind, so every
+ * refresh opened the row again and then refused to write anything at all,
+ * having made the duplicate it was complaining about.
+ *
+ * Read locally, like every other day on this board, which is right whenever
+ * the browser and the SharePoint site agree on a timezone. A value carrying no
+ * time at all is taken exactly as it stands.
+ */
+function dayOf(raw: unknown): string {
+  const text = String(raw ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const at = Date.parse(text);
+  return Number.isNaN(at) ? text : day(new Date(at))!;
+}
+
+/** True when the row already says what we would write. */
 function same(existing: ListItemFields, next: ListItemFields): boolean {
   return Object.entries(next).every(([key, value]) => {
     const had = existing[key];
@@ -232,14 +270,14 @@ function same(existing: ListItemFields, next: ListItemFields): boolean {
     }
     if (typeof value === 'number') return Number(had) === value;
     if (typeof value === 'boolean') return Boolean(had) === value;
-
-    const text = String(value);
-    if (text.includes('T')) {
-      const wanted = Date.parse(text);
+    // The Date column names a shift, not a moment — compare the day itself.
+    if (key === PRODUCTION_COLUMNS.date) return dayOf(had) === String(value);
+    if (INSTANT_COLUMNS.has(key)) {
+      const wanted = Date.parse(String(value));
       const found = Date.parse(String(had ?? ''));
       if (!Number.isNaN(wanted)) return !Number.isNaN(found) && found === wanted;
     }
-    return String(had ?? '') === text;
+    return String(had ?? '') === String(value);
   });
 }
 
@@ -258,13 +296,8 @@ function drift(
 }
 
 /** `YYYY-MM-DD` from whatever the list stores in its Date column. */
-function rowDay(fields: ListItemFields): string {
-  const raw = String(fields[PRODUCTION_COLUMNS.date] ?? '');
-  const t = Date.parse(raw);
-  if (Number.isNaN(t)) return raw.trim();
-  const d = new Date(t);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
+const rowDay = (fields: ListItemFields): string =>
+  dayOf(fields[PRODUCTION_COLUMNS.date]);
 
 /**
  * Push the board into the list: open a row for any order that has none, upsert
@@ -279,11 +312,21 @@ export async function syncProduction(
   list: string,
   orders: OrderFacts[],
 ): Promise<SyncOutcome> {
-  const out: SyncOutcome = { created: 0, updated: 0, unchanged: 0, errors: [] };
+  const out: SyncOutcome = {
+    created: 0,
+    updated: 0,
+    unchanged: 0,
+    errors: [],
+    retryable: false,
+  };
+  const note = (e: WriteError): void => {
+    out.errors.push(e.message);
+    out.retryable ||= isTransient(e);
+  };
 
   const existing = await fetchListItemsWithIds(cfg, list);
   if (!existing.ok) {
-    out.errors.push(existing.error);
+    note(existing.error);
     return out;
   }
 
@@ -338,7 +381,7 @@ export async function syncProduction(
       if (!found) {
         const res = await createListItem(cfg, list, wanted);
         if (res.ok) out.created++;
-        else out.errors.push(res.error);
+        else note(res.error);
         continue;
       }
       if (same(found.fields, wanted)) {
@@ -347,7 +390,7 @@ export async function syncProduction(
       }
       const res = await updateListItem(cfg, list, found.id, wanted);
       if (res.ok) out.updated++;
-      else out.errors.push(res.error);
+      else note(res.error);
     }
 
     // Rows for days this board is not booking — older shifts, or entries the
@@ -379,7 +422,7 @@ export async function syncProduction(
       }
       const res = await updateListItem(cfg, list, row.id, stale);
       if (res.ok) out.updated++;
-      else out.errors.push(res.error);
+      else note(res.error);
     }
   }
 
