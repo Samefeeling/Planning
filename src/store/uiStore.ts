@@ -108,6 +108,12 @@ interface UiState {
   orderWindow: OrderWindowFilter;
   /** Local YYYY-MM-DD selected in the date filter. */
   orderDay: string | null;
+  /**
+   * The window the day filter interrupted. Clearing a filter should undo it,
+   * not pick something else — someone reading every order and then checking
+   * one day used to be dropped into the five-day window on the way back.
+   */
+  windowBeforeDay: Exclude<OrderWindowFilter, 'day'>;
   /** Weekend timeline columns; hidden by default to keep the working week compact. */
   showWeekends: boolean;
   /** Sort the displayed rows without changing the scheduler's line sequence. */
@@ -159,6 +165,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   dateCols: { start: true, due: true, expect: true, ship: true },
   orderWindow: 'next-five',
   orderDay: null,
+  windowBeforeDay: 'next-five',
   showWeekends: false,
   orderSort: { key: 'start', direction: 'asc' },
 
@@ -208,8 +215,21 @@ export const useUiStore = create<UiState>((set, get) => ({
     set((state) => ({
       dateCols: { ...state.dateCols, [key]: !state.dateCols[key] },
     })),
-  setOrderWindow: (orderWindow) => set({ orderWindow }),
-  setOrderDay: (orderDay) => set({ orderDay, orderWindow: orderDay ? 'day' : 'next-five' }),
+  setOrderWindow: (orderWindow) =>
+    set(
+      orderWindow === 'day'
+        ? { orderWindow }
+        : { orderWindow, windowBeforeDay: orderWindow, orderDay: null },
+    ),
+  setOrderDay: (orderDay) =>
+    set((state) => ({
+      orderDay,
+      orderWindow: orderDay ? 'day' : state.windowBeforeDay,
+      windowBeforeDay:
+        orderDay && state.orderWindow !== 'day'
+          ? (state.orderWindow as Exclude<OrderWindowFilter, 'day'>)
+          : state.windowBeforeDay,
+    })),
   toggleWeekends: () => set((state) => ({ showWeekends: !state.showWeekends })),
   changeOrderSort: (key) => set((state) => ({
     orderSort: {

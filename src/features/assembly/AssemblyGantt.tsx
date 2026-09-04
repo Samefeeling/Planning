@@ -482,9 +482,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const toggleMark = useUiStore((s) => s.toggleMark);
   const workerLineOverrides = usePlanStore((s) => s.workerLines);
   const unlocked = useSupervisorStore((s) => s.unlocked);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-    PMD: false,
-  });
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [hoveredJobId, setHoveredJobId] = useState<string | null>(null);
 
   // The clock behind the "now" line. Five minutes is as fine as the line is

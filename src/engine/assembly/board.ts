@@ -974,6 +974,13 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
   // then the rest by the day they ask for. A drag has to claim its people
   // before anything else does, or the order it was dragged away from simply
   // takes them back and the two bars end up sharing a crew again.
+  //
+  // The queue is not the whole story, and cannot be: `resolve` recurses into
+  // an order's predecessors, so a component is scheduled the moment something
+  // waiting on it comes up, whatever its own place in the queue. That is the
+  // right way round — a successor's dates are meaningless without it — but it
+  // does mean a low-urgency component can take a build position and its
+  // people ahead of a more urgent order on the same line.
   const claimRank = (id: string): number =>
     orderActualStarts[id] ? 0 : orderStarts[id] ? 1 : 2;
   const claimOrder = pending

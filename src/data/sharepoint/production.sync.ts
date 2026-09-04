@@ -340,11 +340,14 @@ export async function syncProduction(
     byJob.set(key, list);
   }
 
+  // Said once at the end. While the roster is the built-in fallback this is
+  // true of every order on the board, and eighty copies of it in the banner
+  // buried whatever else the sync had to say.
+  const withDemoCrew: string[] = [];
+
   for (const facts of orders) {
     if (facts.hasSyntheticCrew) {
-      out.errors.push(
-        `${facts.jobNum}: fallback demo employees were not written to SharePoint`,
-      );
+      withDemoCrew.push(facts.jobNum);
       continue;
     }
     const rows = byJob.get(facts.jobNum) ?? [];
@@ -425,6 +428,15 @@ export async function syncProduction(
       if (res.ok) out.updated++;
       else note(res.error);
     }
+  }
+
+  if (withDemoCrew.length > 0) {
+    const shown = withDemoCrew.slice(0, 3).join(', ');
+    out.errors.push(
+      `${withDemoCrew.length} order${withDemoCrew.length === 1 ? '' : 's'} ` +
+        `(${shown}${withDemoCrew.length > 3 ? ', …' : ''}) not written: they ` +
+        'carry fallback demo employees, not the real roster.',
+    );
   }
 
   return out;

@@ -29,11 +29,31 @@ export type DataSourceKind = 'mock' | 'planning-csv' | 'excel';
 class LazyExcelSource extends BaseDataSource {
   readonly name = 'sharepoint-excel';
   private impl: Promise<DataSource> | null = null;
+  /** The loaded source, once it is there — a getter cannot await. */
+  private loaded: DataSource | null = null;
 
   private get source(): Promise<DataSource> {
-    return (this.impl ??= import('./excel/SharePointExcelSource').then(
-      (m) => new m.SharePointExcelSource(),
-    ));
+    return (this.impl ??= import('./excel/SharePointExcelSource').then((m) => {
+      this.loaded = new m.SharePointExcelSource();
+      return this.loaded;
+    }));
+  }
+
+  /**
+   * Everything the real source exposes has to be forwarded, including the
+   * parts it does not have yet. A wrapper that quietly answers "no links" and
+   * "no warnings" on its behalf is a wrapper that will keep answering that
+   * once it does, and neither has a symptom anyone would notice.
+   */
+  get warnings(): readonly string[] {
+    return this.loaded?.warnings ?? [];
+  }
+
+  override async fetchJobLinks(): ReturnType<
+    NonNullable<DataSource['fetchJobLinks']>
+  > {
+    const source = await this.source;
+    return source.fetchJobLinks?.() ?? [];
   }
 
   async fetchWorkCenters(): Promise<WorkCenter[]> {

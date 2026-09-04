@@ -184,3 +184,51 @@ describe('the two popups over the board', () => {
     expect(useUiStore.getState().crewPickerJobId).toBeNull();
   });
 });
+
+/**
+ * Clearing a filter should undo it, not choose something else. Reading every
+ * order, checking one day and clearing the date used to drop you into the
+ * five-day window, which is neither where you were nor what you asked for.
+ */
+describe('the date filter and the window behind it', () => {
+  beforeEach(() => {
+    useUiStore.setState({
+      orderWindow: 'next-five',
+      orderDay: null,
+      windowBeforeDay: 'next-five',
+    });
+  });
+
+  const state = () => useUiStore.getState();
+
+  it('goes back to the window the day filter interrupted', () => {
+    state().setOrderWindow('all');
+    state().setOrderDay('2026-09-14');
+    expect(state().orderWindow).toBe('day');
+    state().setOrderDay(null);
+    expect(state().orderWindow).toBe('all');
+    expect(state().orderDay).toBeNull();
+  });
+
+  it('still returns to the five-day window when that is where it came from', () => {
+    state().setOrderDay('2026-09-14');
+    state().setOrderDay(null);
+    expect(state().orderWindow).toBe('next-five');
+  });
+
+  it('does not lose the window when the day is changed twice', () => {
+    state().setOrderWindow('all');
+    state().setOrderDay('2026-09-14');
+    state().setOrderDay('2026-09-15');
+    expect(state().orderWindow).toBe('day');
+    state().setOrderDay(null);
+    expect(state().orderWindow).toBe('all');
+  });
+
+  it('clears the day when a window is picked instead', () => {
+    state().setOrderDay('2026-09-14');
+    state().setOrderWindow('all');
+    expect(state().orderDay).toBeNull();
+    expect(state().orderWindow).toBe('all');
+  });
+});
