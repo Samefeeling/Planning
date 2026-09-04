@@ -36,6 +36,57 @@ export interface MarkedMove {
   floorISO: string | null;
 }
 
+/** The parts of a board row that decide whether, and how far, it may move. */
+export interface MovableRow {
+  job: { id: string };
+  start?: Date | null;
+  actualStart?: unknown;
+  expectDate?: Date | null;
+  material: { earliestStart?: Date | null };
+  predecessors: readonly { onJobId: string }[];
+}
+
+/**
+ * The marked orders a drag should carry, and the earliest day each may take.
+ *
+ * `rows` is the whole board, not what the window is showing. A filter that
+ * hides a marked order does not unmark it, and moving the rest without it
+ * would leave the run in exactly the broken shape a marked set exists to
+ * prevent — so membership follows the marks, not the viewport.
+ *
+ * A predecessor inside the set contributes no floor: it is about to move by
+ * the same number of columns, so where it finishes relative to this order is
+ * what it already was. Predecessors outside the set are looked up across the
+ * whole board, since an order can be held by a press job or by one scrolled
+ * out of the window.
+ */
+export function markedSet(
+  rows: readonly MovableRow[],
+  markedIds: ReadonlySet<string>,
+  today: Date,
+): MarkedMove[] {
+  const everyRow = new Map(rows.map((row) => [String(row.job.id), row] as const));
+  const movable = [...everyRow.values()].filter(
+    (row) => markedIds.has(String(row.job.id)) && row.start && !row.actualStart,
+  );
+  const moving = new Set(movable.map((row) => String(row.job.id)));
+  return movable.map((row) => {
+    const floors: Date[] = [today];
+    if (row.material.earliestStart) floors.push(row.material.earliestStart);
+    for (const dependency of row.predecessors) {
+      const id = String(dependency.onJobId);
+      if (moving.has(id)) continue;
+      const finish = everyRow.get(id)?.expectDate;
+      if (finish) floors.push(finish);
+    }
+    return {
+      jobId: String(row.job.id),
+      startISO: row.start!.toISOString(),
+      floorISO: floors.reduce((a, b) => (b > a ? b : a)).toISOString(),
+    };
+  });
+}
+
 /** Guards the column walk against a floor years out on a bad export. */
 const LIMIT = 400;
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  markedSet,
   planGroupMove,
   type MarkedMove,
+  type MovableRow,
 } from '@/features/assembly/groupMove';
 
 /** Mon 1 Sept 2025 is the Monday every case below counts from. */
@@ -147,5 +149,90 @@ describe('the earliest days the set may take', () => {
         expect(new Date(move.startISO).getDay()).not.toBe(6);
       }
     }
+  });
+});
+
+describe('which orders a drag carries', () => {
+  const row = (
+    id: string,
+    start: string | null,
+    extra: Partial<MovableRow> = {},
+  ): MovableRow => ({
+    job: { id },
+    start: start === null ? null : new Date(day(start)),
+    material: {},
+    predecessors: [],
+    ...extra,
+  });
+  const ids = (set: MarkedMove[]): string[] => set.map((m) => m.jobId).sort();
+  const today = new Date(day('2025-09-01'));
+
+  it('carries a marked order the window is not showing', () => {
+    // The day filter or the five-day window can hide a bar without unmarking
+    // it. Dropping it here would move the rest of the run without it, which is
+    // the broken shape the whole feature exists to avoid.
+    const board = [
+      row('A', '2025-09-08'),
+      row('HIDDEN', '2025-09-12'),
+      row('C', '2025-09-16'),
+    ];
+    expect(ids(markedSet(board, new Set(['A', 'HIDDEN', 'C']), today))).toEqual([
+      'A',
+      'C',
+      'HIDDEN',
+    ]);
+  });
+
+  it('leaves out orders that cannot move', () => {
+    const board = [
+      row('MARKED', '2025-09-08'),
+      row('UNMARKED', '2025-09-09'),
+      row('STARTED', '2025-09-10', { actualStart: { at: day('2025-09-10') } }),
+      row('UNSCHEDULED', null),
+    ];
+    const marks = new Set(['MARKED', 'STARTED', 'UNSCHEDULED']);
+    expect(ids(markedSet(board, marks, today))).toEqual(['MARKED']);
+  });
+
+  it('floors an order on today when nothing else holds it', () => {
+    const set = markedSet([row('A', '2025-09-08')], new Set(['A']), today);
+    expect(set[0].floorISO).toBe(day('2025-09-01'));
+  });
+
+  it('takes the latest of today, material and an outside predecessor', () => {
+    const board = [
+      row('A', '2025-09-16', {
+        material: { earliestStart: new Date(day('2025-09-05')) },
+        predecessors: [{ onJobId: 'PRESS' }],
+      }),
+      row('PRESS', '2025-09-02', { expectDate: new Date(day('2025-09-10')) }),
+    ];
+    const set = markedSet(board, new Set(['A']), today);
+    expect(set[0].floorISO).toBe(day('2025-09-10'));
+  });
+
+  it('ignores a predecessor that is moving with the set', () => {
+    // B follows A, but A is about to shift by the same number of columns, so
+    // the gap between them survives the drag without A holding B back.
+    const board = [
+      row('A', '2025-09-08', { expectDate: new Date(day('2025-09-12')) }),
+      row('B', '2025-09-15', { predecessors: [{ onJobId: 'A' }] }),
+    ];
+    const set = markedSet(board, new Set(['A', 'B']), today);
+    expect(set.find((m) => m.jobId === 'B')!.floorISO).toBe(day('2025-09-01'));
+  });
+
+  it('still honours that predecessor when it is not marked', () => {
+    const board = [
+      row('A', '2025-09-08', { expectDate: new Date(day('2025-09-12')) }),
+      row('B', '2025-09-15', { predecessors: [{ onJobId: 'A' }] }),
+    ];
+    const set = markedSet(board, new Set(['B']), today);
+    expect(set[0].floorISO).toBe(day('2025-09-12'));
+  });
+
+  it('reports where each bar is drawn, not where it was pinned', () => {
+    const set = markedSet([row('A', '2025-09-08')], new Set(['A']), today);
+    expect(set[0].startISO).toBe(day('2025-09-08'));
   });
 });
