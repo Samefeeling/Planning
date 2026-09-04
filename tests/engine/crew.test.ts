@@ -13,6 +13,7 @@ import { computeAssemblyGantt, type OrderRow } from '@/engine/assembly/board';
 import {
   clashesFor,
   overlapsOnBoard,
+  preferredCrewSize,
   suggestCrew,
 } from '@/engine/assembly/crew';
 import {
@@ -24,7 +25,11 @@ import {
 import { usePlanStore } from '@/store/planStore';
 import {
   MAX_WORKERS_PER_ORDER,
+  canWorkKind,
+  type LineKey,
+  type Worker,
 } from '@/domain/assembly';
+import { WorkerId } from '@/domain/ids';
 import type { PlanningDataset } from '@/domain/types';
 
 let dataset: PlanningDataset;
@@ -287,13 +292,11 @@ describe('nobody does two jobs at once', () => {
 });
 
 describe('current line roster priority', () => {
-  it('puts the top of the current line roster on the first order it crews', () => {
+  it('prefers matching skills on the current line, with roster order breaking ties', () => {
     const b = board();
     const { allocations } = suggestCrew(b, settle);
 
-    // The earliest order on each line should hold the highest-priority people
-    // free to take it — which, with nothing booked yet, is the top of the list
-    // of the current production-line roster. Legacy trades no longer gate it.
+    // With nothing booked, matching trades come before roster order.
     for (const group of b.groups) {
       if (!group.line.schedulable) continue;
       const first = [...group.rows]
@@ -310,9 +313,83 @@ describe('current line roster priority', () => {
 
       const crew = allocations[String(first.job.id)];
       const best = onLine
+        .sort((a, c) => Number(!canWorkKind(a, first.kind)) - Number(!canWorkKind(c, first.kind)))
         .slice(0, crew.length)
         .map((w) => String(w.id));
       expect(crew).toEqual(best);
     }
+  });
+});
+
+describe('crew size and selection policy', () => {
+  const person = (id: string, skills: LineKey[] = ['ASSY']): Worker => ({
+    id: WorkerId(id), name: id, skills, onShift: true,
+  });
+  const fixture = (line: LineKey, hours: number, workers: Worker[]) => {
+    const original = board();
+    const group = original.groups.find((g) => g.line.key === line)!;
+    const target = {
+      ...group.rows[0], workers: [], crewDays: [],
+      job: { ...group.rows[0].job, laborHrs: hours, remainingQty: 1, completedQty: 0 },
+    };
+    return {
+      ...original, workers, groups: [{ ...group, rows: [target] }],
+      rowsByJob: new Map([[String(target.job.id), target]]),
+    };
+  };
+
+  it.each([
+    ['ASSY', 7.5, 1], ['ASSY', 7.51, 2], ['ASSY', 50, 2], ['ASSY', 50.01, 3],
+    ['TABLE', 1, 3], ['TABLE', 50, 3], ['TABLE', 75, 3],
+  ] as const)('uses the preferred crew for %s with %s remaining hours', (line, hours, expected) => {
+    const workers = ['A', 'B', 'C', 'D'].map((id) => person(id, [line]));
+    const b = fixture(line, hours, workers);
+    const target = b.groups[0].rows[0];
+    expect(preferredCrewSize(target)).toBe(expected);
+    expect(suggestCrew(b).allocations[String(target.job.id)]).toHaveLength(expected);
+  });
+
+  it('uses remaining labour, rather than original total labour, for team size', () => {
+    const b = fixture('ASSY', 60, [person('A'), person('B'), person('C')]);
+    const target = b.groups[0].rows[0];
+    target.job.remainingQty = 1;
+    target.job.completedQty = 9;
+    expect(preferredCrewSize(target)).toBe(1);
+  });
+
+  it('respects current line allocation before legacy line skills', () => {
+    const b = fixture('ASSY', 4, [person('Elsewhere'), person('Moved', ['UPL'])]);
+    const lines = new Map<string, LineKey>([['Elsewhere', 'TABLE'], ['Moved', 'ASSY']]);
+    expect(Object.values(suggestCrew(b, undefined, lines).allocations)).toEqual([['Moved']]);
+  });
+
+  it('prefers a matching skill to the first person in the allocated line roster', () => {
+    const b = fixture('ASSY', 4, [person('Legacy', ['UPL']), person('Skilled')]);
+    const lines = new Map<string, LineKey>([['Legacy', 'ASSY'], ['Skilled', 'ASSY']]);
+    expect(Object.values(suggestCrew(b, undefined, lines).allocations)).toEqual([['Skilled']]);
+  });
+
+  it('prefers the matching trade within a production line', () => {
+    const cutter = { ...person('Cutter', ['UPL']), trades: ['cut-sew' as const] };
+    const upholsterer = { ...person('Upholsterer', ['UPL']), trades: ['upholstery' as const] };
+    const b = fixture('UPL', 4, [cutter, upholsterer]);
+    b.groups[0].rows[0].kind = 'upholstery';
+    expect(Object.values(suggestCrew(b).allocations)).toEqual([['Upholsterer']]);
+  });
+
+  it('uses a smaller table crew when people are absent or on leave', () => {
+    const b = fixture('TABLE', 20, [
+      person('Available', ['TABLE']),
+      { ...person('Absent', ['TABLE']), onShift: false },
+      { ...person('Leave', ['TABLE']), plannedLeave: ['2026-09-11'] },
+    ]);
+    expect(Object.values(suggestCrew(b).allocations)).toEqual([['Available']]);
+  });
+
+  it('leaves an order without a line roster waiting and ignores zero work', () => {
+    const waiting = fixture('TABLE', 20, [person('OtherLine')]);
+    expect(suggestCrew(waiting)).toEqual({ allocations: {}, staffed: 0, unstaffed: 1 });
+    const empty = fixture('ASSY', 0, [person('Available')]);
+    expect(suggestCrew(empty)).toEqual({ allocations: {}, staffed: 0, unstaffed: 0 });
   });
 });

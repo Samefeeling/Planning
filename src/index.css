@@ -792,7 +792,7 @@ button {
   /* Tall enough for the date, the load bar and its percentage — and it grows
      rather than clipping when a whole shift is free and the Team column has
      that many names to list. */
-  min-height: 74px;
+  min-height: 94px;
   font-size: 11px;
   color: var(--muted);
   font-weight: 650;
@@ -993,6 +993,24 @@ body.col-resizing {
  */
 .daycol-date {
   font-size: 11px;
+}
+.day-order-filter {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 1px 4px;
+  white-space: nowrap;
+}
+.day-order-filter[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+.day-order-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .day-bar {
   display: flex;
@@ -1593,6 +1611,20 @@ body.col-resizing {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+.order-day-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.order-day-filter input {
+  max-width: 125px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
 }
 .board-tools .order-window button {
   width: auto;

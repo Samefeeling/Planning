@@ -9,6 +9,8 @@
 
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { DATE_COLS, DATE_COL_LABEL, useUiStore } from '@/store/uiStore';
+import { crewDayKey } from '@/engine/assembly/crewSchedule';
+import { countRunningOrders } from './boardView';
 
 /** How much one press of − or + moves the day column, in pixels. */
 const ZOOM_STEP = 16;
@@ -20,6 +22,8 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
   const toggleDateCol = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
   const setOrderWindow = useUiStore((s) => s.setOrderWindow);
+  const orderDay = useUiStore((s) => s.orderDay);
+  const setOrderDay = useUiStore((s) => s.setOrderDay);
   const showWeekends = useUiStore((s) => s.showWeekends);
   const toggleWeekends = useUiStore((s) => s.toggleWeekends);
 
@@ -64,6 +68,23 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
           5 working days
         </button>
       </span>
+      <label className="order-day-filter">
+        Filter date
+        <input
+          type="date"
+          aria-label="Filter orders running on date"
+          value={orderWindow === 'day' ? orderDay ?? '' : ''}
+          onChange={(event) => setOrderDay(event.target.value || null)}
+        />
+      </label>
+      <button className="date-restore" onClick={() => setOrderDay(crewDayKey(board.today))}>
+        Today
+      </button>
+      {orderWindow === 'day' && orderDay && (
+        <span className="board-load" role="status">
+          {countRunningOrders(board.groups.flatMap((group) => group.rows), new Date(`${orderDay}T00:00:00`))} orders running
+        </span>
+      )}
       <button
         className="date-restore"
         onClick={toggleWeekends}

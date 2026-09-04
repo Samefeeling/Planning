@@ -47,6 +47,46 @@ export function sortLineRows(
     .map(({ row }) => row);
 }
 
+/** Keep existing row positions during edits; append new orders in date order. */
+export function retainLineRows(
+  rows: OrderRow[],
+  sort: OrderSort,
+  previousIds?: readonly string[],
+): OrderRow[] {
+  if (!previousIds) return sortLineRows(rows, sort);
+  const remaining = new Map(rows.map((row) => [String(row.job.id), row]));
+  const retained: OrderRow[] = [];
+  for (const id of previousIds) {
+    const row = remaining.get(id);
+    if (row) retained.push(row);
+    remaining.delete(id);
+  }
+  return [...retained, ...sortLineRows([...remaining.values()], sort)];
+}
+
+/**
+ * An order with work on this local calendar day, counted once regardless of
+ * crew size. Exact crew days exclude idle gaps and unapproved weekends;
+ * booked output also keeps finished work discoverable. PMD uses its source
+ * bar because its crew is managed outside this board.
+ */
+export function isRunningOnDay(row: OrderRow, day: Date): boolean {
+  const key = crewDayKey(day);
+  if (row.booked?.some((entry) => entry.day === key && entry.qty > 0)) return true;
+  if (row.line.schedulable && row.crewDays) {
+    return row.crewDays.some((entry) => entry.day === key && entry.hours > 0);
+  }
+  if (row.completedToday || !row.start || !row.expectDate) return false;
+  if (row.line.schedulable && isWeekend(day) && !row.overtime) return false;
+  return row.start < addCalendarDays(startOfDay(day), 1) &&
+    row.expectDate > startOfDay(day);
+}
+
+export function countRunningOrders(rows: OrderRow[], day: Date): number {
+  return new Set(rows.filter((row) => isRunningOnDay(row, day))
+    .map((row) => String(row.job.id))).size;
+}
+
 /** Today through the end of the fifth working day, including today if open. */
 export function nextWorkingDaysWindow(
   today: Date,

@@ -9,6 +9,9 @@ import {
 import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import {
   activeWorkerIdsOnDay,
+  countRunningOrders,
+  isRunningOnDay,
+  retainLineRows,
   barTag,
   lineOfWorkerToday,
   isInNextWorkingDays,
@@ -39,6 +42,53 @@ const row = (
   }) as unknown as OrderRow;
 
 describe('assembly board view controls', () => {
+  it('holds row positions through start and crew changes until explicitly re-sorted', () => {
+    const sort = { key: 'start', direction: 'asc' } as const;
+    const a = row('A', { start: '2026-09-08T00:00:00' });
+    const b = row('B', { start: '2026-09-04T00:00:00' });
+    const ids = retainLineRows([a, b], sort).map((r) => String(r.job.id));
+    expect(ids).toEqual(['B', 'A']);
+    const changed = { ...a, start: new Date('2026-09-03T00:00:00') };
+    const held = retainLineRows([changed, b], sort, ids);
+    expect(held.map((r) => r.job.id)).toEqual(['B', 'A']);
+    expect(held[1]).toBe(changed);
+    expect(retainLineRows([changed, b], sort).map((r) => r.job.id)).toEqual(['A', 'B']);
+    // Filtering does not replace the full identity snapshot; new imports
+    // append and deleted orders disappear without re-sorting surviving rows.
+    const newcomer = row('C', { start: '2026-09-01T00:00:00' });
+    expect(retainLineRows([newcomer, changed, b], sort, ids).map((r) => r.job.id))
+      .toEqual(['B', 'A', 'C']);
+    expect(retainLineRows([changed, newcomer], sort, ids).map((r) => r.job.id))
+      .toEqual(['A', 'C']);
+  });
+
+  it('filters exact worked days, excludes gaps, and counts an order only once', () => {
+    const active = row('A', { start: '2026-09-04T00:00:00', due: '2026-09-10T00:00:00' });
+    active.crewDays = ['2026-09-04', '2026-09-08'].map((day) => ({
+      day, date: new Date(`${day}T00:00:00`), from: 0, used: 0.5,
+      workerIds: ['W1', 'W2'], hours: 7.5, perWorkerHours: 3.75,
+    }));
+    expect(isRunningOnDay(active, new Date('2026-09-04T15:00:00'))).toBe(true);
+    expect(isRunningOnDay(active, new Date('2026-09-07T00:00:00'))).toBe(false);
+    expect(isRunningOnDay(active, new Date('2026-09-05T00:00:00'))).toBe(false);
+    expect(countRunningOrders([active, active, { ...active, crewDays: [], job: { ...active.job, id: 'B' as typeof active.job.id } }],
+      new Date('2026-09-04T00:00:00'))).toBe(1);
+    const completed = { ...active, completedToday: true, crewDays: [], booked: [{ day: '2026-09-04', qty: 1, hours: 2 }] };
+    expect(isRunningOnDay(completed, new Date('2026-09-04T00:00:00'))).toBe(true);
+    expect(isRunningOnDay(completed, new Date('2026-09-08T00:00:00'))).toBe(false);
+  });
+
+  it('handles midnight, overtime and local DST boundaries in source bars', () => {
+    const active = row('A', { start: '2027-04-02T00:00:00', due: '2027-04-05T00:00:00' });
+    expect(isRunningOnDay(active, new Date('2027-04-05T00:00:00'))).toBe(false);
+    expect(isRunningOnDay(active, new Date('2027-04-04T00:00:00'))).toBe(false);
+    active.overtime = true;
+    expect(isRunningOnDay(active, new Date('2027-04-04T23:30:00'))).toBe(true);
+    const pmd = { ...active, crewDays: [], overtime: false, line: { ...active.line, schedulable: false } };
+    expect(isRunningOnDay(pmd, new Date('2027-04-04T00:00:00'))).toBe(true);
+    expect(isRunningOnDay(row('no-crew'), new Date('2026-09-30T00:00:00'))).toBe(false);
+  });
+
   it('sorts within a line, toggles direction, and leaves missing dates last', () => {
     const rows = [
       row('B', { due: '2026-09-05' }),

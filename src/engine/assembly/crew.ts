@@ -7,9 +7,9 @@
  * not a schedule, and staffing them one at a time is not a morning's work.
  *
  * So: hand every unstaffed order a crew drawn from the operators currently
- * placed on its line, cycling through them down the queue. The result is a starting
- * point, not an answer — it knows nothing about who is good at what, and the
- * supervisor is expected to change it. That is why it only ever *adds*: an
+ * placed on its line, preferring matching skills and trades. Remaining labour
+ * determines team size, with three people preferred for table assembly.
+ * The supervisor can adjust the result. It only ever *adds*: an
  * order somebody has already crewed is left exactly as it is.
  *
  * Pure. No React, no store.
@@ -17,13 +17,15 @@
 
 import {
   MAX_WORKERS_PER_ORDER,
+  PRODUCTIVE_HOURS_PER_PERSON,
+  canWorkKind,
   type CrewAssignment,
   type LineKey,
   type Worker,
 } from '@/domain/assembly';
 import { durationDays, remainingHours, remainingQty } from './duration';
 import { addDays, addWorkingDays } from './dates';
-import { planVariableCrew, type CrewDayPlan } from './crewSchedule';
+import { crewDayKey, planVariableCrew, type CrewDayPlan } from './crewSchedule';
 import type { AssemblyGanttView, OrderRow } from './board';
 
 export interface CrewSuggestion {
@@ -38,15 +40,20 @@ export interface CrewSuggestion {
 /**
  * How many people to put on one order.
  *
- * A line runs `positions` orders side by side, so its people divide between
- * that many teams: eight people over three positions is two per order with a
- * pair spare, not eight on the first order and nobody on the rest. Never more
- * than the four an order can hold, and never fewer than one — a team of one
- * is slow, but it is a schedule, and no team at all is not.
+ * These are preferences, not minimum staffing gates. A smaller available
+ * line roster still produces a crew; manual allocations remain untouched.
  */
-function crewSize(available: number, positions: number): number {
-  const perTeam = Math.floor(available / Math.max(1, positions));
-  return Math.max(1, Math.min(perTeam, MAX_WORKERS_PER_ORDER, available));
+export function preferredCrewSize(row: OrderRow): number {
+  const hours = remainingHours(row.job);
+  if (hours <= 0) return 0;
+  if (row.line.key === 'TABLE' || hours > 50) return 3;
+  return hours > PRODUCTIVE_HOURS_PER_PERSON ? 2 : 1;
+}
+
+/** Skills rank within the supervisor's current line allocation. */
+function skillRank(worker: Worker, row: OrderRow): number {
+  if (!worker.skills.includes(row.line.key)) return 2;
+  return canWorkKind(worker, row.kind) ? 0 : 1;
 }
 
 /**
@@ -290,7 +297,7 @@ const waitingRows = (board: AssemblyGanttView): OrderRow[] =>
     .flatMap((g) => g.rows)
     .filter(
       (r) =>
-        r.workers.length === 0 && !r.completedToday && remainingQty(r.job) > 0,
+        r.workers.length === 0 && !r.completedToday && remainingQty(r.job) > 0 && remainingHours(r.job) > 0,
     );
 
 /** How many orders are waiting for a crew — the number on the button. */
@@ -332,11 +339,12 @@ function staffOneWave(
   for (const group of board.groups) {
     if (!group.line.schedulable) continue;
 
-    // Same rule as the crew picker: the operator's supervisor-owned current
-    // line, independent of legacy Skills and Trades columns.
+    // Current line allocation takes priority over legacy Skills. Do not move
+    // someone to another line implicitly; rank skills within this roster.
     const onLine: Worker[] = board.workers.filter(
       (w) =>
-        w.onShift && workerLines.get(String(w.id)) === group.line.key,
+        w.onShift && !w.plannedLeave?.includes(crewDayKey(board.today)) &&
+        workerLines.get(String(w.id)) === group.line.key,
     );
     if (onLine.length === 0) continue;
     const rosterIndex = new Map(
@@ -352,11 +360,11 @@ function staffOneWave(
           r.workers.length === 0 &&
           !r.completedToday &&
           remainingQty(r.job) > 0 &&
+          remainingHours(r.job) > 0 &&
           !into[String(r.job.id)],
       )
       .sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime());
 
-    const size = crewSize(onLine.length, group.line.parallelOrders);
     // The earliest order the line can actually crew. One that nobody is free
     // for is skipped rather than stalling the line behind it — the schedule
     // will have moved it out by the next round, and if it never becomes
@@ -364,6 +372,7 @@ function staffOneWave(
     for (const next of waiting) {
       const pool = onLine;
       if (pool.length === 0) continue;
+      const size = Math.min(preferredCrewSize(next), pool.length, MAX_WORKERS_PER_ORDER);
 
       // Build the team one at a time. Each person added shortens the bar, so
       // the window the next has to be free across only ever narrows.
@@ -373,22 +382,15 @@ function staffOneWave(
         if (!want) break;
         const rest = pool.filter((w) => !crew.includes(String(w.id)));
         if (rest.length === 0) break;
-        const free = rest.filter(
-          (w) => !clashesWith(booked.get(String(w.id)), want),
-        );
-        // Somebody free across these days if there is one — that fills the
-        // line's other build positions rather than queueing everything behind
-        // one team. Failing that, whoever is carrying least: putting them on
-        // does not double-book them, it queues this order behind what they are
-        // already doing, which is what the schedule does with a crew anyway.
-        const pick = (
-          free.length > 0
-            ? [...free].sort(prefer)
-            : [...rest].sort(
-                (a, b) =>
-                  (booked.get(String(a.id))?.length ?? 0) -
-                    (booked.get(String(b.id))?.length ?? 0) || prefer(a, b),
-              )
+        // Skills come first. Among equal matches, prefer someone free, then
+        // the lighter queue, with roster order as a deterministic tie-break.
+        // A busy match queues behind existing work when the board settles.
+        const pick = [...rest].sort((a, b) =>
+          skillRank(a, next) - skillRank(b, next) ||
+          Number(clashesWith(booked.get(String(a.id)), want)) -
+            Number(clashesWith(booked.get(String(b.id)), want)) ||
+          (booked.get(String(a.id))?.length ?? 0) -
+            (booked.get(String(b.id))?.length ?? 0) || prefer(a, b),
         )[0];
         crew.push(String(pick.id));
       }

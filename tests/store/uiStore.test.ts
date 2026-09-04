@@ -41,6 +41,20 @@ describe('board display defaults', () => {
     expect(useUiStore.getState().orderSort).toEqual({ key: 'due', direction: 'desc' });
     useUiStore.getState().resetOrderSort();
     expect(useUiStore.getState().orderSort).toEqual({ key: 'start', direction: 'asc' });
+    const snapshot = useUiStore.getState().orderSort;
+    useUiStore.getState().resetOrderSort();
+    expect(useUiStore.getState().orderSort).not.toBe(snapshot);
+  });
+
+  it('selects a day without changing the order snapshot and clears back to five days', () => {
+    const sort = useUiStore.getState().orderSort;
+    useUiStore.getState().setOrderDay('2026-09-04');
+    expect(useUiStore.getState().orderWindow).toBe('day');
+    expect(useUiStore.getState().orderDay).toBe('2026-09-04');
+    expect(useUiStore.getState().orderSort).toBe(sort);
+    useUiStore.getState().setOrderDay(null);
+    expect(useUiStore.getState().orderWindow).toBe('next-five');
+    expect(useUiStore.getState().orderDay).toBeNull();
   });
 });
 

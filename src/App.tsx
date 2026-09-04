@@ -149,9 +149,9 @@ export default function App() {
           <SuggestCrew board={board} />
           <SupervisorLock />
           <CsvLoader />
-          <RefreshControl onRefresh={() => {
+          <RefreshControl onRefresh={async () => {
+            await refresh();
             resetOrderSort();
-            void refresh();
           }} />
         </div>
       </header>

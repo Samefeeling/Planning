@@ -54,10 +54,11 @@ export function SuggestCrew({ board }: { board: AssemblyGanttView | null }) {
       disabled={!unlocked}
       title={
         unlocked
-          ? `Put people from each current production-line roster onto the ${waiting} orders that ` +
-            'have nobody, so they can be scheduled. Orders that already have a ' +
-            'crew are left alone, and nobody is put on two orders at once — an ' +
-            'order with nobody free across its days is left for you.'
+          ? `Crew ${waiting} unstaffed orders from their current production-line rosters. ` +
+            'Prefer matching skills and trades, then availability. Remaining work: ' +
+            'up to 7.5 h: 1 person; over 7.5 h: 2; over 50 h: 3. Tables: 3. ' +
+            'Use a smaller crew if the line has fewer people. Existing crews stay unchanged. ' +
+            'Busy workers queue behind existing work; conflicting suggestions are removed.'
           : 'Allocating crew needs the supervisor password'
       }
     >

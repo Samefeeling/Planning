@@ -27,6 +27,7 @@ import {
 } from '@/domain/assembly';
 import { addCalendarDays, isWeekend, shiftFraction } from '@/engine/assembly/dates';
 import { remainingHours } from '@/engine/assembly/duration';
+import { crewDayKey } from '@/engine/assembly/crewSchedule';
 import {
   boardDayLoads,
   lineLoad,
@@ -51,10 +52,12 @@ import { dependencyFocus } from './dependencyRouter';
 import {
   teamSummary,
   isInNextWorkingDays,
+  isRunningOnDay,
+  countRunningOrders,
   lineOfWorkerToday,
-  sortLineRows,
   type OrderSortKey,
 } from './boardView';
+import { useStableBoardOrder } from './useStableBoardOrder';
 import type { MarkedMove } from './groupMove';
 
 // Must match the widths in index.css (--qty-w, --date-w x4, --team-w),
@@ -415,7 +418,7 @@ function LineGroupView({
           <div className="acell order">
             {group.line.schedulable
               ? filtered
-                ? 'No orders in the next five working days'
+                ? 'No orders match the date filter'
                 : 'Drop an order here'
               : 'No orders on this line'}
           </div>
@@ -457,6 +460,8 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
   const visibleDates = useUiStore((s) => s.dateCols);
   const toggleDate = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
+  const orderDay = useUiStore((s) => s.orderDay);
+  const setOrderDay = useUiStore((s) => s.setOrderDay);
   const showWeekends = useUiStore((s) => s.showWeekends);
   const sort = useUiStore((s) => s.orderSort);
   const changeSort = useUiStore((s) => s.changeOrderSort);
@@ -492,22 +497,25 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     () => board.groups.flatMap((group) => group.rows),
     [board],
   );
+  const orderedGroups = useStableBoardOrder(board.groups, sort);
   const visibleGroups = useMemo(
     () =>
-      board.groups.map((group) => {
+      orderedGroups.map((group) => {
         const filteredRows =
           orderWindow === 'next-five'
             ? group.rows.filter((row) =>
                 isInNextWorkingDays(row, board.today),
               )
-            : group.rows;
+            : orderWindow === 'day' && orderDay
+              ? group.rows.filter((row) => isRunningOnDay(row, new Date(`${orderDay}T00:00:00`)))
+              : group.rows;
         return {
           ...group,
-          rows: sortLineRows(filteredRows, sort),
+          rows: filteredRows,
           load: lineLoad(filteredRows),
         };
       }),
-    [board.groups, board.today, orderWindow, sort],
+    [orderedGroups, board.today, orderWindow, orderDay],
   );
   const visibleRows = useMemo(
     () => visibleGroups.flatMap((group) => group.rows),
@@ -797,6 +805,16 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
                     <i style={{ height: `${Math.min(100, pct)}%` }} />
                   </span>
                   <span className={`day-load ${band}`}>{pct}%</span>
+                  <button
+                    className="day-order-filter"
+                    aria-label={`Filter orders running on ${crewDayKey(d)}`}
+                    aria-pressed={orderWindow === 'day' && orderDay === crewDayKey(d)}
+                    onClick={() => setOrderDay(
+                      orderWindow === 'day' && orderDay === crewDayKey(d) ? null : crewDayKey(d),
+                    )}
+                  >
+                    {countRunningOrders(allRows, d)} orders
+                  </button>
                 </div>
               );
             })}
@@ -821,7 +839,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           showWeekends={showWeekends}
           collapsed={Boolean(collapsed[group.line.key])}
           onToggle={() => setCollapsed((current) => ({ ...current, [group.line.key]: !current[group.line.key] }))}
-          filtered={orderWindow === 'next-five'}
+          filtered={orderWindow !== 'all'}
           unlocked={unlocked}
           relatedJobIds={relatedJobIds}
           markedIds={markedIds}

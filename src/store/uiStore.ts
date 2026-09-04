@@ -38,7 +38,7 @@ const clamp = (n: number, lo: number, hi: number): number =>
 export const DATE_COLS = ['start', 'due', 'expect', 'ship'] as const;
 export type DateCol = (typeof DATE_COLS)[number];
 export type DateCols = Record<DateCol, boolean>;
-export type OrderWindowFilter = 'all' | 'next-five';
+export type OrderWindowFilter = 'all' | 'next-five' | 'day';
 
 /** Column headings, shared by the board and the chip that brings one back. */
 export const DATE_COL_LABEL: Record<DateCol, string> = {
@@ -104,6 +104,8 @@ interface UiState {
   dateCols: DateCols;
   /** View-only row filter; never changes the underlying line sequence. */
   orderWindow: OrderWindowFilter;
+  /** Local YYYY-MM-DD selected in the date filter. */
+  orderDay: string | null;
   /** Weekend timeline columns; hidden by default to keep the working week compact. */
   showWeekends: boolean;
   /** Sort the displayed rows without changing the scheduler's line sequence. */
@@ -119,6 +121,7 @@ interface UiState {
   setOrderWidth: (px: number) => void;
   toggleDateCol: (key: DateCol) => void;
   setOrderWindow: (filter: OrderWindowFilter) => void;
+  setOrderDay: (day: string | null) => void;
   toggleWeekends: () => void;
   changeOrderSort: (key: OrderSortKey) => void;
   resetOrderSort: () => void;
@@ -141,6 +144,7 @@ export const useUiStore = create<UiState>((set) => ({
   orderWidth: DEFAULT_ORDER_WIDTH,
   dateCols: { start: true, due: true, expect: true, ship: true },
   orderWindow: 'next-five',
+  orderDay: null,
   showWeekends: false,
   orderSort: { key: 'start', direction: 'asc' },
 
@@ -169,6 +173,7 @@ export const useUiStore = create<UiState>((set) => ({
       dateCols: { ...state.dateCols, [key]: !state.dateCols[key] },
     })),
   setOrderWindow: (orderWindow) => set({ orderWindow }),
+  setOrderDay: (orderDay) => set({ orderDay, orderWindow: orderDay ? 'day' : 'next-five' }),
   toggleWeekends: () => set((state) => ({ showWeekends: !state.showWeekends })),
   changeOrderSort: (key) => set((state) => ({
     orderSort: {
