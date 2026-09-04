@@ -633,6 +633,22 @@ button {
   color: var(--warn);
 }
 
+/* The way out of a banner that has one — reading the stored plan again. */
+.banner-action {
+  margin-left: 4px;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.banner-action:hover {
+  background: rgb(0 0 0 / 6%);
+}
+
 /* ---- assembly gantt ---------------------------------------------------- */
 .assembly-pane {
   padding: 0;

@@ -3,7 +3,7 @@
  * drag-and-drop context, and lays out the assembly board and inspector.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { useDataStore } from '@/store/dataStore';
 import { usePlanStore } from '@/store/planStore';
@@ -58,6 +58,22 @@ export default function App() {
 
   const bootstrapped = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
+  /**
+   * How the read of the stored plan went.
+   *
+   * `loaded` also covers a repository that has nothing stored yet — a new
+   * board is not a failure. `failed` is the state autosave must sit out: the
+   * board has been laid out from the export alone, with nobody allocated and
+   * no pins, and writing that back would put it over the plan the repository
+   * is still holding.
+   */
+  const [stored, setStored] = useState<'reading' | 'loaded' | 'failed'>(
+    'reading',
+  );
+  const [storeError, setStoreError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const reason = (e: unknown): string =>
+    e instanceof Error ? e.message : String(e);
 
   // Initial data load.
   useEffect(() => {
@@ -79,36 +95,55 @@ export default function App() {
         if (persisted?.containers) plan.setContainers(persisted.containers);
         if (persisted?.assembly) plan.setAssemblyPlan(persisted.assembly);
         plan.reconcile(dataset.workCenters, dataset.jobs);
+        setStored('loaded');
+        setStoreError(null);
       })
-      .catch(() => plan.reconcile(dataset.workCenters, dataset.jobs));
-  }, [status, dataset]);
+      .catch((e) => {
+        // Still lay the board out, so the export is readable while the
+        // repository is unreachable — but say so, and save nothing.
+        plan.reconcile(dataset.workCenters, dataset.jobs);
+        setStored('failed');
+        setStoreError(reason(e));
+      });
+  }, [status, dataset, attempt]);
+
+  const retryStoredPlan = () => {
+    bootstrapped.current = false;
+    setStored('reading');
+    setStoreError(null);
+    setAttempt((n) => n + 1);
+  };
 
   // Debounced autosave of the planner's layout.
   useEffect(() => {
-    if (!bootstrapped.current) return;
+    if (stored !== 'loaded') return;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      void repo.save({
-        id: CURRENT_PLAN_ID,
-        name: 'Working plan',
-        savedAt: new Date().toISOString(),
-        containers,
-        assembly: {
-          orderWorkers,
-          workerLines,
-          orderCrewAssignments,
-          orderStarts,
-          orderActualStarts,
-          orderOvertime,
-          orderDoubleBooked,
-          progress,
-          progressBaselines,
-          production,
-        },
-      });
+      repo
+        .save({
+          id: CURRENT_PLAN_ID,
+          name: 'Working plan',
+          savedAt: new Date().toISOString(),
+          containers,
+          assembly: {
+            orderWorkers,
+            workerLines,
+            orderCrewAssignments,
+            orderStarts,
+            orderActualStarts,
+            orderOvertime,
+            orderDoubleBooked,
+            progress,
+            progressBaselines,
+            production,
+          },
+        })
+        .then(() => setStoreError(null))
+        .catch((e) => setStoreError(reason(e)));
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
   }, [
+    stored,
     containers,
     orderWorkers,
     workerLines,
@@ -157,6 +192,25 @@ export default function App() {
       </header>
 
       {error && <div className="banner">Data error: {error}</div>}
+      {/*
+        A plan that could not be read is not an empty plan. Say which of the
+        two has happened, because the board looks identical either way, and
+        make it plain that nothing is being written until it is read.
+      */}
+      {stored === 'failed' ? (
+        <div className="banner">
+          Saved plan not loaded ({storeError}). The board is showing the export
+          on its own — crew, dragged starts and shift entries are still in the
+          store and nothing is being saved over them.{' '}
+          <button className="banner-action" onClick={retryStoredPlan}>
+            Try again
+          </button>
+        </div>
+      ) : (
+        storeError && (
+          <div className="banner warn">Plan not saved: {storeError}</div>
+        )
+      )}
       {sync.errors.length > 0 && (
         <div className="banner warn">
           {sync.list} not updated: {sync.errors[0]}
