@@ -12,7 +12,7 @@ import {
   PRODUCTIVE_HOURS_PER_PERSON,
   type CrewAssignment,
 } from '@/domain/assembly';
-import { addDays, isWeekend, startOfDay } from './dates';
+import { addDays, isWeekend, nextMidnight, startOfDay } from './dates';
 import { MS_PER_DAY } from '@/lib/time';
 
 export interface CrewDayPlan {
@@ -116,13 +116,13 @@ export function planVariableCrew(
 
   for (let i = 0; i < MAX_PLAN_DAYS && remaining > EPSILON; i++) {
     if (!overtime && isWeekend(cursor)) {
-      cursor = addDays(cursor, 1);
+      cursor = nextMidnight(cursor);
       continue;
     }
     const day = crewDayKey(cursor);
     const workerIds = crewIdsOnDay(assignments, day, orderStartDay);
     if (workerIds.length === 0) {
-      cursor = addDays(cursor, 1);
+      cursor = nextMidnight(cursor);
       continue;
     }
 
@@ -132,7 +132,7 @@ export function planVariableCrew(
     const shift = workerIds.length * PRODUCTIVE_HOURS_PER_PERSON;
     const capacity = shift * (1 - gone);
     if (capacity <= EPSILON) {
-      cursor = addDays(cursor, 1);
+      cursor = nextMidnight(cursor);
       continue;
     }
 
@@ -162,7 +162,7 @@ export function planVariableCrew(
         uncoveredHours: 0,
       };
     }
-    cursor = addDays(cursor, 1);
+    cursor = nextMidnight(cursor);
   }
 
   return {

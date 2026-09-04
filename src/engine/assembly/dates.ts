@@ -104,13 +104,40 @@ export const wholeDaysBetween = (a: Date, b: Date): number =>
 export const isWeekend = (d: Date): boolean =>
   d.getDay() === 0 || d.getDay() === 6;
 
-/** Midnight of the next day, robust across daylight-saving shifts. */
-const nextMidnight = (d: Date): Date => {
+/**
+ * Midnight of the next day, robust across daylight-saving shifts.
+ *
+ * Every step from one day to the next goes through here rather than through
+ * `addDays(d, 1)`. A day the clock gave 23 or 25 hours to is still one day on
+ * the calendar, and adding a flat 24 hours to it lands an hour off midnight —
+ * which every following day then inherits, so a schedule crossing the first
+ * Sunday in April came out an hour, and eventually a whole column, adrift.
+ */
+export const nextMidnight = (d: Date): Date => {
   const out = startOfDay(d);
   // Advance the local calendar date: a DST day can contain 23 or 25 hours.
   out.setDate(out.getDate() + 1);
   return out;
 };
+
+/** Midnight of the previous day. The mirror of `nextMidnight`. */
+export const prevMidnight = (d: Date): Date => {
+  const out = startOfDay(d);
+  out.setDate(out.getDate() - 1);
+  return out;
+};
+
+/**
+ * How much of its own day is still ahead of `d`, as a fraction of a day.
+ *
+ * A day is one unit of work whether the clock gave it 23, 24 or 25 hours: the
+ * factory runs one shift either way. Measuring against a nominal day keeps the
+ * fraction meaningful without letting the twice-yearly hour leak into it.
+ */
+export function openFraction(d: Date): number {
+  const since = (d.getTime() - startOfDay(d).getTime()) / MS_PER_DAY;
+  return Math.min(1, Math.max(0, 1 - since));
+}
 
 /**
  * `d` itself when the factory runs that day, otherwise the following Monday.
@@ -264,15 +291,19 @@ export function addWorkingDays(from: Date, days: number): Date {
   let left = days;
 
   for (let guard = 0; guard < MAX_SPAN_DAYS; guard++) {
-    const tomorrow = nextMidnight(cursor);
     if (isWeekend(cursor)) {
-      cursor = tomorrow;
+      cursor = nextMidnight(cursor);
       continue;
     }
-    const openToday = (tomorrow.getTime() - cursor.getTime()) / MS_PER_DAY;
-    if (left <= openToday) return addDays(cursor, left);
-    left -= openToday;
-    cursor = tomorrow;
+    const open = openFraction(cursor);
+    // Strictly inside the day: the answer is a moment within this shift.
+    if (left < open) return addDays(cursor, left);
+    left -= open;
+    // Work that runs to the end of the day finishes at the next midnight
+    // itself, not twenty-four hours after the cursor — the two differ on the
+    // day the clocks change, and every later day would carry the difference.
+    cursor = nextMidnight(cursor);
+    if (left <= 0) return cursor;
   }
   return cursor;
 }
@@ -296,17 +327,15 @@ export function subWorkingDays(from: Date, days: number): Date {
   for (let guard = 0; guard < MAX_SPAN_DAYS; guard++) {
     const midnight = startOfDay(cursor);
     // Open time between the last midnight and where the cursor stands.
-    const behind = isWeekend(midnight)
-      ? 0
-      : (cursor.getTime() - midnight.getTime()) / MS_PER_DAY;
+    const behind = isWeekend(midnight) ? 0 : 1 - openFraction(cursor);
     if (left <= behind && behind > 0) return addDays(cursor, -left);
     left -= behind;
     if (left <= 0) return midnight;
 
     // Nothing else open in this day, so the next thing behind is the whole of
     // the previous open day.
-    let previous = addDays(midnight, -1);
-    while (isWeekend(previous)) previous = addDays(previous, -1);
+    let previous = prevMidnight(midnight);
+    while (isWeekend(previous)) previous = prevMidnight(previous);
     if (left <= 1) return addDays(previous, 1 - left);
     left -= 1;
     cursor = previous;

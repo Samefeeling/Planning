@@ -14,7 +14,7 @@ import { PRODUCTIVE_HOURS_PER_PERSON, type Worker } from '@/domain/assembly';
 import type { JobId } from '@/domain/ids';
 import { MS_PER_DAY } from '@/lib/time';
 import { remainingHours } from './duration';
-import { addDays, isWeekend, startOfDay } from './dates';
+import { addCalendarDays, isWeekend, nextMidnight, startOfDay } from './dates';
 import type { OrderRow } from './board';
 
 export { isWeekend };
@@ -146,7 +146,7 @@ export function boardDayLoads(
   const out: DayBoardLoad[] = [];
 
   for (let i = 0; i < dayCount; i++) {
-    const date = addDays(start, i);
+    const date = addCalendarDays(start, i);
     const key = dayKey(date);
     const available = workers.filter(
       (w) => (key !== todayKey || w.onShift) && !w.plannedLeave?.includes(key),
@@ -236,7 +236,7 @@ function hoursOnDay(
   if (crew === 0) return 0;
   if (isWeekend(from) && !row.overtime) return 0;
 
-  const to = addDays(from, 1);
+  const to = nextMidnight(from);
   const overlapMs =
     Math.min(row.expectDate.getTime(), to.getTime()) -
     Math.max(row.start.getTime(), from.getTime());
@@ -271,7 +271,7 @@ export function workerLoad(
   const jobs = new Set<string>();
 
   for (let i = 0; i < dayCount; i++) {
-    const date = addDays(start, i);
+    const date = addCalendarDays(start, i);
     const key = dayKey(date);
     const onLeave = leave.has(key);
     const entries: LoadEntry[] = [];

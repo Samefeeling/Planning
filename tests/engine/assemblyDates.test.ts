@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   addWorkingDays,
   isWeekend,
+  nextMidnight,
   nextWorkingDay,
+  prevMidnight,
   prevWorkingDay,
   scheduleStatus,
   shiftFraction,
@@ -249,5 +251,70 @@ describe('counting back over open days', () => {
   it('treats a zero or negative distance as no time at all', () => {
     expect(subWorkingDays(d(8), 0)).toEqual(d(8));
     expect(subWorkingDays(d(8), -3)).toEqual(d(8));
+  });
+});
+
+/*
+ * The clocks change on a Sunday, which the factory is shut for — so the shift
+ * that gains or loses the hour is never worked. What used to go wrong was the
+ * step *over* that Sunday: adding a flat twenty-four hours to a day the clock
+ * gave twenty-five landed an hour short of midnight, and every day after it
+ * inherited the hour. A week later the bar was drawn most of a column long.
+ *
+ * Australia and New Zealand both switch on a Sunday, and CI runs this file in
+ * both zones, so the dates below are chosen to straddle each transition:
+ * Sun 5 Apr 2026 (AEDT→AEST, NZDT→NZST) and Sun 4 Oct 2026 (AEST→AEDT).
+ */
+describe('crossing the day the clocks change', () => {
+  const midnights = (from: Date, count: number): Date[] => {
+    const out: Date[] = [];
+    let cursor = from;
+    for (let i = 0; i < count; i++) {
+      out.push(cursor);
+      cursor = nextMidnight(cursor);
+    }
+    return out;
+  };
+
+  it('steps from midnight to midnight either side of a transition', () => {
+    for (const start of [d('2026-04-02'), d('2026-10-01')]) {
+      for (const day of midnights(start, 10)) {
+        expect(day.getHours()).toBe(0);
+        expect(day.getMinutes()).toBe(0);
+      }
+    }
+  });
+
+  it('walks back to midnight just the same', () => {
+    let cursor = d('2026-04-10');
+    for (let i = 0; i < 10; i++) {
+      cursor = prevMidnight(cursor);
+      expect(cursor.getHours()).toBe(0);
+    }
+  });
+
+  it('lands whole working days on midnight across the April change', () => {
+    // Thu 2 Apr plus five open days: Fri, then Mon–Thu the week after.
+    expect(addWorkingDays(d('2026-04-02'), 5)).toEqual(d('2026-04-09'));
+    // And one that steps over the Sunday itself: Friday, then Monday, so it
+    // ends where Monday ends. An hour adrift and this would be Monday 23:00.
+    expect(addWorkingDays(d('2026-04-03'), 2)).toEqual(d('2026-04-07'));
+  });
+
+  it('lands whole working days on midnight across the October change', () => {
+    expect(addWorkingDays(d('2026-10-01'), 5)).toEqual(d('2026-10-08'));
+    expect(addWorkingDays(d('2026-10-02'), 2)).toEqual(d('2026-10-06'));
+  });
+
+  it('counts back over a transition to midnight too', () => {
+    expect(subWorkingDays(d('2026-04-09'), 5)).toEqual(d('2026-04-02'));
+    expect(subWorkingDays(d('2026-10-08'), 5)).toEqual(d('2026-10-01'));
+  });
+
+  it('keeps a bar drawn over a transition an exact number of days long', () => {
+    const spans = workingSpans(d('2026-04-03'), d('2026-04-11'));
+    const worked = spans.reduce((sum, span) => sum + span.worked, 0);
+    // Friday, then Monday to Friday: six open days, not six and an hour.
+    expect(worked).toBeCloseTo(6, 6);
   });
 });

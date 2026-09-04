@@ -8,14 +8,24 @@ import {
 
 /** Mon 1 Sept 2025 is the Monday every case below counts from. */
 const day = (date: string): string => new Date(`${date}T00:00:00`).toISOString();
+/**
+ * The local day each order landed on. Read with the local getters that built
+ * it: `day` below makes local midnight, which east of Greenwich is the
+ * previous date in UTC, so reading these back as ISO answered a day early.
+ */
 const landed = (
   moves: { jobId: string; startISO: string }[],
 ): Record<string, string> =>
   Object.fromEntries(
-    moves.map((move) => [
-      move.jobId,
-      new Date(move.startISO).toISOString().slice(0, 10),
-    ]),
+    moves.map((move) => {
+      const at = new Date(move.startISO);
+      return [
+        move.jobId,
+        `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(
+          at.getDate(),
+        ).padStart(2, '0')}`,
+      ];
+    }),
   );
 
 const order = (

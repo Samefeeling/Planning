@@ -22,9 +22,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # Both zones move their clocks on a Sunday, so the shift that gains or
+      # loses the hour is never worked — but a schedule that steps over that
+      # Sunday must still land on midnight, or every later day inherits the
+      # hour. The date and crew-capacity suites are here for that.
       - name: Check board interactions and crew rules across Australia and New Zealand time zones
         run: |
-          TZ=Australia/Sydney npx vitest run tests/features/assemblyBoardView.test.ts tests/store/uiStore.test.ts tests/engine/crew.test.ts
-          TZ=Pacific/Auckland npx vitest run tests/features/assemblyBoardView.test.ts tests/store/uiStore.test.ts tests/engine/crew.test.ts
+          SUITES="tests/features/assemblyBoardView.test.ts tests/store/uiStore.test.ts tests/engine/crew.test.ts tests/engine/assemblyDates.test.ts tests/engine/crewSchedule.test.ts tests/engine/workload.test.ts tests/features/groupMove.test.ts"
+          TZ=Australia/Sydney npx vitest run $SUITES
+          TZ=Pacific/Auckland npx vitest run $SUITES
       - run: npm run build
       - run: npm audit --omit=dev
