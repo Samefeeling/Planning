@@ -115,8 +115,11 @@ describe('suggestCrew', () => {
     expect(bare.length).toBeGreaterThan(0); // nothing has a bar yet
 
     const after = board(suggestCrew(before, settle).allocations);
-    const scheduled = [...after.rowsByJob.values()].filter((r) => r.days !== null);
-    // Most of the board gets a bar. What it cannot place without putting
+    const scheduled = [...after.rowsByJob.values()].filter(
+      (r) => r.days !== null && !r.completedToday,
+    );
+    // Completed rows use a zero-day marker and may have no future Expect Date.
+    // Most of the active board gets a bar. What it cannot place without putting
     // somebody on two orders at once it leaves alone, on purpose.
     expect(scheduled.length).toBeGreaterThan(bare.length / 2);
     for (const row of scheduled) expect(row.expectDate).not.toBeNull();
