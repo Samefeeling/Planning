@@ -10,7 +10,8 @@ polling.
 
 Source data comes from Epicor via SharePoint, refreshed **every five minutes
 and on demand**: orders from the `Planning1.csv` export, people from the
-`ASSY_Operator` list, and the material picture from the master workbook. The
+`ASSY_Operator` list, material requirements from `JobMaterialReq.csv`, and
+on-hand quantities from `OnHandInventory.csv`. The
 plan goes back the other way, into the `ASSY_Production` list.
 
 ## What it does
@@ -148,6 +149,14 @@ plan goes back the other way, into the `ASSY_Production` list.
 - **The order detail opens only from an order block** — beside the pointer,
   over the board. Clicking a row, date, team cell or empty timeline does not
   open it. `×` or `Escape` closes it.
+- **Scan an order barcode** — click `Scan order`, scan a job-number barcode
+  with a USB or Bluetooth keyboard-wedge scanner, and the order detail opens
+  on Enter. Labelled payloads such as `JOB:018140-1-1` are accepted; partial
+  matches never open the wrong order.
+- **Incremental refresh** — the first successful load creates a known-order
+  baseline. Later refreshes retain the working plan, append unseen jobs to
+  their home line, show `N new today`, and mark those rows `NEW`. See
+  `docs/incremental-order-updates.md` for the shared SharePoint design.
 - **Start, then book the shift** — `Start production` records the exact start
   instant and locks the order against further dragging. Entering the completed
   quantity moves Expect Date; saving `Job Completed` stores the exact completion

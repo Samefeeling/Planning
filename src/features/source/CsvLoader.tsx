@@ -6,7 +6,7 @@
  * same parsers, so an export can be checked against the board before any auth
  * is wired up.
  *
- * Two buttons, because the two files answer different questions and are
+ * Separate buttons, because the three files answer different questions and are
  * checked separately: `Planning1.csv` is what to build, `JobMaterialReq.csv`
  * is what each order consumes — and therefore which order has to finish before
  * which. Either can still be dropped into the other picker; which is which is
@@ -21,6 +21,7 @@ import { useUiStore } from '@/store/uiStore';
 import {
   setManualCsv,
   setManualJobMaterialCsv,
+  setManualOnHandInventoryCsv,
 } from '@/data/csv/csv.client';
 import { PlanningCsvSource } from '@/data/csv/PlanningCsvSource';
 import { normalizeHeader, parseCsv } from '@/lib/csv';
@@ -30,17 +31,25 @@ import { Button } from '@/ui';
  * A material-link export names the job on the `JobMtl` table; the order export
  * never does. That one header is enough to tell them apart.
  */
-function isMaterialExport(text: string): boolean {
+function exportKind(text: string): Kind {
   const header = parseCsv(text.slice(0, 4096))[0] ?? [];
   const names = new Set(header.map(normalizeHeader));
-  return (
+  if (names.has('partnum') && names.has('onhand')) return 'inventory';
+  if (
     names.has('jobmtljobnum') ||
     names.has('jobmtlpartnum') ||
     (names.has('mtlpartnum') && names.has('jobnum'))
-  );
+  ) return 'links';
+  return 'orders';
 }
 
-type Kind = 'orders' | 'links';
+type Kind = 'orders' | 'links' | 'inventory';
+
+const KIND_LABEL: Record<Kind, string> = {
+  orders: 'order',
+  links: 'material',
+  inventory: 'on-hand inventory',
+};
 
 export function CsvLoader() {
   const setSource = useDataStore((s) => s.setSource);
@@ -48,6 +57,7 @@ export function CsvLoader() {
   const setLastRefresh = useUiStore((s) => s.setLastRefresh);
   const orders = useRef<HTMLInputElement>(null);
   const links = useRef<HTMLInputElement>(null);
+  const inventory = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<Kind | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -59,18 +69,18 @@ export function CsvLoader() {
       let read = 0;
       for (const file of Array.from(files)) {
         const text = await file.text();
-        const kind: Kind = isMaterialExport(text) ? 'links' : 'orders';
+        const kind = exportKind(text);
         // Both pickers take either file, but say so when they differ — a
         // silent swap is how you end up sure you loaded something you did not.
         if (kind !== want) {
           setProblem(
-            `${file.name} looks like the ${
-              kind === 'links' ? 'material' : 'order'
-            } export, not the ${want === 'links' ? 'material' : 'order'} ` +
+            `${file.name} looks like the ${KIND_LABEL[kind]} export, not the ` +
+              `${KIND_LABEL[want]} ` +
               'one — loaded as what it is.',
           );
         }
         if (kind === 'links') setManualJobMaterialCsv(text);
+        else if (kind === 'inventory') setManualOnHandInventoryCsv(text);
         else setManualCsv(text);
         read++;
       }
@@ -83,6 +93,7 @@ export function CsvLoader() {
       // Allow re-picking the same file.
       if (orders.current) orders.current.value = '';
       if (links.current) links.current.value = '';
+      if (inventory.current) inventory.current.value = '';
     }
   };
 
@@ -103,6 +114,13 @@ export function CsvLoader() {
         hidden
         onChange={(e) => void onPick(e.target.files, 'links')}
       />
+      <input
+        ref={inventory}
+        type="file"
+        accept=".csv,text/csv"
+        hidden
+        onChange={(e) => void onPick(e.target.files, 'inventory')}
+      />
       <Button
         onClick={() => orders.current?.click()}
         disabled={busy !== null}
@@ -119,6 +137,13 @@ export function CsvLoader() {
         }
       >
         {busy === 'links' ? 'Loading…' : 'Load JobMaterialReq'}
+      </Button>
+      <Button
+        onClick={() => inventory.current?.click()}
+        disabled={busy !== null}
+        title="Parse OnHandInventory.csv — Calculated_OnHand by Part_PartNum"
+      >
+        {busy === 'inventory' ? 'Loading…' : 'Load OnHandInventory'}
       </Button>
       {problem && (
         <span className="board-warn" title={problem}>

@@ -12,24 +12,14 @@ import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { findOrderRow } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
-import {
-  PRODUCTIVE_HOURS_PER_PERSON,
-  type MaterialPrepStatus,
-} from '@/domain/assembly';
+import { PRODUCTIVE_HOURS_PER_PERSON } from '@/domain/assembly';
 import { remainingQty } from '@/engine/assembly/duration';
 import { startEligibility } from '@/engine/assembly/release';
 import { formatDay, formatTime } from '@/lib/time';
 import { Badge, Button } from '@/ui';
 import type { PauseReason, ProductionEntry } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
-
-const PREP_LABEL: Record<MaterialPrepStatus, string> = {
-  unknown: 'Unknown',
-  'not-prepared': 'Not prepared',
-  preparing: 'Preparing',
-  ready: 'Ready',
-  shortage: 'Shortage',
-};
+import { useDataStore } from '@/store/dataStore';
 
 const NO_PRODUCTION: ProductionEntry[] = [];
 
@@ -49,7 +39,7 @@ const PANEL_GAP = 12;
  * wrap less — a description, a badge row and a dependency list each come back
  * off a second line — so the panel gets shorter as it gets broader.
  */
-const PANEL_WIDTHS = [680, 900, 1120, 1360];
+const PANEL_WIDTHS = [900, 1120, 1360];
 
 const clamp = (n: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(n, Math.max(lo, hi)));
@@ -68,11 +58,18 @@ const isoDay = (d: Date): string =>
     d.getDate(),
   ).padStart(2, '0')}`;
 
+/** Fixed numeric date for the production popup, independent of browser locale. */
+export const popupDate = (date: Date | null): string =>
+  date
+    ? `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`
+    : '—';
+
 export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
   const selectedAt = useUiStore((s) => s.selectedAt);
   const select = useUiStore((s) => s.select);
   const row = findOrderRow(board, selectedJobId);
+  const inventoryByPart = useDataStore((s) => s.indexes?.inventoryByPart);
   const panel = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<Place | null>(null);
 
@@ -365,7 +362,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             <div className="date-cell">
               <span className="date-label">Due</span>
               <span className="date-value">
-                {job.dueDate ? formatDay(job.dueDate) : '—'}
+                {popupDate(job.dueDate)}
               </span>
             </div>
             {/* Where Epicor's own Start Date comes from: the due date less the
@@ -388,20 +385,20 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             >
               <span className="date-label">Must start</span>
               <span className={`date-value ${late ? 'red' : ''}`}>
-                {row.mustStartBy ? formatDay(row.mustStartBy) : '—'}
+                {popupDate(row.mustStartBy)}
               </span>
               {late && <span className="date-note">plan starts later</span>}
             </div>
             <div className="date-cell">
               <span className="date-label">Expect</span>
               <span className={`date-value ${status.color}`}>
-                {row.expectDate ? formatDay(row.expectDate) : '—'}
+                {popupDate(row.expectDate)}
               </span>
             </div>
             <div className="date-cell">
               <span className="date-label">Ship</span>
               <span className="date-value">
-                {job.shipDate ? formatDay(job.shipDate) : '—'}
+                {popupDate(job.shipDate)}
               </span>
             </div>
           </div>
@@ -427,8 +424,6 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                 />
               </span>
             </dd>
-            <dt>Kit</dt>
-            <dd>{PREP_LABEL[job.materialPrep]}</dd>
           </dl>
           {row.predecessors.length > 0 && (
             <div className="inspector-subsection">
@@ -494,6 +489,11 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             <p className="hint">No materials found in JobMaterialReq.csv.</p>
           ) : (
             <div className="pick-list">
+              <div className="pick-list-row pick-list-head" aria-hidden="true">
+                <span>Part</span>
+                <span>Required</span>
+                <span>On hand</span>
+              </div>
               {picks.map((material, index) => (
                 <div className="pick-list-row" key={`${String(material.childPart)}-${index}`}>
                   <span className="part" title={String(material.childPart)}>
@@ -505,6 +505,18 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                     }
                   >
                     {material.requiredQty === null ? '—' : material.requiredQty}
+                  </span>
+                  <span
+                    className={
+                      inventoryByPart?.has(material.childPart) ? 'qty on-hand' : 'qty none'
+                    }
+                    title={
+                      inventoryByPart?.has(material.childPart)
+                        ? 'Calculated_OnHand from OnHandInventory.csv'
+                        : 'Part not found in the loaded OnHandInventory.csv'
+                    }
+                  >
+                    {inventoryByPart?.get(material.childPart)?.onHand ?? '—'}
                   </span>
                 </div>
               ))}

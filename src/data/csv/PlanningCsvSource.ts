@@ -7,11 +7,8 @@
  * lines are scheduled here. The material export is what ties them together:
  * a chair cannot start before the press job making its shell is finished.
  *
- * What the export does *not* carry: inventory, BOM, POs and demand. Those come
- * from the master workbook, so the material engine sees nothing here and every
- * order reads as material-OK. Point `VITE_DATA_SOURCE=excel` at the workbook
- * when the shortage view matters, or add the tables to this source once the
- * PMD dashboard and this page are merged.
+ * On-hand inventory is optional and comes from `OnHandInventory.csv`. BOM,
+ * purchase orders and demand still belong to the master workbook source.
  */
 
 import type {
@@ -40,11 +37,13 @@ import { demoWorkers } from '@/data/mock/roster';
 import {
   fetchJobMaterialCsv,
   fetchPlanningCsv,
+  fetchOnHandInventoryCsv,
   readCsvConfigFromEnv,
   type CsvSourceConfig,
 } from './csv.client';
 import { parsePlanningCsv } from './planning.parser';
 import { parseJobMaterialCsv } from './materialReq.parser';
+import { parseOnHandInventoryCsv } from './onHandInventory.parser';
 
 /** Display name of the roster list in SharePoint. */
 export const OPERATOR_LIST = 'ASSY_Operator';
@@ -57,6 +56,7 @@ export class PlanningCsvSource extends BaseDataSource {
 
   private jobsOnce: Promise<Job[]> | null = null;
   private linksOnce: Promise<JobMaterialLink[]> | null = null;
+  private inventoryOnce: Promise<InventoryItem[]> | null = null;
 
   constructor(
     private readonly csv: CsvSourceConfig = readCsvConfigFromEnv(),
@@ -85,6 +85,7 @@ export class PlanningCsvSource extends BaseDataSource {
   invalidate(): void {
     this.jobsOnce = null;
     this.linksOnce = null;
+    this.inventoryOnce = null;
     this.warnings.length = 0;
   }
 
@@ -169,12 +170,23 @@ export class PlanningCsvSource extends BaseDataSource {
     return values;
   }
 
-  // Not in this export — see the note at the top of the file.
+  // Not in these exports — see the note at the top of the file.
   async fetchRouting(): Promise<RoutingEntry[]> {
     return [];
   }
   async fetchInventory(): Promise<InventoryItem[]> {
-    return [];
+    return (this.inventoryOnce ??= fetchOnHandInventoryCsv(this.csv, this.sp).then(
+      (res) => {
+        if (!res.ok) {
+          this.warnings.push(res.error);
+          return [];
+        }
+        if (res.value === null) return [];
+        const { values, errors } = parseOnHandInventoryCsv(res.value);
+        this.warnings.push(...errors);
+        return values;
+      },
+    ));
   }
   async fetchBom(): Promise<BomLine[]> {
     return [];

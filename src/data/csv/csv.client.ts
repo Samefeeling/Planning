@@ -1,7 +1,7 @@
 /**
- * Fetches the two Epicor exports as text: `Planning1.csv` (the orders) and
- * `JobMaterialReq.csv` (what each order consumes, which is where the
- * dependency chain comes from).
+ * Fetches Epicor CSV exports as text: `Planning1.csv` (orders),
+ * `JobMaterialReq.csv` (material demand and dependencies), and optional
+ * `OnHandInventory.csv` (calculated on-hand quantity by part).
  *
  * Three paths each, in order: a file the planner picked from disk (works
  * today, with no auth), a plain URL (an export dropped on a share or served by
@@ -20,6 +20,7 @@ import {
 
 let manualCsv: string | null = null;
 let manualJobMaterialCsv: string | null = null;
+let manualOnHandInventoryCsv: string | null = null;
 
 /** Stash a `Planning1.csv` the user picked from disk. */
 export function setManualCsv(text: string): void {
@@ -39,6 +40,15 @@ export function getManualJobMaterialCsv(): string | null {
   return manualJobMaterialCsv;
 }
 
+/** Stash an `OnHandInventory.csv` the user picked from disk. */
+export function setManualOnHandInventoryCsv(text: string): void {
+  manualOnHandInventoryCsv = text;
+}
+
+export function getManualOnHandInventoryCsv(): string | null {
+  return manualOnHandInventoryCsv;
+}
+
 export interface CsvSourceConfig {
   /** Direct URL to the order export, if it is served over plain HTTP. */
   url: string;
@@ -48,6 +58,10 @@ export interface CsvSourceConfig {
   linksUrl?: string;
   /** Drive path for the material-link export; empty disables the fetch. */
   linksFilePath?: string;
+  /** Direct URL to OnHandInventory.csv. */
+  inventoryUrl?: string;
+  /** SharePoint drive path for OnHandInventory.csv; empty disables the fetch. */
+  inventoryFilePath?: string;
 }
 
 export function readCsvConfigFromEnv(): CsvSourceConfig {
@@ -58,6 +72,9 @@ export function readCsvConfigFromEnv(): CsvSourceConfig {
     linksUrl: env.VITE_JOB_MATERIAL_CSV_URL ?? '',
     linksFilePath:
       env.VITE_JOB_MATERIAL_CSV_PATH ?? '/Shared Documents/JobMaterialReq.csv',
+    inventoryUrl: env.VITE_ON_HAND_INVENTORY_CSV_URL ?? '',
+    inventoryFilePath:
+      env.VITE_ON_HAND_INVENTORY_CSV_PATH ?? '/Shared Documents/OnHandInventory.csv',
   };
 }
 
@@ -122,6 +139,23 @@ export async function fetchJobMaterialCsv(
   return fetchText(
     'JobMaterialReq.csv',
     graphFile(sp, cfg.linksFilePath),
+    sp.token,
+  );
+}
+
+
+/** Optional on-hand export, using the same manual/URL/Graph order as the other files. */
+export async function fetchOnHandInventoryCsv(
+  cfg: CsvSourceConfig,
+  sp: SharePointConfig,
+): Promise<Result<string | null, string>> {
+  const manual = getManualOnHandInventoryCsv();
+  if (manual !== null) return ok(manual);
+  if (cfg.inventoryUrl) return fetchText('OnHandInventory.csv', cfg.inventoryUrl, null);
+  if (!cfg.inventoryFilePath || !sp.siteUrl || !sp.token) return ok(null);
+  return fetchText(
+    'OnHandInventory.csv',
+    graphFile(sp, cfg.inventoryFilePath),
     sp.token,
   );
 }

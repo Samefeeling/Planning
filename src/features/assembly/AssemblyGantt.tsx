@@ -34,6 +34,7 @@ import {
 } from '@/engine/assembly/workload';
 import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
+import { useDataStore } from '@/store/dataStore';
 import {
   DATE_COLS,
   MAX_ORDER_WIDTH,
@@ -159,6 +160,9 @@ function OrderRowView({
   onMark: (id: string) => void;
   onDependencyHover: (id: string | null) => void;
 }) {
+  const isNew = useDataStore((state) =>
+    state.newOrderIds.includes(String(row.job.id)),
+  );
   const isContext = !row.line.schedulable;
   const lefts = frozenLefts(visibleDates, orderWidth);
   const at = (key: DateCol): React.CSSProperties | undefined =>
@@ -172,10 +176,11 @@ function OrderRowView({
   const orderQty = row.job.remainingQty + row.job.completedQty;
   return (
     <div
-      className={`arow ${selected ? 'selected' : ''} ${isContext ? 'context' : ''} ${row.completedToday ? 'completed-today' : ''}`}
+      className={`arow ${selected ? 'selected' : ''} ${isContext ? 'context' : ''} ${row.completedToday ? 'completed-today' : ''} ${isNew ? 'new-order' : ''}`}
     >
       <div className="acell order">
         <span className="order-id">{String(row.job.id)}</span>
+        {isNew && <span className="new-order-tag">NEW</span>}
         {/* On UPL the badge names the bench: Epicor calls both the softies and
             the upholstering "upholstery", and which of the three steps this is
             is the thing worth reading. */}

@@ -27,6 +27,8 @@ const LINKS = [
 
 const CSV_URL = 'https://example.test/Planning1.csv';
 const LINKS_URL = 'https://example.test/JobMaterialReq.csv';
+const INVENTORY_URL = 'https://example.test/OnHandInventory.csv';
+const INVENTORY = 'Part_PartNum,Calculated_OnHand\n7911FR,42';
 const SP: SharePointConfig = {
   siteUrl: 'https://contoso.sharepoint.com/sites/PMD',
   filePath: '',
@@ -44,6 +46,9 @@ function stubNetwork(roster: unknown = ROSTER) {
     }
     if (url === LINKS_URL) {
       return new Response(LINKS, { status: 200 });
+    }
+    if (url === INVENTORY_URL) {
+      return new Response(INVENTORY, { status: 200 });
     }
     if (url.includes('/lists/')) {
       return new Response(JSON.stringify(roster), {
@@ -175,6 +180,20 @@ describe('PlanningCsvSource', () => {
       childPart: '7911FR',
       requiredQty: 30,
     });
+  });
+
+  it('reads OnHandInventory.csv when configured and indexes its on-hand value', async () => {
+    stubNetwork();
+    const s = new PlanningCsvSource(
+      { url: CSV_URL, filePath: '', inventoryUrl: INVENTORY_URL },
+      SP,
+    );
+    const res = await s.loadAll();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.inventory).toHaveLength(1);
+    expect(res.value.inventory[0]).toMatchObject({ onHand: 42, freeOnHand: 42 });
+    expect(String(res.value.inventory[0].partNum)).toBe('7911FR');
   });
 
   it('still schedules when the material export is unreachable', async () => {

@@ -14,6 +14,7 @@ import { useDragDrop } from '@/features/assembly/useDragDrop';
 import { AssemblyGantt } from '@/features/assembly/AssemblyGantt';
 import { BoardTools } from '@/features/assembly/BoardTools';
 import { AssemblyInspector } from '@/features/assembly/AssemblyInspector';
+import { BarcodeOrderLookup } from '@/features/assembly/BarcodeOrderLookup';
 import { AssemblyPool } from '@/features/assembly/AssemblyPool';
 import { OvertimePrompt } from '@/features/assembly/OvertimePrompt';
 import { ClashPrompt } from '@/features/assembly/ClashPrompt';
@@ -198,6 +199,7 @@ export default function App() {
         <div className="head-side end">
           <SuggestCrew board={board} />
           <SupervisorLock />
+          <BarcodeOrderLookup board={board} />
           <CsvLoader />
           <RefreshControl onRefresh={async () => {
             await refresh();
