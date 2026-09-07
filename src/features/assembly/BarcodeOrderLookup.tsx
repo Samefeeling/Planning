@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { useUiStore } from '@/store/uiStore';
+import { createBarcodeBuffer } from './barcodeScanner';
 import { Button } from '@/ui';
 
 export function findBarcodeJobId(raw: string, knownIds: Iterable<string>): string | null {
@@ -29,6 +30,48 @@ export function BarcodeOrderLookup({ board }: { board: AssemblyGanttView | null 
     if (open) input.current?.focus();
   }, [open]);
 
+  useEffect(() => {
+    if (!board) return;
+    const scanner = createBarcodeBuffer((raw) => {
+      const jobId = findBarcodeJobId(raw, board.rowsByJob.keys());
+      if (!jobId) {
+        setValue(raw);
+        setProblem(`Order not found: ${raw}`);
+        setOpen(true);
+        return;
+      }
+      // Use the same selection action as clicking an order on the board.
+      select(jobId, { x: window.innerWidth / 2, y: 90 });
+      setValue('');
+      setProblem(null);
+      setOpen(false);
+    });
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      const editing = target instanceof Element && (
+        target.closest('input, textarea, select, [role="textbox"]') !== null ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      );
+      const blocked = editing || event.isComposing || event.repeat ||
+        event.ctrlKey || event.altKey || event.metaKey ||
+        document.visibilityState !== 'visible' || !document.hasFocus();
+      if (scanner.push(event.key, event.timeStamp, blocked)) {
+        // The scanner's suffix must not activate a focused button or submit a form.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    const reset = () => scanner.reset();
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('blur', reset);
+    document.addEventListener('visibilitychange', reset);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('blur', reset);
+      document.removeEventListener('visibilitychange', reset);
+    };
+  }, [board, select]);
+
   if (!board) return null;
   const submit = () => {
     const jobId = findBarcodeJobId(value, board.rowsByJob.keys());
@@ -45,7 +88,7 @@ export function BarcodeOrderLookup({ board }: { board: AssemblyGanttView | null 
 
   return (
     <span className="barcode-lookup">
-      <Button onClick={() => setOpen((current) => !current)} title="Scan a job number barcode">
+      <Button onClick={() => setOpen((current) => !current)} title="Scan anywhere on the focused board, or click to enter an order number">
         Scan order
       </Button>
       {open && (
@@ -66,7 +109,7 @@ export function BarcodeOrderLookup({ board }: { board: AssemblyGanttView | null 
             />
             <Button variant="primary" type="submit">Open</Button>
           </div>
-          <small>USB and Bluetooth scanners type the job number here and press Enter.</small>
+          <small>Scan anywhere on the focused board with Enter or Tab as the scanner suffix. While editing a field, click outside it before scanning. You can also enter an order here.</small>
           {problem && <span className="barcode-error" role="alert">{problem}</span>}
         </form>
       )}
