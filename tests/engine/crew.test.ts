@@ -116,10 +116,13 @@ describe('suggestCrew', () => {
 
     const after = board(suggestCrew(before, settle).allocations);
     const scheduled = [...after.rowsByJob.values()].filter(
-      (r) => typeof r.days === 'number' && r.days > 0,
+      (r) =>
+        typeof r.days === 'number' &&
+        r.days > 0 &&
+        r.uncoveredHours <= 1e-9,
     );
-    // Zero-work rows use a zero-day marker and may have no future Expect Date.
-    // Most of the active board gets a bar. What it cannot place without putting
+    // A partly covered order has worked days but no Expect Date until enough
+    // crew coverage exists to finish it. Most of the active board gets a full bar. What it cannot place without putting
     // somebody on two orders at once it leaves alone, on purpose.
     expect(scheduled.length).toBeGreaterThan(bare.length / 2);
     for (const row of scheduled) expect(row.expectDate).not.toBeNull();
