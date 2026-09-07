@@ -1,3 +1,4 @@
+import { formatDay } from '@/lib/time';
 /**
  * A person's name in the board header, with their week of work behind it.
  *
@@ -19,11 +20,6 @@ import {
   type WorkerLoad,
 } from '@/engine/assembly/workload';
 
-const DAY_FMT = new Intl.DateTimeFormat(undefined, {
-  weekday: 'short',
-  day: 'numeric',
-  month: 'numeric',
-});
 
 const hrs = (n: number): string => `${n.toFixed(1)} h`;
 
@@ -118,7 +114,7 @@ export function WorkerLoadChip({
 
   /** What one square means, spelled out for the hover. */
   const dayTitle = (day: (typeof preview)[number]): string => {
-    const when = DAY_FMT.format(day.date);
+    const when = formatDay(day.date);
     if (day.capacity <= 0) {
       return day.hours > 0
         ? `${when} — ${hrs(day.hours)} booked on a day off`
@@ -229,7 +225,7 @@ export function WorkerLoadChip({
                     day.working ? '' : day.hours > 0 ? 'overtime' : 'closed'
                   }`}
                 >
-                  <span className="wl-day">{DAY_FMT.format(day.date)}</span>
+                  <span className="wl-day">{formatDay(day.date)}</span>
                   <span className="wl-meter">
                     <i className={band} style={{ width: `${fill}%` }} />
                   </span>

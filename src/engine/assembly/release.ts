@@ -1,3 +1,4 @@
+import { formatDay } from '@/lib/time';
 /**
  * The release gate: may the supervisor start this order?
  *
@@ -58,7 +59,7 @@ export function releaseCheck(
   // Stock only arrives later — schedulable, but not startable now.
   if (material.level === 'covered') {
     const when = material.earliestStart
-      ? material.earliestStart.toLocaleDateString()
+      ? formatDay(material.earliestStart)
       : 'a future PO';
     return {
       level: 'caution',

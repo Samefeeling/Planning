@@ -17,13 +17,8 @@ import { usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
 import { useUiStore } from '@/store/uiStore';
 import { Button } from '@/ui';
-import { fromDayKey } from '@/lib/time';
+import { fromDayKey, formatDay } from '@/lib/time';
 
-const WEEKDAY = new Intl.DateTimeFormat(undefined, {
-  weekday: 'long',
-  day: 'numeric',
-  month: 'short',
-});
 
 export function OvertimePrompt() {
   const request = useUiStore((s) => s.overtimeRequest);
@@ -66,7 +61,7 @@ export function OvertimePrompt() {
         <h2 id="ot-title">Weekend working</h2>
         <p>
           <strong>{request.jobId}</strong> was dropped on{' '}
-          <strong>{WEEKDAY.format(dropped)}</strong>. The factory is closed that
+          <strong>{formatDay(dropped)}</strong>. The factory is closed that
           day, so running it needs overtime.
         </p>
         <p className="ot-note">
@@ -87,7 +82,7 @@ export function OvertimePrompt() {
             Approve overtime
           </Button>
           <Button onClick={toMonday}>
-            Move to {WEEKDAY.format(monday)}
+            Move to {formatDay(monday)}
           </Button>
           <Button onClick={clear}>Cancel</Button>
         </div>

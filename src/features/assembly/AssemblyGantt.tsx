@@ -1,3 +1,4 @@
+import { formatDay, formatShortDay, formatTime } from '@/lib/time';
 /**
  * The assembly main board.
  *
@@ -73,21 +74,13 @@ const TEAM_W = 172;
 /** How often the "now" line catches up with the clock. */
 const CLOCK_TICK_MS = 5 * 60 * 1000;
 
-const DAY_FMT = new Intl.DateTimeFormat(undefined, {
-  day: 'numeric',
-  month: 'numeric',
-});
-const SHORT_FMT = new Intl.DateTimeFormat(undefined, {
-  day: '2-digit',
-  month: '2-digit',
-});
-const TIME_FMT = new Intl.DateTimeFormat(undefined, {
+const TIME_FMT = new Intl.DateTimeFormat('en-AU', {
   hour: '2-digit',
   minute: '2-digit',
   hour12: false,
 });
 
-const fmt = (d: Date | null): string => (d ? SHORT_FMT.format(d) : '—');
+const fmt = (d: Date | null): string => (d ? formatShortDay(d) : '—');
 
 /**
  * Where each frozen column starts, left to right.
@@ -223,14 +216,14 @@ function OrderRowView({
           style={startStyle}
           title={
             (mustStart
-              ? `Must start by ${mustStart.toLocaleString()} — ` +
+              ? `Must start by ${formatDay(mustStart) + ' ' + formatTime(mustStart)} — ` +
                 `${remainingHours(row.job).toFixed(1)} h counted back from the ` +
                 `due date at ${PRODUCTIVE_HOURS_PER_PERSON} h a day for ` +
                 `${Math.max(1, row.workers.length)} ` +
                 `${row.workers.length === 1 ? 'person' : 'people'}`
               : 'No due date to count back from') +
             (startAt
-              ? `\nEpicor scheduled ${startAt.toLocaleString()}`
+              ? `\nEpicor scheduled ${formatDay(startAt) + ' ' + formatTime(startAt)}`
               : '\nNo scheduled start in the export')
           }
         >
@@ -797,7 +790,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
                   }
                 >
                   <span className="daycol-date">
-                    {DAY_FMT.format(d)}
+                    {formatShortDay(d)}
                     {load.isToday && <b className="today-tag">today</b>}
                     {load.past && <b className="past-tag">done</b>}
                   </span>

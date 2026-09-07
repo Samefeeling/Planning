@@ -59,9 +59,7 @@ const isoDay = (d: Date): string =>
 
 /** Fixed numeric date for the production popup, independent of browser locale. */
 export const popupDate = (date: Date | null): string =>
-  date
-    ? `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`
-    : '—';
+  date ? formatDay(date) : '—';
 
 export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
@@ -352,7 +350,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           {/* Plain date lines keep the narrow schedule section easy to scan. */}
           <div className="date-rail">
             <div className="date-cell" title="Order start date">
-              <span className="date-label">Start Date</span>
+              <span className="date-label">Start</span>
               <span className="date-value">{popupDate(job.startDate)}</span>
             </div>
             <div className="date-cell">
