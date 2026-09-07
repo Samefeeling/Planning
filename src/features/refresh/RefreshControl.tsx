@@ -12,7 +12,7 @@ export function RefreshControl({ onRefresh }: { onRefresh: () => void }) {
     <div className="zoom">
       {loading && <Spinner />}
       <span className="sub">
-        {fetchedAt ? `Planning1.csv updated ${formatTime(fetchedAt)}` : 'Planning1.csv update time unavailable'}
+        {fetchedAt ? `updated ${formatTime(fetchedAt)}` : 'Update time unavailable'}
       </span>
       {newOrderIds.length > 0 && (
         <span

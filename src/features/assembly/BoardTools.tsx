@@ -10,7 +10,7 @@
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { DATE_COLS, DATE_COL_LABEL, useUiStore } from '@/store/uiStore';
 import { countRunningOrders } from './boardView';
-import { fromDayKey, toDayKey } from '@/lib/time';
+import { fromDayKey } from '@/lib/time';
 
 /** How much one press of − or + moves the day column, in pixels. */
 const ZOOM_STEP = 16;
@@ -21,9 +21,7 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
   const dateCols = useUiStore((s) => s.dateCols);
   const toggleDateCol = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
-  const setOrderWindow = useUiStore((s) => s.setOrderWindow);
   const orderDay = useUiStore((s) => s.orderDay);
-  const setOrderDay = useUiStore((s) => s.setOrderDay);
   const showWeekends = useUiStore((s) => s.showWeekends);
   const toggleWeekends = useUiStore((s) => s.toggleWeekends);
 
@@ -59,33 +57,6 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
       >
         {board.totals.remainingHours.toFixed(0)} h on the board
       </span>
-      <span className="order-window" aria-label="Order date window">
-        <button
-          className={orderWindow === 'all' ? 'active' : ''}
-          onClick={() => setOrderWindow('all')}
-        >
-          All orders
-        </button>
-        <button
-          className={orderWindow === 'next-five' ? 'active' : ''}
-          onClick={() => setOrderWindow('next-five')}
-          title="Orders running today or during the next five working days"
-        >
-          5 working days
-        </button>
-      </span>
-      <label className="order-day-filter">
-        Filter date
-        <input
-          type="date"
-          aria-label="Filter orders running on date"
-          value={orderWindow === 'day' ? orderDay ?? '' : ''}
-          onChange={(event) => setOrderDay(event.target.value || null)}
-        />
-      </label>
-      <button className="date-restore" onClick={() => setOrderDay(toDayKey(board.today))}>
-        Today
-      </button>
       {orderWindow === 'day' && orderDay && (
         <span className="board-load" role="status">
           {running} {running === 1 ? 'order' : 'orders'} running
@@ -114,13 +85,6 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
         </button>
       ))}
       <MarkedSet />
-      <MaterialLinks board={board} />
-      {board.dependencyWarnings.length > 0 && (
-        <span className="board-warn" title={board.dependencyWarnings.join('\n')}>
-          {board.dependencyWarnings.length} material link
-          {board.dependencyWarnings.length === 1 ? '' : 's'} not used
-        </span>
-      )}
     </div>
   );
 }
@@ -150,56 +114,3 @@ function MarkedSet() {
   );
 }
 
-/**
- * What `JobMaterialReq.csv` actually did to the board.
- *
- * The file's whole job is to say which order has to finish before which, and
- * that is invisible until something waits — so this counts the orders that
- * ended up with a predecessor and spells every one of them out on hover.
- * Loading the file and seeing nothing change is otherwise indistinguishable
- * from loading the wrong file.
- */
-function MaterialLinks({ board }: { board: AssemblyGanttView }) {
-  const rows = [...board.rowsByJob.values()].filter(
-    (row) => row.predecessors.length > 0,
-  );
-  if (rows.length === 0) {
-    return (
-      <span
-        className="board-load"
-        title={
-          'No order on this board waits for another. Load JobMaterialReq.csv ' +
-          'to bring the material links in — without them every order is free ' +
-          'to start on its own date.'
-        }
-      >
-        No order links
-      </span>
-    );
-  }
-
-  // "ASM8020 (Upholstery) waits on ASM8019 · SFA3S-STRM-SS" — the whole graph
-  // in running order. An arrow only exists where both bars are on screen, so
-  // the count includes links the board cannot currently draw, and this is
-  // where you find out which ones those are.
-  const links = [...board.groups.flatMap((group) => group.rows)]
-    .filter((row) => row.predecessors.length > 0)
-    .sort((a, b) => a.plannedStart.getTime() - b.plannedStart.getTime())
-    .flatMap((row) =>
-      row.predecessors.map(
-        (dep) =>
-          `${String(row.job.id)} (${row.line.name}) waits on ` +
-          `${String(dep.onJobId)}${dep.part ? ` · ${String(dep.part)}` : ''}`,
-      ),
-    )
-    .join('\n');
-
-  return (
-    <span
-      className="board-load"
-      title={`Drawn as arrows wherever both orders are on screen:\n${links}`}
-    >
-      {rows.length} order{rows.length === 1 ? '' : 's'} wait on another
-    </span>
-  );
-}

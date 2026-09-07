@@ -12,7 +12,6 @@ import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { findOrderRow } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
-import { PRODUCTIVE_HOURS_PER_PERSON } from '@/domain/assembly';
 import { remainingQty } from '@/engine/assembly/duration';
 import { startEligibility } from '@/engine/assembly/release';
 import { formatDay, formatTime } from '@/lib/time';
@@ -172,11 +171,6 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   if (!row) return null;
 
   const { job, status } = row;
-  // Started later than the last day that still hits Due — the same fact the
-  // red Expect Date carries, said as the day it needed to begin.
-  const late = Boolean(
-    row.mustStartBy && row.start && row.start > row.mustStartBy,
-  );
   const left = remainingQty(job);
   const existingToday = productionEntries.find((entry) => entry.date === today);
   const maxComplete = left + (existingToday?.complete ?? 0);
@@ -357,35 +351,15 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           <h3>Schedule</h3>
           {/* Plain date lines keep the narrow schedule section easy to scan. */}
           <div className="date-rail">
+            <div className="date-cell" title="Order start date">
+              <span className="date-label">Start Date</span>
+              <span className="date-value">{popupDate(job.startDate)}</span>
+            </div>
             <div className="date-cell">
               <span className="date-label">Due</span>
               <span className="date-value">
                 {popupDate(job.dueDate)}
               </span>
-            </div>
-            {/* Where Epicor's own Start Date comes from: the due date less the
-                work, at 7.5 productive hours a person a day. Derived here at
-                the crew actually on the order, so a gap against the export is
-                a difference in crew size or hours, not a mystery. */}
-            <div
-              className="date-cell"
-              title={
-                row.mustStartBy
-                  ? `Last day work can begin and still finish by the due date, ` +
-                    `with ${row.workers.length} on it at ` +
-                    `${PRODUCTIVE_HOURS_PER_PERSON} productive hours a day ` +
-                    `(07:00–15:30 less morning tea and lunch)` +
-                    (job.startDate
-                      ? `. Epicor scheduled it to start ${formatDay(job.startDate)}.`
-                      : '.')
-                  : 'Nobody is on this order, so there is no rate to count back at'
-              }
-            >
-              <span className="date-label">Must start</span>
-              <span className={`date-value ${late ? 'red' : ''}`}>
-                {popupDate(row.mustStartBy)}
-              </span>
-              {late && <span className="date-note">plan starts later</span>}
             </div>
             <div className="date-cell">
               <span className="date-label">Expect</span>
