@@ -119,7 +119,7 @@ describe('suggestCrew', () => {
       (r) =>
         typeof r.days === 'number' &&
         r.days > 0 &&
-        r.uncoveredHours <= 1e-9,
+        (r.uncoveredHours ?? 0) <= 1e-9,
     );
     // A partly covered order has worked days but no Expect Date until enough
     // crew coverage exists to finish it. Most of the active board gets a full bar. What it cannot place without putting
