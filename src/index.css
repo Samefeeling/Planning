@@ -491,22 +491,19 @@ button {
 
 /* ---- the four dates, read across ---------------------------------------- */
 .date-rail {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  margin-bottom: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--border);
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 14px;
 }
 .date-cell {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 5px 8px 6px;
-  background: var(--surface-2);
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 8px;
 }
+.date-cell .date-note { flex-basis: 100%; text-align: right; }
 .date-label {
   color: var(--faint);
   font-size: 9.5px;
@@ -802,7 +799,7 @@ button {
 .pick-list { display: grid; }
 .pick-list-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(58px, auto) minmax(62px, auto);
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(52px, auto));
   gap: 12px;
   align-items: baseline;
   padding: 3px 0;
@@ -2179,3 +2176,17 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
 .ord-type { background: var(--surface-3); color: var(--muted); border-radius: 4px; padding: 0 5px; font-size: 10px; font-weight: 700; }
 .ord-desc { font-size: 11px; line-height: 1.25; color: var(--muted); }
 .ord-meta { display: flex; gap: 4px; font-size: 10.5px; color: var(--faint); }
+
+/* Reversible local exclusions for orders outside the current production scope. */
+.ignored-order-tools { position: relative; }
+.ignored-order-tools summary { cursor: pointer; font-size: 11px; }
+.ignored-order-tools ul {
+  position: absolute; right: 0; top: 100%; z-index: 85;
+  width: 340px; max-height: 320px; overflow: auto; margin: 6px 0;
+  padding: 10px; list-style: none; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+}
+.ignored-order-tools li { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.ignored-order-tools li span { flex: 1; min-width: 0; }
+.pool-ignore { margin-top: 6px; cursor: pointer; }

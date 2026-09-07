@@ -7,6 +7,8 @@ import { normalizeHeader, parseCsv } from '@/lib/csv';
 const aliases = {
   part: ['partpartnum', 'partnum'],
   onHand: ['calculatedonhand', 'onhand'],
+  demand: ['calculateddemand', 'demand'],
+  description: ['partdescription', 'description'],
 } as const;
 
 const column = (headers: string[], names: readonly string[]): number =>
@@ -31,6 +33,8 @@ export function parseOnHandInventoryCsv(text: string): {
   const headers = rows[0].map(normalizeHeader);
   const partCol = column(headers, aliases.part);
   const onHandCol = column(headers, aliases.onHand);
+  const demandCol = column(headers, aliases.demand);
+  const descriptionCol = column(headers, aliases.description);
   if (partCol < 0 || onHandCol < 0) {
     return {
       values: [],
@@ -41,6 +45,8 @@ export function parseOnHandInventoryCsv(text: string): {
   }
 
   const totals = new Map<string, number>();
+  const demands = new Map<string, number>();
+  const descriptions = new Map<string, string>();
   const errors: string[] = [];
   rows.slice(1).forEach((row, index) => {
     const part = row[partCol]?.trim();
@@ -51,17 +57,25 @@ export function parseOnHandInventoryCsv(text: string): {
       return;
     }
     totals.set(part, (totals.get(part) ?? 0) + onHand);
+    const demand = numberValue(row[demandCol]);
+    if (demand !== null) demands.set(part, (demands.get(part) ?? 0) + demand);
+    else if (demandCol >= 0 && row[demandCol]?.trim()) {
+      errors.push(`OnHandInventory.csv row ${index + 2}: invalid Calculated_Demand`);
+    }
+    const description = row[descriptionCol]?.trim();
+    if (description) descriptions.set(part, description);
   });
 
   return {
     values: [...totals].map(([partNum, onHand]) => ({
       partNum: PartId(partNum),
-      description: '',
+      description: descriptions.get(partNum) ?? '',
       typeCode: null,
       onHand,
       cmplWip: 0,
       supply: 0,
-      demand: 0,
+      demand: demands.get(partNum) ?? 0,
+      calculatedDemand: demands.get(partNum) ?? null,
       freeOnHand: onHand,
     })),
     errors,

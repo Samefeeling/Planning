@@ -355,9 +355,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       <div className="inspector-grid">
         <section className="inspector-section job-info">
           <h3>Schedule</h3>
-          {/* The four dates read across, not down: they are compared with each
-              other far more often than they are read one at a time, and a
-              column of labelled rows makes that comparison hard work. */}
+          {/* Plain date lines keep the narrow schedule section easy to scan. */}
           <div className="date-rail">
             <div className="date-cell">
               <span className="date-label">Due</span>
@@ -493,10 +491,11 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                 <span>Part</span>
                 <span>Required</span>
                 <span>On hand</span>
+                <span title="Calculated_Demand">Demand</span>
               </div>
               {picks.map((material, index) => (
                 <div className="pick-list-row" key={`${String(material.childPart)}-${index}`}>
-                  <span className="part" title={String(material.childPart)}>
+                  <span className="part" title={inventoryByPart?.get(material.childPart)?.description || String(material.childPart)}>
                     {String(material.childPart)}
                   </span>
                   <span
@@ -517,6 +516,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                     }
                   >
                     {inventoryByPart?.get(material.childPart)?.onHand ?? '—'}
+                  </span>
+                  <span className="qty" title="Calculated_Demand from OnHandInventory.csv">
+                    {inventoryByPart?.get(material.childPart)?.calculatedDemand ?? '—'}
                   </span>
                 </div>
               ))}

@@ -19,6 +19,8 @@ import type { Job } from '@/domain/types';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { POOL_ID } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
+import { useIgnoredOrders } from '@/store/ignoredOrders';
+import { useSupervisorStore } from '@/store/supervisorStore';
 import { formatDay } from '@/lib/time';
 
 function PoolCard({
@@ -31,6 +33,8 @@ function PoolCard({
   onSelect: (id: string, at?: { x: number; y: number }) => void;
 }) {
   const id = String(job.id);
+  const ignore = useIgnoredOrders((s) => s.ignore);
+  const unlocked = useSupervisorStore((s) => s.unlocked);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id,
     data: { type: 'job', jobId: id },
@@ -49,6 +53,11 @@ function PoolCard({
           <span className="ord-type">{ORDER_TYPE_SHORT[job.orderType]}</span>
         )}
       </div>
+      <button className="pool-ignore" disabled={!unlocked}
+        onPointerDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); ignore(id); }}
+        title="Ignore this order on this browser; restore it from Review orders">Ignore</button>
       <div className="ord-desc">{job.description || String(job.partNum)}</div>
       <div className="ord-meta">
         <span>{job.remainingQty} pcs</span>
@@ -68,7 +77,9 @@ export function AssemblyPool({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
   const { active } = useDndContext();
 
-  const empty = board.pool.length === 0;
+  const ignoredIds = useIgnoredOrders((s) => s.ids);
+  const pool = board.pool.filter((job) => !ignoredIds.includes(String(job.id)));
+  const empty = pool.length === 0;
   if (empty && !active) return null;
 
   return (
@@ -81,10 +92,10 @@ export function AssemblyPool({ board }: { board: AssemblyGanttView }) {
       ) : (
         <div className="pool-list">
           <h2>
-            {board.pool.length} order{board.pool.length === 1 ? '' : 's'} on no
+            {pool.length} order{pool.length === 1 ? '' : 's'} on no
             line — drag one onto a line to schedule it
           </h2>
-          {board.pool.map((job) => (
+          {pool.map((job) => (
             <PoolCard
               key={String(job.id)}
               job={job}

@@ -28,3 +28,14 @@ describe('OnHandInventory.csv', () => {
     expect(result.values).toHaveLength(1);
   });
 });
+
+describe('inventory demand and descriptions', () => {
+  it('sums demand and retains the description for repeated parts', () => {
+    const result = parseOnHandInventoryCsv('Part_PartNum,Calculated_OnHand,Calculated_Demand,Part_PartDescription\nA,10,2,Bracket\nA,5,3,Bracket');
+    expect(result.values[0]).toMatchObject({ onHand: 15, calculatedDemand: 5, description: 'Bracket' });
+  });
+  it('distinguishes unknown demand from zero demand', () => {
+    const result = parseOnHandInventoryCsv('Part_PartNum,Calculated_OnHand,Calculated_Demand\nA,10,\nB,5,0');
+    expect(result.values.map((item) => item.calculatedDemand)).toEqual([null, 0]);
+  });
+});

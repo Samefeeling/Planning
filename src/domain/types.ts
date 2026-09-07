@@ -83,6 +83,8 @@ export interface InventoryItem {
   cmplWip: number;
   supply: number;
   demand: number;
+  /** Raw optional Calculated_Demand from the on-hand export; null means unknown. */
+  calculatedDemand?: number | null;
   /** Calculated free-on-hand = onHand + supply − demand (may be negative). */
   freeOnHand: number;
 }

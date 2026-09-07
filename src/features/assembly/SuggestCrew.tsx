@@ -15,6 +15,8 @@
  * behind a label.
  */
 
+import { useIgnoredOrders, withoutIgnoredOrders } from '@/store/ignoredOrders';
+import { remainingHours, remainingQty } from '@/engine/assembly/duration';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
 import { countUnstaffed, suggestCrew } from '@/engine/assembly/crew';
 import { recomputeAssemblyGantt } from '@/store/assemblySelectors';
@@ -28,9 +30,21 @@ export function SuggestCrew({ board }: { board: AssemblyGanttView | null }) {
   const workerLineOverrides = usePlanStore((s) => s.workerLines);
   const unlocked = useSupervisorStore((s) => s.unlocked);
 
-  const waiting = board ? countUnstaffed(board) : 0;
+  const ignoredIds = useIgnoredOrders((s) => s.ids);
+  const ignore = useIgnoredOrders((s) => s.ignore);
+  const restore = useIgnoredOrders((s) => s.restore);
+  const candidates = board ? withoutIgnoredOrders(board, ignoredIds) : null;
+  const waiting = candidates ? countUnstaffed(candidates) : 0;
   // Nothing to say when every order already has its people.
-  if (!board || waiting === 0) return null;
+  if (!board) return null;
+  const pending = board.groups.filter((g) => g.line.schedulable).flatMap((g) => g.rows)
+    .filter((r) => r.workers.length === 0 && !r.completedToday && remainingQty(r.job) > 0 && remainingHours(r.job) > 0);
+  const jobs = new Map([...board.pool, ...pending.map((r) => r.job)].map((job) => [String(job.id), job]));
+  for (const id of ignoredIds) {
+    const row = board.rowsByJob.get(id);
+    if (row) jobs.set(id, row.job);
+  }
+  if (waiting === 0 && ignoredIds.length === 0) return null;
 
   const crewThem = () => {
     const rows = board.groups.flatMap((group) => group.rows);
@@ -41,15 +55,16 @@ export function SuggestCrew({ board }: { board: AssemblyGanttView | null }) {
       workerLineOverrides,
     );
     const { allocations } = suggestCrew(
-      board,
-      (soFar) => recomputeAssemblyGantt(soFar) ?? board,
+      withoutIgnoredOrders(board, ignoredIds),
+      (soFar) => withoutIgnoredOrders(recomputeAssemblyGantt(soFar) ?? board, ignoredIds),
       workerLines,
     );
     assignCrews(allocations);
   };
 
   return (
-    <Button
+    <>
+    {waiting > 0 && <Button
       onClick={crewThem}
       disabled={!unlocked}
       title={
@@ -63,6 +78,20 @@ export function SuggestCrew({ board }: { board: AssemblyGanttView | null }) {
       }
     >
       Crew {waiting} orders
-    </Button>
+    </Button>}
+    <details className="ignored-order-tools">
+      <summary>Review orders{ignoredIds.length > 0 ? ` · ${ignoredIds.length} ignored` : ''}</summary>
+      <ul>
+        {[...new Set([...jobs.keys(), ...ignoredIds])].map((id) => (
+          <li key={id}>
+            <span title={jobs.get(id)?.description}>{id}{ignoredIds.includes(id) ? ' · Ignored' : ''}</span>
+            <button disabled={!unlocked} onClick={() => ignoredIds.includes(id) ? restore(id) : ignore(id)}>
+              {ignoredIds.includes(id) ? 'Restore' : 'Ignore'}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
+    </>
   );
 }
