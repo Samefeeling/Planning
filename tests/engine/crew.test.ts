@@ -116,9 +116,9 @@ describe('suggestCrew', () => {
 
     const after = board(suggestCrew(before, settle).allocations);
     const scheduled = [...after.rowsByJob.values()].filter(
-      (r) => r.days !== null && !r.completedToday,
+      (r) => typeof r.days === 'number' && r.days > 0,
     );
-    // Completed rows use a zero-day marker and may have no future Expect Date.
+    // Zero-work rows use a zero-day marker and may have no future Expect Date.
     // Most of the active board gets a bar. What it cannot place without putting
     // somebody on two orders at once it leaves alone, on purpose.
     expect(scheduled.length).toBeGreaterThan(bare.length / 2);
