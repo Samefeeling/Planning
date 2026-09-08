@@ -56,6 +56,7 @@ import {
   isRunningOnDay,
   runningOrdersByDay,
   lineOfWorkerToday,
+  withPredecessors,
   type OrderSortKey,
 } from './boardView';
 import { useStableBoardOrder } from './useStableBoardOrder';
@@ -284,6 +285,7 @@ function OrderRowView({
  */
 function LineGroupView({
   group,
+  total,
   board,
   allRows,
   gridWidth,
@@ -307,6 +309,8 @@ function LineGroupView({
   onDependencyHover,
 }: {
   group: LineGroup;
+  /** Orders on the line, before any date window narrowed what is drawn. */
+  total: number;
   board: AssemblyGanttView;
   allRows: OrderRow[];
   gridWidth: number;
@@ -376,7 +380,20 @@ function LineGroupView({
           {!group.line.schedulable && (
             <span className="agroup-note">plan only</span>
           )}
-          <span className="agroup-count">{group.rows.length}</span>
+          {/* "9 of 11" whenever the two differ: a line quietly showing two
+              thirds of itself is the thing a planner has to be able to see. */}
+          <span
+            className="agroup-count"
+            title={
+              group.rows.length === total
+                ? `${total} orders on this line`
+                : `${group.rows.length} of ${total} orders shown — the rest are outside the date window`
+            }
+          >
+            {group.rows.length === total
+              ? total
+              : `${group.rows.length} of ${total}`}
+          </span>
 
           {/* The line's own work load: remaining standard hours, and how long
               the crew on it needs to clear them. */}
@@ -504,24 +521,41 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
     [board],
   );
   const orderedGroups = useStableBoardOrder(board.groups, sort);
+  /**
+   * The ids a date filter leaves on screen, or null when there is no filter.
+   *
+   * Worked out across the whole board rather than line by line, because what
+   * an order waits for is usually on another line — the press work on PMD,
+   * most often — and a chain cut at the line boundary is what made the arrows
+   * come and go as bars were dragged.
+   */
+  const visibleIds = useMemo(() => {
+    const chosen =
+      orderWindow === 'next-five'
+        ? (row: OrderRow) => isInNextWorkingDays(row, board.today)
+        : orderWindow === 'day' && orderDay
+          ? (row: OrderRow) => isRunningOnDay(row, fromDayKey(orderDay))
+          : null;
+    return chosen ? withPredecessors(allRows, chosen) : null;
+  }, [allRows, board.today, orderWindow, orderDay]);
   const visibleGroups = useMemo(
     () =>
       orderedGroups.map((group) => ({
         ...group,
-        rows:
-          orderWindow === 'next-five'
-            ? group.rows.filter((row) => isInNextWorkingDays(row, board.today))
-            : orderWindow === 'day' && orderDay
-              ? group.rows.filter((row) =>
-                  isRunningOnDay(row, fromDayKey(orderDay)),
-                )
-              : group.rows,
-        // The line keeps its own load. How much work is standing on a line
-        // does not change because somebody narrowed the view to one day, and
-        // the engine has already worked it out over all of them — this used
-        // to throw that away and count the filtered rows instead.
+        rows: visibleIds
+          ? group.rows.filter((row) => visibleIds.has(String(row.job.id)))
+          : group.rows,
+        // How many the line actually holds, which is not what is on screen
+        // once a window is on. The header counted the rows it was given, so a
+        // filtered line read as a line with fewer orders on it.
+        //
+        // The line keeps its own load for the same reason. How much work is
+        // standing on a line does not change because somebody narrowed the
+        // view to one day, and the engine has already worked it out over all
+        // of them — this used to throw that away and count the filtered rows.
+        total: group.rows.length,
       })),
-    [orderedGroups, board.today, orderWindow, orderDay],
+    [orderedGroups, visibleIds],
   );
   const visibleRows = useMemo(
     () => visibleGroups.flatMap((group) => group.rows),
@@ -816,6 +850,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
         <LineGroupView
           key={group.line.key}
           group={group}
+          total={group.total}
           board={board}
           allRows={allRows}
           gridWidth={gridWidth}

@@ -22,6 +22,7 @@ import {
   sortLineRows,
   teamSummary,
   timelineDayOffset,
+  withPredecessors,
 } from '@/features/assembly/boardView';
 
 const row = (
@@ -149,6 +150,36 @@ describe('assembly board view controls', () => {
     expect(rows.map((r) => r.job.id)).toEqual(['A', 'B']);
     b.actualStart = { startedAt: '2026-09-02T07:00:00', operatorIds: [], operatorNames: [], overrideReason: null };
     expect(sortLineRows([changed, b], sort).map((r) => r.job.id)).toEqual(['B', 'A']);
+  });
+
+  it('keeps what the shown orders are waiting for, all the way up the chain', () => {
+    // The press job for the shell ran last week, so no date filter would pick
+    // it — and the arrow from it to the chair is drawn only where both bars
+    // are on screen. Narrowing the board used to cut the chain silently.
+    const chair = row('chair', { start: '2026-09-10' });
+    const cover = row('cover', { start: '2026-08-20' });
+    const shell = row('shell', { start: '2026-08-14' });
+    const unrelated = row('unrelated', { start: '2026-08-01' });
+    const waits = (from: OrderRow, onJobId: string) => {
+      from.predecessors = [
+        { jobId: from.job.id, onJobId, part: null },
+      ] as OrderRow['predecessors'];
+    };
+    waits(chair, 'cover');
+    waits(cover, 'shell');
+    shell.predecessors = [];
+    unrelated.predecessors = [];
+
+    const rows = [chair, cover, shell, unrelated];
+    const keep = withPredecessors(rows, (r) => String(r.job.id) === 'chair');
+    expect([...keep].sort()).toEqual(['chair', 'cover', 'shell']);
+
+    // A circular link is a warning, not a removal, so the walk has to survive
+    // one rather than spin on it.
+    waits(shell, 'chair');
+    expect(withPredecessors(rows, () => false).size).toBe(0);
+    expect(withPredecessors(rows, (r) => String(r.job.id) === 'chair').size)
+      .toBe(3);
   });
 
   it('excludes yesterday-only work and the sixth working day', () => {

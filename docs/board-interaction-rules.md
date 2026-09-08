@@ -2,10 +2,15 @@
 
 ## Date filtering
 
-Each timeline date has an order-count button. Select it to show orders with
-work on that day; select it again to return to five working days. The header
-also provides a date input and a Today shortcut. All orders and 5 working
-days remain available.
+The board opens on **All orders**. The header carries the two windows — All
+orders and 5 working days — and each timeline date has an order-count button:
+select it to show orders with work on that day, select it again to return to
+the window that was showing before.
+
+A narrowed board also keeps whatever the shown orders are waiting for, up the
+whole chain. The press job for a shell usually ran before this week, so no
+date window would pick it, and the arrow between the two is drawn only where
+both bars are on screen.
 
 Counts use positive scheduled crew hours or recorded production output, once
 per order. Idle gaps, unstaffed orders and unapproved weekends do not count.

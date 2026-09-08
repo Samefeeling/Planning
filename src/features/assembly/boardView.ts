@@ -197,6 +197,48 @@ export function shiftTimelineDays(
   return cursor;
 }
 
+/**
+ * Which rows a narrowed board draws: the ones the filter picked, and whatever
+ * they are waiting for.
+ *
+ * A date filter asks about one order's own bar, and the press job that order
+ * cannot start without has a bar of its own — on moulding's dates, which are
+ * frequently behind us, because the shell was meant to be made last week. So
+ * narrowing the board dropped the predecessor and kept the successor, and the
+ * arrow between them, which is drawn only where both bars are on screen, went
+ * with it. The chain then read as though nothing was holding the order up.
+ *
+ * Followed all the way up rather than one link: a chain shown with its middle
+ * missing says less than no chain at all.
+ */
+export function withPredecessors(
+  rows: OrderRow[],
+  chosen: (row: OrderRow) => boolean,
+): Set<string> {
+  const byId = new Map(rows.map((row) => [String(row.job.id), row]));
+  const keep = new Set<string>();
+  const queue: string[] = [];
+  for (const row of rows) {
+    if (!chosen(row)) continue;
+    const id = String(row.job.id);
+    keep.add(id);
+    queue.push(id);
+  }
+  // `keep` doubles as the visited set, so a circular material link — which the
+  // dependency builder warns about rather than removing — cannot spin here.
+  while (queue.length > 0) {
+    const row = byId.get(queue.pop()!);
+    if (!row) continue;
+    for (const dependency of row.predecessors) {
+      const id = String(dependency.onJobId);
+      if (keep.has(id) || !byId.has(id)) continue;
+      keep.add(id);
+      queue.push(id);
+    }
+  }
+  return keep;
+}
+
 /** An order remains visible when any part of its planned bar touches the window. */
 export function isInNextWorkingDays(
   row: OrderRow,

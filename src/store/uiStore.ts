@@ -103,7 +103,16 @@ interface UiState {
   orderWidth: number;
   /** Which date columns are showing; hidden ones come back from the header. */
   dateCols: DateCols;
-  /** View-only row filter; never changes the underlying line sequence. */
+  /**
+   * View-only row filter; never changes the underlying line sequence.
+   *
+   * `all` by default. A board that opens already hiding two thirds of its
+   * orders, with no visible reason, is not a filtered board — it is a wrong
+   * one, and that is exactly how it read: rows appeared as bars were dragged
+   * into the window and the arrows to the press work came and went with them.
+   * Narrowing is now something someone chooses, from the header, and can see
+   * they have chosen.
+   */
   orderWindow: OrderWindowFilter;
   /** Local YYYY-MM-DD selected in the date filter. */
   orderDay: string | null;
@@ -162,9 +171,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   dayWidth: DEFAULT_DAY_WIDTH,
   orderWidth: DEFAULT_ORDER_WIDTH,
   dateCols: { start: true, due: true, expect: true },
-  orderWindow: 'next-five',
+  orderWindow: 'all',
   orderDay: null,
-  windowBeforeDay: 'next-five',
+  windowBeforeDay: 'all',
   showWeekends: false,
   orderSort: { key: 'start', direction: 'asc' },
 

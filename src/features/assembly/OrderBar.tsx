@@ -1,6 +1,6 @@
 /**
  * One order's bar on the day grid. Draggable left/right to move its start day;
- * coloured by how the Expect Date compares with the Ship and Due dates.
+ * coloured by how the Expect Date compares with the Due Date.
  *
  * The bar spans start to Expect Date and is drawn as one block per stretch of
  * open days. Weekend gaps appear only while weekend columns are enabled; with
@@ -198,8 +198,26 @@ export function OrderBar({
       width: Math.max(piece.width, MIN_PIECE_PX),
     }));
 
-  // A weekend-only overtime piece disappears with the weekend columns.
-  if (pieces.length === 0) return null;
+  /*
+   * Every stretch of this bar can come out zero-width, and the whole bar used
+   * to vanish when it did — `return null`, no block and no row content.
+   *
+   * It happens whenever all of an order's work falls on days the axis is not
+   * drawing: the compact working-week axis gives Saturday and Sunday no width,
+   * and a press job runs on a Sunday often enough, because the moulding lane
+   * keeps moulding's own calendar rather than our shifts. An order approved for
+   * weekend overtime and nothing else goes the same way.
+   *
+   * A missing bar is worse than a small one. It leaves a row with nothing in
+   * it, and — because a dependency arrow is drawn between two bars — it takes
+   * the line to whatever was waiting on that order with it, so the successor
+   * reads as though nothing were holding it up. So the order keeps a marker on
+   * the seam the hidden days collapse to, and the tooltip says why it is one.
+   */
+  const offAxis = pieces.length === 0;
+  const drawn = offAxis
+    ? [{ key: 0, left: 0, width, done: completion }]
+    : pieces;
 
   // A couple of hours of work is a few pixels of bar; where the label cannot
   // fit inside it, the tag goes in the empty grid beside the block.
@@ -222,10 +240,10 @@ export function OrderBar({
       } ${dependencyRelated ? 'dependency-related' : ''} ${
         readOnly ? 'readonly' : ''
       } ${row.overtime ? 'overtime' : ''} ${
-        pieces.length > 1 ? 'split' : ''
-      } ${tag.stub ? 'stub' : ''} ${tag.outside ? 'tagged' : ''} ${
-        tag.flip ? 'tag-left' : ''
-      } ${marked ? 'marked' : ''}`}
+        drawn.length > 1 ? 'split' : ''
+      } ${offAxis ? 'off-axis' : ''} ${tag.stub ? 'stub' : ''} ${
+        tag.outside ? 'tagged' : ''
+      } ${tag.flip ? 'tag-left' : ''} ${marked ? 'marked' : ''}`}
       style={{
         left,
         width,
@@ -247,7 +265,10 @@ export function OrderBar({
       title={
         `${row.job.id} · ${row.days.toFixed(1)} d worked with ${row.workers.length}` +
         (readOnly ? '' : ` · position ${row.slot + 1} of ${row.line.parallelOrders}`) +
-        (pieces.length > 1 ? ' · pauses over the weekend' : '') +
+        (drawn.length > 1 ? ' · pauses over the weekend' : '') +
+        (offAxis
+          ? ' · runs entirely on days this axis is hiding — show Weekends to see it'
+          : '') +
         (row.overtime ? ' · weekend overtime approved' : '') +
         ` · ${Math.round(completion * 100)}% complete` +
         ` · ${row.status.reason}`
@@ -255,7 +276,7 @@ export function OrderBar({
       {...(dragLocked ? {} : listeners)}
       {...(dragLocked ? {} : attributes)}
     >
-      {pieces.map((piece) => (
+      {drawn.map((piece) => (
         <div
           key={piece.key}
           className="bar-piece"

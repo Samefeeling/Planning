@@ -25,9 +25,11 @@ describe('single employee picker', () => {
 });
 
 describe('board display defaults', () => {
-  it('opens on five working days with weekends hidden and starts ascending', () => {
+  it('opens on every order with weekends hidden and starts ascending', () => {
     const state = useUiStore.getState();
-    expect(state.orderWindow).toBe('next-five');
+    // Every order. A board that opens already hiding most of its rows, with
+    // nothing on screen saying so, reads as a board that has lost them.
+    expect(state.orderWindow).toBe('all');
     expect(state.showWeekends).toBe(false);
     expect(state.orderSort).toEqual({ key: 'start', direction: 'asc' });
     state.toggleWeekends();
@@ -46,14 +48,14 @@ describe('board display defaults', () => {
     expect(useUiStore.getState().orderSort).not.toBe(snapshot);
   });
 
-  it('selects a day without changing the order snapshot and clears back to five days', () => {
+  it('selects a day without changing the order snapshot and clears back to the window it interrupted', () => {
     const sort = useUiStore.getState().orderSort;
     useUiStore.getState().setOrderDay('2026-09-04');
     expect(useUiStore.getState().orderWindow).toBe('day');
     expect(useUiStore.getState().orderDay).toBe('2026-09-04');
     expect(useUiStore.getState().orderSort).toBe(sort);
     useUiStore.getState().setOrderDay(null);
-    expect(useUiStore.getState().orderWindow).toBe('next-five');
+    expect(useUiStore.getState().orderWindow).toBe('all');
     expect(useUiStore.getState().orderDay).toBeNull();
   });
 });

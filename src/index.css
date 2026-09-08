@@ -1509,6 +1509,17 @@ body.col-resizing {
   opacity: 0.6;
   z-index: 5;
 }
+/* All of this order's work is on days the axis is not drawing — a Sunday press
+   run, most often. A marker on the seam those days collapse to, cut on the
+   diagonal so its width is plainly not its length. */
+.bar.off-axis .bar-piece {
+  border-style: dashed;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(15, 23, 42, 0.16) 0 2px,
+    transparent 2px 5px
+  );
+}
 /* An order approved to run through the weekend is one unbroken block. */
 .bar.overtime .bar-piece {
   outline: 1px dashed rgba(217, 119, 6, 0.85);
@@ -1692,20 +1703,6 @@ body.col-resizing {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 6px;
-}
-.order-day-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-.order-day-filter input {
-  max-width: 125px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface-2);
-  color: var(--text);
-  font: inherit;
 }
 .board-tools .order-window button {
   width: auto;

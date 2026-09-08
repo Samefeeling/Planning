@@ -21,6 +21,7 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
   const dateCols = useUiStore((s) => s.dateCols);
   const toggleDateCol = useUiStore((s) => s.toggleDateCol);
   const orderWindow = useUiStore((s) => s.orderWindow);
+  const setOrderWindow = useUiStore((s) => s.setOrderWindow);
   const orderDay = useUiStore((s) => s.orderDay);
   const showWeekends = useUiStore((s) => s.showWeekends);
   const toggleWeekends = useUiStore((s) => s.toggleWeekends);
@@ -56,6 +57,26 @@ export function BoardTools({ board }: { board: AssemblyGanttView | null }) {
         title="Standard hours still to run across every scheduled order"
       >
         {board.totals.remainingHours.toFixed(0)} h on the board
+      </span>
+      {/* Which orders are on screen, and the way back to all of them. The
+          board is filtered from three places — here, the day chip under each
+          column, and nothing else — so this is where a filter has to be
+          visible, whichever of them turned it on. */}
+      <span className="order-window" aria-label="Order date window">
+        <button
+          className={orderWindow === 'all' ? 'active' : ''}
+          onClick={() => setOrderWindow('all')}
+          title="Every order on the board"
+        >
+          All orders
+        </button>
+        <button
+          className={orderWindow === 'next-five' ? 'active' : ''}
+          onClick={() => setOrderWindow('next-five')}
+          title="Orders running today or during the next five working days"
+        >
+          5 working days
+        </button>
       </span>
       {orderWindow === 'day' && orderDay && (
         <span className="board-load" role="status">
