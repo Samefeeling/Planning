@@ -496,9 +496,6 @@ button {
   gap: 9px;
   margin-bottom: 14px;
 }
-.date-cell.wide {
-  grid-column: 1 / -1;
-}
 .date-cell {
   display: flex;
   flex-wrap: wrap;

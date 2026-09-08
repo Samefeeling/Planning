@@ -357,10 +357,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                 {popupDate(job.dueDate)}
               </span>
             </div>
-            {/* The answer the panel exists to give, and the one carrying the
-                colour: across the full width, under the two dates it is
-                worked out from. */}
-            <div className="date-cell wide">
+            {/* Last of the three, and the only one that carries a colour:
+                the answer, under the two dates it is worked out from. */}
+            <div className="date-cell">
               <span className="date-label">Expect</span>
               <span className={`date-value ${status.color}`}>
                 {popupDate(row.expectDate)}
