@@ -198,8 +198,6 @@ export interface Job {
   orderType: OrderType | null;
   /** The line the order is planned on (UPL / ASSY / TABLE). */
   line: WorkCenterId | null;
-  /** Agreed date the order must leave the factory. Earlier than `dueDate`. */
-  shipDate: Date | null;
   /** Units finished so far, entered at the end of each shift. */
   completedQty: number;
   /**

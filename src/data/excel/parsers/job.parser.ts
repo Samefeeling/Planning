@@ -34,7 +34,6 @@ const C = {
   priority: 37,
   materialPrep: 38,
   line: 39,
-  shipDate: 40,
   completedQty: 41,
 } as const;
 
@@ -115,7 +114,6 @@ export function parseJobs(planning: Sheet): ParseOutcome<Job> {
       preferredMachine: machineRaw ? MachineId(machineRaw) : null,
       orderType: readOrderType(asStr(row[C.orderType])),
       line: lineRaw ? MachineId(lineRaw) : null,
-      shipDate: asDate(row[C.shipDate]),
       completedQty: asNum(row[C.completedQty]) ?? 0,
       predecessors: [],
       assignedWorkers: [],

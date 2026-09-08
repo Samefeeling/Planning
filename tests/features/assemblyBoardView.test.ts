@@ -26,14 +26,13 @@ import {
 
 const row = (
   id: string,
-  dates: { start?: string; due?: string; ship?: string } = {},
+  dates: { start?: string; due?: string } = {},
 ): OrderRow =>
   ({
     job: {
       id,
       startDate: dates.start ? new Date(dates.start) : null,
       dueDate: dates.due ? new Date(dates.due) : null,
-      shipDate: dates.ship ? new Date(dates.ship) : null,
     },
     line: { schedulable: true },
     workers: [],

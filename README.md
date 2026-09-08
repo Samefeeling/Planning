@@ -1,7 +1,7 @@
 # Assembly Board — Resero
 
 A day-scale **Gantt** for the sofa / chair / table assembly lines: crew
-allocation, **Due / Expect / Ship** dates, and end-of-shift booking.
+allocation, **Due** and **Expect** dates, and end-of-shift booking.
 
 Sized for the real department — ~15 people, one white shift, the supervisor
 dispatches on the floor. Nobody reports by the hour: the shift's output is
@@ -21,7 +21,7 @@ plan goes back the other way, into the `ASSY_Production` list.
 - **Three kinds of work order** — Cutting/Sewing and Upholstery run on UPL;
   Final Assembly runs on ASSY and TABLE.
 - **One row per order**: Order · Order Qty · Start Date · Due Date · Expect
-  Date · Ship Date · Team, beside the day grid with a draggable bar. Start is
+  Date · Team, beside the day grid with a draggable bar. Start is
   Epicor's own scheduled start, to the hour; any date column can be hidden to
   make room.
 - **A load histogram along the top** — one bar per day, hours booked against
@@ -175,15 +175,19 @@ plan goes back the other way, into the `ASSY_Production` list.
   claims a build position first is a separate question, settled by date — and a
   dragged bar claims its *people* before anything else does, or the order it was
   taken off would simply take them back.
-- **Colour by date** (Ship is the booked departure, Due the later customer date):
+- **Colour by date** — Due is the date the customer asked for, and finishing
+  during that day counts as making it:
 
   | | Condition | Meaning |
   | --- | --- | --- |
-  | 🟢 green | `Expect ≤ Ship` | makes the booked shipment |
-  | 🟠 orange | `Ship < Expect < Due` | misses the shipment, customer date still reachable |
-  | 🔴 red | `Expect ≥ Due` | the customer date will be missed |
+  | 🟢 green | finishes on or before the Due Date | will make the customer date |
+  | 🔴 red | finishes after it | the customer date will be missed |
+  | ⚪ grey | no Expect Date, or no Due Date | nothing to judge it against |
 
-  The bands are exhaustive and non-overlapping.
+  The bands are exhaustive and non-overlapping. Note that an Expect Date is an
+  *exclusive* end — work filling Tuesday ends at Wednesday midnight — so the
+  comparison is against the moment the due date closes, not its own midnight.
+  Ship Date was removed from this board in agreement with logistics.
 
 - **Dependencies across the four lines** — `JobMaterialReq.csv` says what each
   order builds and consumes (`JobMtl_JobNum` builds `JobHead_PartNum` from
@@ -329,12 +333,8 @@ An order that has no material export at all schedules exactly as before, so
 this file is optional.
 
 **Not in today's order export**, and read automatically once added:
-`ShipDate`, `OrderType`, `Predecessor`, `MaterialStatus`. Two consequences
-worth knowing:
+`OrderType`, `Predecessor`, `MaterialStatus`. One consequence worth knowing:
 
-- **No Ship Date means no green/orange band.** The colour rule compares Expect
-  against Ship first; with Ship absent every order is green until it passes its
-  Due Date. This is the one column worth adding first.
 - **Order type** is inferred from the line where that is unambiguous — ASSY and
   TABLE only run Final Assembly. UPL runs both Cutting/Sewing and Upholstery, so
   its orders show no type until the column exists.
@@ -487,7 +487,7 @@ which is how the demo runs.
 To drive assembly from the same sheet, add these columns to `planning`
 (`job.parser` reads them when present and defaults every row to moulding
 otherwise): `Department`, `OrderType`, `Priority`, `MaterialStatus`, `Line`,
-`ShipDate`, `CompletedQty`.
+`CompletedQty`.
 
 The shift roster is **not** in the workbook — it is the `ASSY_Operator` list
 above. The mock source supplies one; `SharePointExcelSource.fetchWorkers()`
@@ -537,7 +537,7 @@ domain  →  lib  →  engine  →  store  →  features (UI)
    first to free only when all three are busy *and* the planner did not put it
    there by hand;
 5. runs the bar across working days only, unless overtime is approved on it;
-6. sets Expect Date at the bar's end and colours it against Ship and Due.
+6. sets Expect Date at the bar's end and colours it against the Due Date.
 
 Because the whole schedule is derived, allocating a person or booking output
 re-lays-out the board with no separate update path.

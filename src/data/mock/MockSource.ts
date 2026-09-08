@@ -104,7 +104,6 @@ export class MockSource extends BaseDataSource {
       preferredMachine: j.machine ? MachineId(j.machine) : null,
       orderType: (j.orderType ?? null) as OrderType | null,
       line: j.line ? WorkCenterId(j.line) : null,
-      shipDate: toDate(j.shipDate),
       completedQty: j.completedQty ?? 0,
       // Explicit predecessors only; the seed's material links carry the rest.
       predecessors: j.predecessor ? [JobId(j.predecessor)] : [],

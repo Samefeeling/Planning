@@ -571,11 +571,9 @@ describe('assembly Gantt (mock data)', () => {
     const b = build();
     const rows = [...b.rowsByJob.values()];
     for (const r of rows) {
-      expect(['green', 'orange', 'red', 'grey']).toContain(r.status.color);
+      expect(['green', 'red', 'grey']).toContain(r.status.color);
     }
-    expect(b.totals.green + b.totals.orange + b.totals.red).toBeLessThanOrEqual(
-      b.totals.orders,
-    );
+    expect(b.totals.green + b.totals.red).toBeLessThanOrEqual(b.totals.orders);
     expect(b.totals.orders).toBe(rows.length);
   });
 });

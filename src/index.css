@@ -496,6 +496,9 @@ button {
   gap: 9px;
   margin-bottom: 14px;
 }
+.date-cell.wide {
+  grid-column: 1 / -1;
+}
 .date-cell {
   display: flex;
   flex-wrap: wrap;
@@ -519,7 +522,6 @@ button {
   white-space: nowrap;
 }
 .date-value.green { color: #047857; }
-.date-value.orange { color: #b45309; }
 .date-value.red { color: #b91c1c; }
 .date-note {
   color: #b91c1c;
@@ -987,7 +989,6 @@ body.col-resizing {
   font-weight: 700;
 }
 .acell.date.expect.green { color: var(--ok); }
-.acell.date.expect.orange { color: var(--warn); }
 .acell.date.expect.red { color: var(--error); }
 .acell.team {
   width: var(--team-w);
@@ -1492,11 +1493,9 @@ body.col-resizing {
   overflow: hidden;
 }
 .bar.green .bar-piece { background: #bbf7d0; border-color: #16a34a; }
-.bar.orange .bar-piece { background: #fde68a; border-color: #d97706; }
 .bar.red .bar-piece { background: #fecaca; border-color: #dc2626; }
 .bar.grey .bar-piece { background: var(--surface-3); border-color: var(--border); }
 .bar.green { color: #14532d; }
-.bar.orange { color: #78350f; }
 .bar.red { color: #7f1d1d; }
 .bar.grey { color: var(--muted); }
 .bar.readonly {
@@ -1526,7 +1525,6 @@ body.col-resizing {
   pointer-events: none;
 }
 .bar.green .bar-progress { background: #4ade80; }
-.bar.orange .bar-progress { background: #fbbf24; }
 .bar.red .bar-progress { background: #f87171; }
 .bar.grey .bar-progress { background: #94a3b8; }
 /* Over the blocks, not inside one, so the label survives a narrow first
@@ -2153,7 +2151,6 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
   line-height: 1.35;
 }
 .expect.green { color: var(--ok); }
-.expect.orange { color: var(--warn); }
 .expect.red { color: var(--error); }
 
 /* pool cards reused by assembly */

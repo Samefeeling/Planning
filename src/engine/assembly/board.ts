@@ -47,8 +47,8 @@
  * another person visibly shortens it. Those are *working* days: the factory is
  * shut at the weekend, so a bar steps over Saturday and Sunday unless the
  * supervisor has approved overtime on that order. The end of the bar is the
- * Expect Date, which is what the colour bands compare against Ship and Due —
- * past Due is red, and Due itself never moves from here.
+ * Expect Date, which the colour compares against the Due Date — finishing on
+ * the due date itself is on time, and past it is red. Due never moves here.
  *
  * Pure — same shape as `computeBoardView` for moulding.
  */
@@ -219,7 +219,6 @@ export interface AssemblyGanttView {
   totals: {
     orders: number;
     green: number;
-    orange: number;
     red: number;
     /** Placed on a line but with nobody on them, so they have no dates yet. */
     needsCrew: number;
@@ -326,7 +325,6 @@ function mouldingRow(job: Job, line: LineDef, today: Date): OrderRow {
     dailyTarget: 0,
     status: {
       color: 'grey' as const,
-      shipSlackDays: null,
       dueSlackDays: null,
       reason: 'Moulding plan — shown for context, not scheduled here',
     },
@@ -864,11 +862,10 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     const status = completedToday
       ? {
           color: 'grey' as const,
-          shipSlackDays: null,
           dueSlackDays: null,
           reason: 'Job completed today',
         }
-      : scheduleStatus(expectDate, job.shipDate, job.dueDate);
+      : scheduleStatus(expectDate, job.dueDate);
 
     const row: OrderRow = {
       job,
@@ -1039,7 +1036,6 @@ export function computeAssemblyGantt(input: AssemblyInputs): AssemblyGanttView {
     totals: {
       orders: scheduled.length,
       green: scheduled.filter((r) => r.status.color === 'green').length,
-      orange: scheduled.filter((r) => r.status.color === 'orange').length,
       red: scheduled.filter((r) => r.status.color === 'red').length,
       needsCrew: scheduled.filter(
         (r) => (r.uncoveredHours ?? (r.days === null ? 1 : 0)) > 0,

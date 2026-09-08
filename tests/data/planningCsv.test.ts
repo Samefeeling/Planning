@@ -176,22 +176,6 @@ describe('parsePlanningCsv', () => {
     expect(byId(upl).get('018140-1-1')!.orderType).toBeNull();
   });
 
-  it('has no ship date to colour against — the export carries none', () => {
-    expect(jobs.get('018140-1-1')!.shipDate).toBeNull();
-  });
-
-  it('reads a ship date once the column exists', () => {
-    const withShip = sample
-      .replace('JobHead_StartHour', 'JobHead_StartHour,JobHead_ShipDate')
-      .replace('21.9\n', '21.9,2026-09-14T00:00:00\n');
-    const ship = byId(withShip).get('018140-1-1')!.shipDate!;
-    expect([ship.getFullYear(), ship.getMonth() + 1, ship.getDate()]).toEqual([
-      2026,
-      9,
-      14,
-    ]);
-  });
-
   it('finds the PMD/ASSY column by its values when the header is unfamiliar', () => {
     const renamed = sample.replace(
       'JobHead_Department',

@@ -1,24 +1,29 @@
 /**
- * Schedule colour: how the expected completion date compares with the two
- * commitments on the order.
+ * Schedule colour: how the expected completion date compares with the date the
+ * order is due.
  *
- * Ship Date is the agreed date the order leaves the factory; Due Date is the
- * later customer date. So the bands, worst last:
+ *   green   finishes on or before the due date
+ *   red     finishes after it
+ *   grey    no expected date, or no due date to compare one against
  *
- *   green   Expect ≤ Ship          makes the booked shipment
- *   orange  Ship < Expect < Due    misses the shipment, customer date still reachable
- *   red     Expect ≥ Due           the customer date will be missed
+ * The due date's own day counts as on time: an order finishing at any point
+ * during it has made it. That takes care, because an Expect Date is an
+ * *exclusive* end — work filling Friday ends at Saturday midnight — so the
+ * comparison is against the close of the due day rather than its start.
+ * Comparing the two instants directly would call every order that finishes on
+ * its due date a day late.
  */
 
 import { MS_PER_DAY } from '@/lib/time';
 
-export type ScheduleColor = 'green' | 'orange' | 'red' | 'grey';
+export type ScheduleColor = 'green' | 'red' | 'grey';
 
 export interface ScheduleStatus {
   color: ScheduleColor;
-  /** Days early (negative) or late (positive) against the ship date. */
-  shipSlackDays: number | null;
-  /** Days early (negative) or late (positive) against the due date. */
+  /**
+   * Days early (negative) or late (positive) against the close of the due
+   * date. Zero is finishing exactly as the due date ends.
+   */
   dueSlackDays: number | null;
   reason: string;
 }
@@ -28,44 +33,32 @@ const dayDiff = (a: Date, b: Date): number =>
 
 export function scheduleStatus(
   expect: Date | null,
-  ship: Date | null,
   due: Date | null,
 ): ScheduleStatus {
-  if (!expect || (!ship && !due)) {
+  if (!expect || !due) {
     return {
       color: 'grey',
-      shipSlackDays: null,
       dueSlackDays: null,
-      reason: expect ? 'No ship or due date on file' : 'Not schedulable',
+      reason: expect ? 'No due date on file' : 'Not schedulable',
     };
   }
 
-  const shipSlackDays = ship ? dayDiff(expect, ship) : null;
-  const dueSlackDays = due ? dayDiff(expect, due) : null;
+  // When the due date stops being today: work that ends at this moment or
+  // before it has been finished within the day the customer asked for.
+  const closes = nextMidnight(due);
+  const dueSlackDays = dayDiff(expect, closes);
 
-  // Worst band first so a missing ship date still classifies correctly.
-  if (due && expect >= due) {
-    return {
-      color: 'red',
-      shipSlackDays,
-      dueSlackDays,
-      reason: 'Will miss the customer due date',
-    };
-  }
-  if (ship && expect > ship) {
-    return {
-      color: 'orange',
-      shipSlackDays,
-      dueSlackDays,
-      reason: 'Will miss the booked ship date',
-    };
-  }
-  return {
-    color: 'green',
-    shipSlackDays,
-    dueSlackDays,
-    reason: 'On track for the ship date',
-  };
+  return expect > closes
+    ? {
+        color: 'red',
+        dueSlackDays,
+        reason: 'Will miss the customer due date',
+      }
+    : {
+        color: 'green',
+        dueSlackDays,
+        reason: 'On track for the due date',
+      };
 }
 
 /** Add whole and fractional days to a date. */

@@ -326,11 +326,9 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             variant={
               status.color === 'green'
                 ? 'ok'
-                : status.color === 'orange'
-                  ? 'warn'
-                  : status.color === 'red'
-                    ? 'error'
-                    : 'neutral'
+                : status.color === 'red'
+                  ? 'error'
+                  : 'neutral'
             }
           >
             {status.reason}
@@ -359,16 +357,13 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                 {popupDate(job.dueDate)}
               </span>
             </div>
-            <div className="date-cell">
+            {/* The answer the panel exists to give, and the one carrying the
+                colour: across the full width, under the two dates it is
+                worked out from. */}
+            <div className="date-cell wide">
               <span className="date-label">Expect</span>
               <span className={`date-value ${status.color}`}>
                 {popupDate(row.expectDate)}
-              </span>
-            </div>
-            <div className="date-cell">
-              <span className="date-label">Ship</span>
-              <span className="date-value">
-                {popupDate(job.shipDate)}
               </span>
             </div>
           </div>

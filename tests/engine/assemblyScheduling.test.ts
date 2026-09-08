@@ -54,7 +54,6 @@ const job = (id: string, days: number, over: Partial<Job> = {}): Job => ({
   preferredMachine: null,
   orderType: 'upholstery',
   line: UPL.id,
-  shipDate: null,
   completedQty: 0,
   predecessors: [],
   assignedWorkers: [],
@@ -240,14 +239,26 @@ describe('the closed weekend', () => {
     expect(row.overtime).toBe(true);
   });
 
-  it('turns red when the weekend pushes the finish past the due date', () => {
+  it('finishing during the due date is on time, even after a weekend', () => {
     // Two days of work from Friday would finish Saturday if the factory ran;
-    // it does not, so the order lands on Tuesday and misses a Monday due date.
+    // it does not, so the second day is the Monday. The bar therefore ends at
+    // Monday's close — Tuesday midnight — and an order due Monday has made it.
     const jobs = [job('A', 2, { dueDate: day(14) })];
     const b = board(jobs, { orderStarts: { A: day(11).toISOString() } });
     const row = b.rowsByJob.get('A')!;
 
     expect(row.expectDate).toEqual(day(15));
+    expect(row.status.color).toBe('green');
+    expect(row.job.dueDate).toEqual(day(14));
+  });
+
+  it('turns red only once the work runs past the due date', () => {
+    // A third day puts it on the Tuesday, which is past a Monday due date.
+    const jobs = [job('A', 3, { dueDate: day(14) })];
+    const b = board(jobs, { orderStarts: { A: day(11).toISOString() } });
+    const row = b.rowsByJob.get('A')!;
+
+    expect(row.expectDate).toEqual(day(16));
     expect(row.status.color).toBe('red');
     // The commitment itself is untouched — only the expectation moved.
     expect(row.job.dueDate).toEqual(day(14));

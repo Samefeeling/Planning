@@ -13,7 +13,7 @@ import {
   SHIFT_START_HOUR,
 } from '@/domain/assembly';
 import type { Job } from '@/domain/types';
-import { prevWorkingDay, shiftMoment } from './dates';
+import { isWeekend, prevWorkingDay, shiftMoment, startOfDay } from './dates';
 
 /** Fraction of the order already finished, clamped to [0, 1]. */
 export function completedFraction(job: Job): number {
@@ -107,10 +107,12 @@ export function latestStart(
   const days = durationDays(job, workerCount);
   if (days === null) return null;
 
-  // The work has to be finished before the due date opens — `scheduleStatus`
-  // calls an Expect Date on the due date itself late — so the last shift it
-  // can run on is the working day before.
-  let day = prevWorkingDay(due);
+  // The work has to be finished by the close of the due date, so the last
+  // shift it can run on is that day itself — or, when the order is due on a
+  // weekend, the working day before it. This used to count back from the day
+  // before in every case, which was right while an Expect Date landing on the
+  // due date counted as late.
+  let day = isWeekend(due) ? prevWorkingDay(due) : startOfDay(due);
 
   // Whole days come off first; the remainder is the tail of the starting day,
   // which is what puts a clock time on the answer.

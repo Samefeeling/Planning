@@ -10,7 +10,7 @@ import {
 import type { LineKey, Worker } from '@/domain/assembly';
 import { MS_PER_DAY, toDayKey } from '@/lib/time';
 
-export type OrderSortKey = 'start' | 'due' | 'ship';
+export type OrderSortKey = 'start' | 'due';
 export type SortDirection = 'asc' | 'desc';
 
 export interface OrderSort {
@@ -24,8 +24,7 @@ const sortDate = (row: OrderRow, key: OrderSortKey): Date | null => {
   if (key === 'start') return row.actualStart
     ? new Date(row.actualStart.startedAt)
     : row.start ?? row.plannedStart ?? row.job.startDate;
-  if (key === 'due') return row.job.dueDate;
-  return row.job.shipDate;
+  return row.job.dueDate;
 };
 
 /** Stable, line-local date sort. Missing source dates always stay at the end. */

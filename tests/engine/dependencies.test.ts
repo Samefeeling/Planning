@@ -33,7 +33,6 @@ const job = (
   preferredMachine: null,
   orderType: null,
   line: null,
-  shipDate: null,
   completedQty: 0,
   predecessors: [],
   assignedWorkers: [],

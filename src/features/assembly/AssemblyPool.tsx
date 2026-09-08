@@ -62,7 +62,7 @@ function PoolCard({
       <div className="ord-meta">
         <span>{job.remainingQty} pcs</span>
         <span>·</span>
-        <span>ship {job.shipDate ? formatDay(job.shipDate) : '—'}</span>
+        <span>due {job.dueDate ? formatDay(job.dueDate) : '—'}</span>
       </div>
     </div>
   );

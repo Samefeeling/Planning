@@ -163,7 +163,6 @@ function OrderRowView({
   const startStyle = at('start');
   const dueStyle = at('due');
   const expectStyle = at('expect');
-  const shipStyle = at('ship');
   const startAt = row.job.startDate;
   const mustStart = row.mustStartBy;
   const orderQty = row.job.remainingQty + row.job.completedQty;
@@ -237,7 +236,6 @@ function OrderRowView({
       {visibleDates.expect && <div className={`acell date expect frozen ${row.status.color}`} style={expectStyle}>
         {fmt(row.expectDate)}
       </div>}
-      {visibleDates.ship && <div className="acell date frozen" style={shipStyle}>{fmt(row.job.shipDate)}</div>}
       <div className="acell team frozen" style={{ left: lefts.team }}>
         {isContext ? (
           <span className="chip empty">moulding</span>
@@ -753,7 +751,6 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           {dateHead('start', 'Start Date', true)}
           {dateHead('due', 'Due Date', true)}
           {dateHead('expect', 'Expect Date', false)}
-          {dateHead('ship', 'Ship Date', true)}
           <div
             className="acell team team-head frozen"
             style={{ left: headLefts.team }}

@@ -35,7 +35,7 @@ const clamp = (n: number, lo: number, hi: number): number =>
   Math.min(hi, Math.max(lo, Math.round(n)));
 
 /** The four date columns, in the order the board draws them. */
-export const DATE_COLS = ['start', 'due', 'expect', 'ship'] as const;
+export const DATE_COLS = ['start', 'due', 'expect'] as const;
 export type DateCol = (typeof DATE_COLS)[number];
 export type DateCols = Record<DateCol, boolean>;
 export type OrderWindowFilter = 'all' | 'next-five' | 'day';
@@ -45,7 +45,6 @@ export const DATE_COL_LABEL: Record<DateCol, string> = {
   start: 'Start Date',
   due: 'Due Date',
   expect: 'Expect Date',
-  ship: 'Ship Date',
 };
 
 /** Where on screen an order was clicked, so its detail opens beside it. */
@@ -162,7 +161,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   lastRefresh: null,
   dayWidth: DEFAULT_DAY_WIDTH,
   orderWidth: DEFAULT_ORDER_WIDTH,
-  dateCols: { start: true, due: true, expect: true, ship: true },
+  dateCols: { start: true, due: true, expect: true },
   orderWindow: 'next-five',
   orderDay: null,
   windowBeforeDay: 'next-five',

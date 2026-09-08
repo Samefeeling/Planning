@@ -44,7 +44,6 @@ type Field =
   | 'laborHrs'
   | 'remainingLaborHrs'
   | 'prodStandard'
-  | 'shipDate'
   | 'orderType'
   | 'completedQty'
   | 'predecessor'
@@ -94,7 +93,6 @@ const ALIASES: Record<Field, readonly string[]> = {
   laborHrs: ['LaborHrs', 'ProdHours', 'TotalHours'],
   prodStandard: ['ProdStandard', 'EstProdHours', 'HoursPerPiece'],
   // Not in today's export — read if they get added (see README).
-  shipDate: ['ShipDate', 'PromiseDate'],
   orderType: ['OrderType', 'WorkOrderType', 'OpCode'],
   completedQty: ['QtyCompleted', 'CompletedQty'],
   predecessor: ['Predecessor', 'PredecessorJob', 'ParentJobNum'],
@@ -381,7 +379,6 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
       preferredMachine: placement?.preferredMachine ?? null,
       orderType: readOrderType(cell(row, col.orderType), line),
       line,
-      shipDate: date(cell(row, col.shipDate)),
       completedQty,
       // The order export rarely names one; the material file is where the
       // dependency chain really comes from (`engine/assembly/dependencies`).

@@ -14,52 +14,63 @@ import {
 
 const d = (s: string) => new Date(`${s}T00:00:00`);
 
-// Ship Date is the booked departure; Due Date is the later customer date.
-const SHIP = d('2026-09-11');
+/** Tue 15 Sep 2026 is the day the customer asked for. */
 const DUE = d('2026-09-15');
 
+/**
+ * An Expect Date is an *exclusive* end: work that fills Tuesday ends at
+ * Wednesday midnight. So "finished on the due date" is anything up to and
+ * including the moment the due date closes, and the comparison has to be
+ * against that moment rather than against the due date's own midnight.
+ */
 describe('schedule colour bands', () => {
-  it('is green when the order makes the ship date', () => {
-    expect(scheduleStatus(d('2026-09-09'), SHIP, DUE).color).toBe('green');
-    // Exactly on the ship date still ships.
-    expect(scheduleStatus(SHIP, SHIP, DUE).color).toBe('green');
+  it('is green with days to spare', () => {
+    expect(scheduleStatus(d('2026-09-09'), DUE).color).toBe('green');
+    expect(scheduleStatus(d('2026-09-14'), DUE).color).toBe('green');
   });
 
-  it('is orange between the ship date and the due date', () => {
-    expect(scheduleStatus(d('2026-09-12'), SHIP, DUE).color).toBe('orange');
-    expect(scheduleStatus(d('2026-09-14'), SHIP, DUE).color).toBe('orange');
+  it('is green when the work finishes on the due date itself', () => {
+    // Part-way through the day…
+    expect(
+      scheduleStatus(new Date('2026-09-15T14:00:00'), DUE).color,
+    ).toBe('green');
+    // …and filling the whole of it, which ends at the next midnight.
+    expect(scheduleStatus(d('2026-09-16'), DUE).color).toBe('green');
+    // The due date's own midnight is the work of the day before ending.
+    expect(scheduleStatus(DUE, DUE).color).toBe('green');
   });
 
-  it('is red once the customer due date is reached', () => {
-    expect(scheduleStatus(DUE, SHIP, DUE).color).toBe('red');
-    expect(scheduleStatus(d('2026-09-20'), SHIP, DUE).color).toBe('red');
+  it('is red only once it runs past the due date', () => {
+    expect(
+      scheduleStatus(new Date('2026-09-16T07:30:00'), DUE).color,
+    ).toBe('red');
+    expect(scheduleStatus(d('2026-09-17'), DUE).color).toBe('red');
+    expect(scheduleStatus(d('2026-09-20'), DUE).color).toBe('red');
   });
 
   it('bands are exhaustive and never overlap', () => {
     const seen = new Set<string>();
     for (let i = 1; i <= 25; i++) {
       const expect_ = d(`2026-09-${String(i).padStart(2, '0')}`);
-      const s = scheduleStatus(expect_, SHIP, DUE);
-      expect(['green', 'orange', 'red']).toContain(s.color);
+      const s = scheduleStatus(expect_, DUE);
+      expect(['green', 'red']).toContain(s.color);
       seen.add(s.color);
     }
-    expect(seen).toEqual(new Set(['green', 'orange', 'red']));
+    expect(seen).toEqual(new Set(['green', 'red']));
   });
 
-  it('reports slack against both commitments', () => {
-    const s = scheduleStatus(d('2026-09-13'), SHIP, DUE);
-    expect(s.shipSlackDays).toBe(2); // 2 days past ship
-    expect(s.dueSlackDays).toBe(-2); // 2 days before due
-  });
-
-  it('classifies on the due date alone when no ship date exists', () => {
-    expect(scheduleStatus(d('2026-09-20'), null, DUE).color).toBe('red');
-    expect(scheduleStatus(d('2026-09-01'), null, DUE).color).toBe('green');
+  it('reports slack against the close of the due date', () => {
+    // Finishing as Sunday the 13th ends is two days clear of Tuesday's close.
+    expect(scheduleStatus(d('2026-09-14'), DUE).dueSlackDays).toBe(-2);
+    // Filling the due date exactly leaves none, and is still on time.
+    expect(scheduleStatus(d('2026-09-16'), DUE).dueSlackDays).toBe(0);
+    expect(scheduleStatus(d('2026-09-18'), DUE).dueSlackDays).toBe(2);
   });
 
   it('is grey when it cannot be judged', () => {
-    expect(scheduleStatus(null, SHIP, DUE).color).toBe('grey');
-    expect(scheduleStatus(d('2026-09-12'), null, null).color).toBe('grey');
+    expect(scheduleStatus(null, DUE).color).toBe('grey');
+    expect(scheduleStatus(d('2026-09-12'), null).color).toBe('grey');
+    expect(scheduleStatus(d('2026-09-12'), null).reason).toContain('due date');
   });
 
   it('counts whole days regardless of time of day', () => {
