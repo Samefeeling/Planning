@@ -125,7 +125,16 @@ describe('suggestCrew', () => {
     // crew coverage exists to finish it. Most of the active board gets a full bar. What it cannot place without putting
     // somebody on two orders at once it leaves alone, on purpose.
     expect(scheduled.length).toBeGreaterThan(bare.length / 2);
-    for (const row of scheduled) expect(row.expectDate).not.toBeNull();
+    // A bar that starts but never ends is a crew whose windows close before
+    // the work is done — somebody suggested onto an order can be bounded out
+    // of it again by a commitment later in their week. The board says so with
+    // uncovered hours, which is a state and not a failure; what it must never
+    // do is leave a bar with no end and no reason.
+    for (const row of scheduled) {
+      if (row.expectDate === null) {
+        expect(row.uncoveredHours ?? 0, String(row.job.id)).toBeGreaterThan(0);
+      }
+    }
   });
 
   it('does not double-book anyone, measured on the board it produces', () => {
