@@ -32,6 +32,27 @@ waits for the source load and then sorts by ascending start time again.
 Automatic refresh preserves the current row order. Display order is separate
 from the scheduler's resource and dependency sequence.
 
+## Dragging a bar
+
+A bar is grabbed by the block **or by its label**. A couple of hours of work is
+a ten-pixel block with its label out in the grid beside it, and the label is
+part of the bar for the pointer as well as for the eye.
+
+A drag pins the order to the day it lands on, and asks the same question a
+marked run asks: the earliest day it may begin, which is the latest of today,
+the day its material lands, and the finish of every component it waits on. A
+drag past that floor comes to rest on the floor. A drag that cannot move the
+order at all writes nothing — pinning is not free, because a pinned order
+stops falling in behind its crew and its predecessor, and paying that for a
+drag that changed nothing is how a board ends up pinned order by order.
+
+A bar standing against a component that is not finished yet carries a dashed
+amber stop on its left edge, and says which order is holding it on hover.
+
+The order detail shows the pinned day with a **Release** button, which hands
+the order back to the schedule: it then starts as early as its crew, its line
+and the orders it waits on allow.
+
 ## Crew orders
 
 The button fills orders that have remaining work and no crew. It preserves

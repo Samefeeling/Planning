@@ -167,11 +167,18 @@ plan goes back the other way, into the `ASSY_Production` list.
   reasons are captured as daily records for the `ASSY_Production` SharePoint
   list. Its columns intentionally mirror `PMD_Production`, allowing KPI.ts to
   aggregate the two departments without a second mapping layer.
-- **Drag** a bar sideways to move its start day, or down onto another line to
-  change lines. Every bar moves, in both directions — a drag is an instruction,
-  so an order dropped where the line is already full stays put and the day
-  reads over capacity rather than snapping back. Dragging never touches the Due
-  Date; if the new start pushes Expect Date past Due, the row turns red.
+- **Drag** a bar — by the block or by its label — sideways to move its start
+  day, or down onto another line to change lines. Every bar moves, in both
+  directions — a drag is an instruction, so an order dropped where the line is
+  already full stays put and the day reads over capacity rather than snapping
+  back. Three things it cannot be dragged past, because the schedule enforces
+  them either way: today, the day its material lands, and the finish of a
+  component it is made from. It comes to rest against whichever of those is
+  latest, and a drag that cannot move it at all writes nothing — a bar
+  standing against a component carries a dashed amber stop and names the order
+  holding it. The detail panel shows the pinned day with a **Release**, which
+  hands the order back to the schedule. Dragging never touches the Due Date;
+  if the new start pushes Expect Date past Due, the row turns red.
   **Rows themselves never move on their own**: the order they sit in is the
   planner's, and only dropping a bar on another line changes it. Which order
   claims a build position first is a separate question, settled by date — and a
