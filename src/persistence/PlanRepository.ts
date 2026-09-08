@@ -39,6 +39,12 @@ export interface PersistedPlan {
     progressBaselines?: Record<string, ProgressBaseline>;
     /** Daily rows persisted by the backend in the ASSY_Production list. */
     production?: Record<string, ProductionEntry[]>;
+    /**
+     * Job id → the local day the order was last in a source export. Without
+     * it, retention restarts on every page load and an order missing from the
+     * first export after one loses its plan anyway. See `PLAN_RETENTION_DAYS`.
+     */
+    lastSeen?: Record<string, string>;
   };
 }
 

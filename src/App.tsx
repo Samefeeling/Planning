@@ -47,6 +47,7 @@ export default function App() {
   const progress = usePlanStore((s) => s.progress);
   const progressBaselines = usePlanStore((s) => s.progressBaselines);
   const production = usePlanStore((s) => s.production);
+  const lastSeen = usePlanStore((s) => s.lastSeen);
 
 
   const board = useAssemblyGantt();
@@ -153,6 +154,7 @@ export default function App() {
             progress,
             progressBaselines,
             production,
+            lastSeen,
           },
         })
         .then(() => setStoreError(null))
@@ -171,6 +173,7 @@ export default function App() {
     progress,
     progressBaselines,
     production,
+    lastSeen,
   ]);
 
   const activeJob =

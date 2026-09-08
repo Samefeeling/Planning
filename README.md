@@ -155,8 +155,10 @@ plan goes back the other way, into the `ASSY_Production` list.
   matches never open the wrong order.
 - **Incremental refresh** — the first successful load creates a known-order
   baseline. Later refreshes retain the working plan, append unseen jobs to
-  their home line, show `N new today`, and mark those rows `NEW`. See
-  `docs/incremental-order-updates.md` for the shared SharePoint design.
+  their home line, show `N new today`, and mark those rows `NEW`. An order
+  that stops appearing in the export keeps its crew, pinned start, bookings
+  and place in its line for a fortnight, so a partial export cannot destroy
+  planning. See `docs/incremental-order-updates.md`.
 - **Start, then book the shift** — `Start production` records the exact start
   instant and locks the order against further dragging. Entering the completed
   quantity moves Expect Date; saving `Job Completed` stores the exact completion

@@ -24,6 +24,25 @@ Refresh already reconciles rather than rebuilding the plan:
 This lets the planner review the green `NEW` rows, adjust their line or start,
 and crew them without recreating the rest of the schedule.
 
+## An order that leaves the export
+
+`Planning1.csv` is re-exported twice a day, and an order missing from one of
+them is more often a bad export than a finished job: a filter changed upstream,
+the file was written while the BAQ was still running, a row lost its part
+number and was skipped.
+
+So an absence is recorded, not acted on. `planStore` keeps a `lastSeen` day per
+job — persisted with the plan — and an order that stops appearing keeps its
+crew, its pinned start, its overtime approval, its bookings and its place in
+its line for `PLAN_RETENTION_DAYS` (14). Only after a fortnight of absences is
+any of it let go.
+
+Nothing is drawn in the meantime. The board builds its rows from the export, so
+an order that is not in one has no row either way; what is being held is the
+planning, against the order coming back. When it does, in the next export or a
+week later, it comes back with everything on it and in the same place on its
+line.
+
 ## Shared production deployment
 
 The browser baseline is intentionally a first deployment step. It is scoped by

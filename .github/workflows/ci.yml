@@ -28,7 +28,7 @@ jobs:
       # hour. The date and crew-capacity suites are here for that.
       - name: Check board interactions and crew rules across Australia and New Zealand time zones
         run: |
-          SUITES="tests/features/assemblyBoardView.test.ts tests/store/uiStore.test.ts tests/engine/crew.test.ts tests/engine/assemblyDates.test.ts tests/engine/crewSchedule.test.ts tests/engine/workload.test.ts tests/features/groupMove.test.ts"
+          SUITES="tests/features/assemblyBoardView.test.ts tests/store/uiStore.test.ts tests/store/planStore.test.ts tests/engine/crew.test.ts tests/engine/assemblyDates.test.ts tests/engine/crewSchedule.test.ts tests/engine/workload.test.ts tests/features/groupMove.test.ts"
           TZ=Australia/Sydney npx vitest run $SUITES
           TZ=Pacific/Auckland npx vitest run $SUITES
           # Not a zone this runs in, but one where a date written without a

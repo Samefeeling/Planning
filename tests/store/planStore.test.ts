@@ -215,3 +215,108 @@ describe('weekend overtime approvals', () => {
     expect(String(job) in state().orderOvertime).toBe(false);
   });
 });
+
+/**
+ * `Planning1.csv` is re-exported twice a day. Orders leave it when they finish
+ * — and, from time to time, when they should not have: the BAQ was still
+ * running, a filter changed, a row lost its part number on the way out.
+ * Reconciling has to tell those apart, and it can only do so over time.
+ */
+describe('surviving a twice-daily export', () => {
+  const centres = [
+    { id: 'UPL', name: 'Upholstery', sortIndex: 1 },
+    { id: 'ASSY', name: 'Assembly', sortIndex: 2 },
+  ] as unknown as Parameters<
+    ReturnType<typeof usePlanStore.getState>['reconcile']
+  >[0];
+
+  const job = (id: string, line: string) =>
+    ({
+      id: JobId(id),
+      department: 'assembly',
+      line,
+      preferredMachine: null,
+      assignedWorkers: [],
+    }) as unknown as Parameters<
+      ReturnType<typeof usePlanStore.getState>['reconcile']
+    >[1][number];
+
+  const planned = [job('A', 'UPL'), job('B', 'UPL'), job('C', 'ASSY')];
+  const day = (iso: string) => new Date(`${iso}T09:00:00`);
+
+  beforeEach(() => {
+    usePlanStore.setState({
+      containers: {},
+      orderCrewAssignments: {},
+      orderStarts: {},
+      orderActualStarts: {},
+      orderOvertime: {},
+      orderDoubleBooked: {},
+      progress: {},
+      progressBaselines: {},
+      production: {},
+      lastSeen: {},
+    });
+    usePlanStore.getState().reconcile(centres, planned, day('2026-09-08'));
+    usePlanStore.setState({
+      orderCrewAssignments: crewOf({ B: ['W01', 'W02'] }),
+      orderStarts: { B: '2026-09-14' },
+      orderOvertime: { B: true },
+    });
+  });
+
+  it('holds an absent order’s crew, start and place in the line', () => {
+    const state = () => usePlanStore.getState();
+    // B is missing from the next export — a partial file, not a finished job.
+    state().reconcile(
+      centres,
+      [planned[0], planned[2]],
+      day('2026-09-08'),
+    );
+    expect(state().orderCrewAssignments.B).toHaveLength(2);
+    expect(state().orderStarts.B).toBe('2026-09-14');
+    expect(state().orderOvertime.B).toBe(true);
+    // And in its own place on its own line, so the row does not come back at
+    // the bottom of the pool when the export is fixed.
+    expect(state().containers.UPL.map(String)).toEqual(['A', 'B']);
+
+    // The export is fixed that afternoon and nothing was lost.
+    state().reconcile(centres, planned, day('2026-09-08'));
+    expect(state().containers.UPL.map(String)).toEqual(['A', 'B']);
+    expect(state().orderStarts.B).toBe('2026-09-14');
+  });
+
+  it('lets go of an order once it has been gone a fortnight', () => {
+    const state = () => usePlanStore.getState();
+    const without = [planned[0], planned[2]];
+    state().reconcile(centres, without, day('2026-09-21'));
+    expect(state().orderStarts.B).toBe('2026-09-14');
+    expect(state().containers.UPL.map(String)).toEqual(['A', 'B']);
+
+    // Fifteen days after it was last exported.
+    state().reconcile(centres, without, day('2026-09-23'));
+    expect('B' in state().orderStarts).toBe(false);
+    expect('B' in state().orderCrewAssignments).toBe(false);
+    expect(state().containers.UPL.map(String)).toEqual(['A']);
+    expect('B' in state().lastSeen).toBe(false);
+  });
+
+  it('files a genuinely new order onto its own line and keeps the rest', () => {
+    const state = () => usePlanStore.getState();
+    state().reconcile(
+      centres,
+      [...planned, job('D', 'UPL')],
+      day('2026-09-08'),
+    );
+    expect(state().containers.UPL.map(String)).toEqual(['A', 'B', 'D']);
+    expect(state().orderStarts.B).toBe('2026-09-14');
+  });
+
+  it('gives a plan saved before absences were recorded the same fortnight', () => {
+    const state = () => usePlanStore.getState();
+    usePlanStore.setState({ lastSeen: {} });
+    state().reconcile(centres, [planned[0]], day('2026-09-08'));
+    expect(state().orderStarts.B).toBe('2026-09-14');
+    expect(state().lastSeen.B).toBe('2026-09-08');
+  });
+});

@@ -20,6 +20,38 @@ import {
 /** Container id for the un-scheduled job pool. */
 export const POOL_ID = '__pool__';
 
+/**
+ * How long an order's plan outlives its last appearance in an export.
+ *
+ * `Planning1.csv` is re-exported twice a day, and an order missing from one of
+ * them is more often a bad export than a finished job: a filter changed
+ * upstream, the file was written while the BAQ was still running, a row lost
+ * its part number and was skipped. Acting on the first absence made that
+ * unrecoverable — the crew, the dragged start, the shift's own bookings and
+ * the order's place in its line all went in one pass, and when the row came
+ * back it came back bare, at the bottom of the pool.
+ *
+ * So an absence is recorded rather than acted on, and only a fortnight of them
+ * forgets anything. Nothing is drawn in the meantime: the board builds its
+ * rows from the export, so an order that is not in one has no row either way.
+ * What is being kept is the planning, against the order coming back.
+ */
+export const PLAN_RETENTION_DAYS = 14;
+
+/** Local `YYYY-MM-DD`, the key both the board and this store count days in. */
+const dayKey = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`;
+
+/**
+ * The same date `days` earlier. Built from the parts rather than by subtracting
+ * milliseconds: a calendar day is not always 86,400,000 ms, and this is asked
+ * across the two Sundays a year when it is not.
+ */
+const daysBefore = (date: Date, days: number): Date =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate() - days);
+
 export type Containers = Record<string, JobId[]>;
 
 export type PauseReason =
@@ -102,13 +134,20 @@ interface PlanState {
   progress: Record<string, { date: string; qty: number }[]>;
   progressBaselines: Record<string, ProgressBaseline>;
   production: Record<string, ProductionEntry[]>;
+  /**
+   * Job id → the local day it was last in an export. The plan's memory of what
+   * the source has shown it, and the only thing that separates an order that
+   * has finished from one a bad export left out. See `PLAN_RETENTION_DAYS`.
+   */
+  lastSeen: Record<string, string>;
 
   /**
    * Merge a refreshed dataset into the current layout: keep every placement the
-   * planner made, drop jobs that disappeared, and file genuinely new jobs onto
-   * their workbook line (or the pool). Idempotent — safe to call on every load.
+   * planner made, hold what an absent order had planned for `PLAN_RETENTION_DAYS`
+   * in case it comes back, and file genuinely new jobs onto their workbook line
+   * (or the pool). Idempotent — safe to call on every load.
    */
-  reconcile: (workCenters: WorkCenter[], jobs: Job[]) => void;
+  reconcile: (workCenters: WorkCenter[], jobs: Job[], now?: Date) => void;
   /** Replace the whole layout (e.g. loaded from persistence). */
   setContainers: (containers: Containers) => void;
   /** Put a worker on an order (no-op when full or already on it). */
@@ -162,6 +201,7 @@ interface PlanState {
     progress?: Record<string, { date: string; qty: number }[]>;
     progressBaselines?: Record<string, ProgressBaseline>;
     production?: Record<string, ProductionEntry[]>;
+    lastSeen?: Record<string, string>;
   }) => void;
   /** Move a job into `toContainer` at `toIndex` (end if omitted). */
   moveJob: (jobId: JobId, toContainer: string, toIndex?: number) => void;
@@ -192,6 +232,31 @@ function withoutJob(containers: Containers, jobId: JobId): Containers {
   }
   return next;
 }
+
+/**
+ * Every order this plan holds something for: allocated, dragged, started,
+ * booked against, or simply sitting on a line. What retention is about.
+ */
+const plannedJobIds = (state: PlanState): Set<string> => {
+  const ids = new Set<string>();
+  const records: Record<string, unknown>[] = [
+    state.orderCrewAssignments,
+    state.orderStarts,
+    state.orderActualStarts,
+    state.orderOvertime,
+    state.orderDoubleBooked,
+    state.progress,
+    state.progressBaselines,
+    state.production,
+  ];
+  for (const record of records) {
+    for (const id of Object.keys(record)) ids.add(id);
+  }
+  for (const jobIds of Object.values(state.containers)) {
+    for (const id of jobIds) ids.add(String(id));
+  }
+  return ids;
+};
 
 const MIN_DAY = '0000-00-00';
 
@@ -237,22 +302,47 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   progress: {},
   progressBaselines: {},
   production: {},
+  lastSeen: {},
   initialized: false,
 
 
-  reconcile(workCenters, jobs) {
+  reconcile(workCenters, jobs, now = new Date()) {
     set((state) => {
       const known = new Set(workCenters.map((w) => String(w.id)));
       const liveJobs = new Set(jobs.map((j) => String(j.id)));
       const next: Containers = emptyContainers(workCenters);
       const placed = new Set<string>();
 
-      // 1. Carry over existing placements for jobs that still exist.
+      // What the source has shown us, and when. Everything in this export was
+      // seen today; everything else keeps the day it was last in one, until
+      // that day drops out of the retention window.
+      const today = dayKey(now);
+      const forgetBefore = dayKey(daysBefore(now, PLAN_RETENTION_DAYS));
+      const lastSeen: Record<string, string> = {};
+      for (const [id, day] of Object.entries(state.lastSeen)) {
+        if (day >= forgetBefore) lastSeen[id] = day;
+      }
+      // A plan saved before absences were recorded carries none of these days,
+      // and it is only ever empty before the first reconcile — every export
+      // since stamps each of its orders. Those orders are not evidence of
+      // anything either way, so they are taken as seen now and given the
+      // ordinary retention from here. Done once, on the way in: applying it on
+      // every pass would re-stamp an order the moment it went absent, and
+      // nothing would ever be let go of.
+      if (Object.keys(state.lastSeen).length === 0) {
+        for (const id of plannedJobIds(state)) lastSeen[id] = today;
+      }
+      for (const id of liveJobs) lastSeen[id] = today;
+      const retained = (id: string): boolean => id in lastSeen;
+
+      // 1. Carry over existing placements — including an order missing from
+      //    this export, which keeps its line and its place in it so that a
+      //    partial export cannot shuffle the board.
       for (const [key, ids] of Object.entries(state.containers)) {
         const target = key === POOL_ID || known.has(key) ? key : POOL_ID;
         for (const id of ids) {
           const sid = String(id);
-          if (!liveJobs.has(sid) || placed.has(sid)) continue;
+          if (!retained(sid) || placed.has(sid)) continue;
           next[target].push(id);
           placed.add(sid);
         }
@@ -268,7 +358,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const keep = <T,>(src: Record<string, T>): Record<string, T> => {
         const out: Record<string, T> = {};
         for (const [k, v] of Object.entries(src)) {
-          if (liveJobs.has(k)) out[k] = v;
+          if (retained(k)) out[k] = v;
         }
         return out;
       };
@@ -295,6 +385,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         progress: keep(state.progress),
         progressBaselines: keep(state.progressBaselines),
         production: keep(state.production),
+        lastSeen,
         initialized: true,
       };
     });
@@ -587,6 +678,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         progressBaselines:
           plan.progressBaselines ?? state.progressBaselines,
         production: plan.production ?? state.production,
+        lastSeen: plan.lastSeen ?? state.lastSeen,
       };
     });
   },
