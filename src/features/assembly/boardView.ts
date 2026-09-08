@@ -32,7 +32,7 @@ export function sortLineRows(
   rows: OrderRow[],
   sort: OrderSort | null,
 ): OrderRow[] {
-  if (!sort) return rows;
+  if (!sort || rows.every(row => !row.line.schedulable)) return rows;
   return rows
     .map((row, index) => ({ row, index, date: sortDate(row, sort.key) }))
     .sort((a, b) => {
@@ -81,7 +81,7 @@ export function isRunningOnDay(row: OrderRow, day: Date): boolean {
 }
 
 export function countRunningOrders(rows: OrderRow[], day: Date): number {
-  return new Set(rows.filter((row) => isRunningOnDay(row, day))
+  return new Set(rows.filter((row) => row.line.schedulable && isRunningOnDay(row, day))
     .map((row) => String(row.job.id))).size;
 }
 
@@ -91,9 +91,8 @@ export function countRunningOrders(rows: OrderRow[], day: Date): number {
  * The header asks this once per column, and asking it column by column walked
  * every row on the board for every column on screen. An order names the days
  * it runs — its own plan, and whatever the shift booked against it — so
- * counting outwards from the rows is the cheap direction. Only the moulding
- * lane, which has no day plan to name, is still asked day by day, and there
- * are few of those: the lane holds only the press work assembly waits on.
+ * counting outwards from the rows is the cheap direction. PMD is context
+ * only and is excluded from the Assembly day counts.
  */
 export function runningOrdersByDay(
   rows: OrderRow[],
@@ -107,6 +106,7 @@ export function runningOrdersByDay(
   };
 
   for (const row of rows) {
+    if (!row.line.schedulable) continue;
     const jobId = String(row.job.id);
     for (const entry of row.booked) {
       if (entry.qty > 0) mark(entry.day, jobId);
@@ -115,10 +115,6 @@ export function runningOrdersByDay(
       for (const entry of row.crewDays) {
         if (entry.hours > 0) mark(entry.day, jobId);
       }
-      continue;
-    }
-    for (const day of days) {
-      if (isRunningOnDay(row, day)) mark(toDayKey(day), jobId);
     }
   }
 

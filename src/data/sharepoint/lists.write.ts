@@ -10,6 +10,11 @@
  */
 
 import { ok, err, type Result } from '@/lib/result';
+import { sessionRows, sessionCreate, sessionUpdate, SharePointHttpError } from './session';
+
+async function sessionResult<T>(run: () => Promise<T>): Promise<Result<T, WriteError>> {
+  try { return ok(await run()); } catch (e) { return err({ status: e instanceof SharePointHttpError ? e.status : 0, message: e instanceof Error ? e.message : String(e) }); }
+}
 import {
   graphSite,
   type SharePointConfig,
@@ -22,6 +27,7 @@ export type ListItemFields = Record<string, unknown>;
 export interface ListItem {
   id: string;
   fields: ListItemFields;
+  etag?: string;
 }
 
 /**
@@ -83,6 +89,7 @@ export async function fetchListRows(
   cfg: SharePointConfig,
   list: string,
 ): Promise<Result<ListItem[], WriteError>> {
+  if (cfg.authMode === 'session') return sessionResult(() => sessionRows(cfg, list));
   const missing = configured(cfg);
   if (missing) return err(missing);
 
@@ -112,6 +119,7 @@ export async function fetchListRows(
       }
       url = body['@odata.nextLink'] ?? '';
     }
+    if (url) return err(failed(400, 'SharePoint pagination limit reached.'));
     return ok(items);
   } catch (e) {
     return err(unreachable(`Graph list "${list}" read error: ${message(e)}`));
@@ -136,6 +144,7 @@ export async function createListItem(
   list: string,
   fields: ListItemFields,
 ): Promise<Result<string, WriteError>> {
+  if (cfg.authMode === 'session') return sessionResult(() => sessionCreate(cfg, list, fields));
   const missing = configured(cfg);
   if (missing) return err(missing);
 
@@ -171,7 +180,9 @@ export async function updateListItem(
   list: string,
   itemId: string,
   fields: ListItemFields,
+  etag?: string,
 ): Promise<Result<void, WriteError>> {
+  if (cfg.authMode === 'session') return sessionResult(() => sessionUpdate(cfg, list, itemId, fields, etag));
   const missing = configured(cfg);
   if (missing) return err(missing);
 

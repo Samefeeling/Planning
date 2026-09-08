@@ -443,10 +443,9 @@ describe('counting the orders running on each day', () => {
       days.map((day) => [toDayKey(day), countRunningOrders(rows, day)]),
     );
     expect(runningOrdersByDay(rows, days)).toEqual(oneAtATime);
-    // And the answer itself is the one the board should draw: the 2nd has A
-    // planned and the press bar across it, the 3rd has D's booked output and
-    // the press again, the 4th has A and B, and nothing reaches the Monday.
-    expect([...oneAtATime.values()]).toEqual([2, 2, 2, 0]);
+    // Assembly counts A on the 2nd, D's output on the 3rd, and A/B on the 4th.
+    // The PMD source bar is never included in those counts.
+    expect([...oneAtATime.values()]).toEqual([1, 1, 2, 0]);
   });
 
   it('counts an order once however many days it names', () => {
@@ -461,5 +460,22 @@ describe('counting the orders running on each day', () => {
       days.map(toDayKey),
     );
     expect([...runningOrdersByDay([], days).values()]).toEqual([0, 0, 0, 0]);
+  });
+});
+
+describe('PMD remains outside Assembly date controls', () => {
+  it('keeps PMD source order when date sorting is requested', () => {
+    const a = row('P1', { start: '2026-09-10' });
+    const b = row('P2', { start: '2026-09-08' });
+    a.line.schedulable = false; b.line.schedulable = false;
+    expect(sortLineRows([a,b], { key: 'start', direction:'asc' }).map(r=>r.job.id)).toEqual(['P1','P2']);
+  });
+  it('excludes PMD source bars and bookings from daily counts', () => {
+    const a = row('A1', { start: '2026-09-08', due: '2026-09-10' });
+    a.booked = [{ day:'2026-09-08', qty:2, hours:1 }];
+    const pmd = { ...a, job:{...a.job,id:'P1' as typeof a.job.id},line:{...a.line,schedulable:false} };
+    const day = new Date('2026-09-08T12:00:00');
+    expect(countRunningOrders([a,pmd],day)).toBe(1);
+    expect(runningOrdersByDay([a,pmd],[day]).get('2026-09-08')).toBe(1);
   });
 });

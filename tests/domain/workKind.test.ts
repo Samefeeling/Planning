@@ -30,11 +30,10 @@ describe('workKind', () => {
     );
   });
 
-  it('lets the exclusive trade win a description that names both', () => {
-    // Softie work that also mentions cutting is still softie work — the
-    // restricted bench has to win, or it stops being restricted.
+  it('gives cutting priority over Softie descriptions', () => {
+    // Cutting precedes Softie assembly.
     expect(workKind('Smart Softie Cut & Sew - Ottoman', 'UPL')).toBe(
-      'smart-softie',
+      'cut-sew',
     );
   });
 
@@ -42,9 +41,9 @@ describe('workKind', () => {
     expect(workKind('Integra Chair - UV', 'UPL')).toBe('upholstery');
   });
 
-  it('has no benches anywhere but UPL', () => {
-    // A table is a table; "Classroom Table 1200 Cut" is not a sewing job.
-    expect(workKind('Classroom Table 1200 Cut', 'TABLE')).toBe('general');
+  it('recognises Cut regardless of the supplied line', () => {
+    // Description takes priority over the exported line.
+    expect(workKind('Classroom Table 1200 Cut', 'TABLE')).toBe('cut-sew');
     expect(workKind('Podium Chair Final Assy & Pack', 'ASSY')).toBe('general');
   });
 });

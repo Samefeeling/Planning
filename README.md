@@ -587,3 +587,13 @@ both pages can read one source without a second fetch.
   the demo always reads as the current week.
 - **`xlsx`** is the npm SheetJS build; it carries known advisories and is only
   loaded for the (trusted, internal) Excel source.
+
+## MES integration and SharePoint sessions
+
+The Assembly board is also embedded in MES on the operator-shift-target branch.
+See [MES integration](docs/mes-integration.md) for the separate Assembly data
+contract, shared plan persistence, provisioning and rollout instructions.
+
+The board no longer exposes manual CSV load buttons. Live CSVs are read from
+configured SharePoint paths. A roster read failure displays a warning and no
+employees; demo people are only available with the mock source.

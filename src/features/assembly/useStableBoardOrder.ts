@@ -28,7 +28,9 @@ export function useStableBoardOrder(
     const keep = drawn.current?.sort === sort ? drawn.current.ids : undefined;
     const next = groups.map((group) => ({
       ...group,
-      rows: retainLineRows(group.rows, sort, keep?.get(group.line.key)),
+      rows: group.line.schedulable
+        ? retainLineRows(group.rows, sort, keep?.get(group.line.key))
+        : group.rows,
     }));
     drawn.current = {
       sort,

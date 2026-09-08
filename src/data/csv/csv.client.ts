@@ -13,6 +13,7 @@
  */
 
 import { ok, err, type Result } from '@/lib/result';
+import { sessionFile } from '@/data/sharepoint/session';
 import {
   graphFile,
   type SharePointConfig,
@@ -68,7 +69,7 @@ export function readCsvConfigFromEnv(): CsvSourceConfig {
   const env = import.meta.env;
   return {
     url: env.VITE_PLANNING_CSV_URL ?? '',
-    filePath: env.VITE_PLANNING_CSV_PATH ?? '/Shared Documents/Planning1.csv',
+    filePath: env.VITE_ASSEMBLY_PLANNING_CSV_PATH ?? (env.VITE_BACKEND === 'sharepoint' ? '/Shared Documents/Planning1.csv' : env.VITE_PLANNING_CSV_PATH ?? '/Shared Documents/Planning1.csv'),
     linksUrl: env.VITE_JOB_MATERIAL_CSV_URL ?? '',
     linksFilePath:
       env.VITE_JOB_MATERIAL_CSV_PATH ?? '/Shared Documents/JobMaterialReq.csv',
@@ -86,6 +87,7 @@ async function fetchText(
 ): Promise<Result<string, string>> {
   try {
     const res = await fetch(url, {
+      credentials: 'same-origin', cache: 'no-store',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
@@ -113,11 +115,11 @@ export async function fetchPlanningCsv(
         'SharePoint, or load the file by hand.',
     );
   }
-  if (viaGraph && !sp.token) {
+  if (viaGraph && !sp.token && sp.authMode !== 'session') {
     return err('Missing Graph access token (VITE_GRAPH_TOKEN).');
   }
 
-  const url = viaGraph ? graphFile(sp, cfg.filePath) : cfg.url;
+  const url = viaGraph ? (sp.authMode === 'session' ? sessionFile(sp, cfg.filePath) : graphFile(sp, cfg.filePath)) : cfg.url;
   return fetchText('Planning1.csv', url, viaGraph ? sp.token : null);
 }
 
@@ -134,11 +136,11 @@ export async function fetchJobMaterialCsv(
   if (manual !== null) return ok(manual);
 
   if (cfg.linksUrl) return fetchText('JobMaterialReq.csv', cfg.linksUrl, null);
-  if (!cfg.linksFilePath || !sp.siteUrl || !sp.token) return ok(null);
+  if (!cfg.linksFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
 
   return fetchText(
     'JobMaterialReq.csv',
-    graphFile(sp, cfg.linksFilePath),
+    sp.authMode === 'session' ? sessionFile(sp, cfg.linksFilePath) : graphFile(sp, cfg.linksFilePath),
     sp.token,
   );
 }
@@ -152,10 +154,10 @@ export async function fetchOnHandInventoryCsv(
   const manual = getManualOnHandInventoryCsv();
   if (manual !== null) return ok(manual);
   if (cfg.inventoryUrl) return fetchText('OnHandInventory.csv', cfg.inventoryUrl, null);
-  if (!cfg.inventoryFilePath || !sp.siteUrl || !sp.token) return ok(null);
+  if (!cfg.inventoryFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
   return fetchText(
     'OnHandInventory.csv',
-    graphFile(sp, cfg.inventoryFilePath),
+    sp.authMode === 'session' ? sessionFile(sp, cfg.inventoryFilePath) : graphFile(sp, cfg.inventoryFilePath),
     sp.token,
   );
 }

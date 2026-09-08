@@ -305,7 +305,8 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
     seen.add(jobNum);
 
     const lineCell = cell(row, col.line);
-    const placement = readPlacement(lineCell);
+    const isCut = /cut/i.test(cell(row, col.description));
+    const placement = readPlacement(isCut ? 'UPL' : lineCell);
     if (!placement && lineCell) {
       unknownLines.set(lineCell, (unknownLines.get(lineCell) ?? 0) + 1);
     }
@@ -377,7 +378,7 @@ export function parsePlanningCsv(text: string): ParseOutcome<Job> {
       materialPrep: readPrep(cell(row, col.materialPrep)),
       tool: null,
       preferredMachine: placement?.preferredMachine ?? null,
-      orderType: readOrderType(cell(row, col.orderType), line),
+      orderType: isCut ? 'cutting-sewing' : readOrderType(cell(row, col.orderType), line),
       line,
       completedQty,
       // The order export rarely names one; the material file is where the

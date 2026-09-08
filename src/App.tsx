@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { useDataStore } from '@/store/dataStore';
+import { useIgnoredOrders } from '@/store/ignoredOrders';
 import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
 import { useAssemblyGantt } from '@/store/assemblySelectors';
@@ -23,7 +24,6 @@ import { SuggestCrew } from '@/features/assembly/SuggestCrew';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
 import { usePlanSync } from '@/features/sync/usePlanSync';
-import { CsvLoader } from '@/features/source/CsvLoader';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { Badge, Spinner } from '@/ui';
 
@@ -37,6 +37,7 @@ export default function App() {
   const warnings = useDataStore((s) => s.warnings);
   const sourceName = useDataStore((s) => s.source.name);
 
+  const ignoredOrderIds = useIgnoredOrders(s => s.ids);
   const containers = usePlanStore((s) => s.containers);
   const workerLines = usePlanStore((s) => s.workerLines);
   const orderCrewAssignments = usePlanStore((s) => s.orderCrewAssignments);
@@ -56,10 +57,11 @@ export default function App() {
   const resetOrderSort = useUiStore((s) => s.resetOrderSort);
   // Crew and dragged starts go back to SharePoint; a refreshed CSV carries
   // DueDate and RemainingQty in the other direction.
-  const sync = usePlanSync(board);
+
 
   const bootstrapped = useRef(false);
   const saveTimer = useRef<number | undefined>(undefined);
+  const saveGeneration = useRef(0);
   /**
    * How the read of the stored plan went.
    *
@@ -72,6 +74,8 @@ export default function App() {
   const [stored, setStored] = useState<'reading' | 'loaded' | 'failed'>(
     'reading',
   );
+  const [planSaved, setPlanSaved] = useState(false);
+  const sync = usePlanSync(stored === 'loaded' && planSaved ? board : null);
   const [storeError, setStoreError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const reason = (e: unknown): string =>
@@ -112,7 +116,10 @@ export default function App() {
       .load()
       .then((persisted) => {
         if (persisted?.containers) plan.setContainers(persisted.containers);
-        if (persisted?.assembly) plan.setAssemblyPlan(persisted.assembly);
+        if (persisted?.assembly) {
+          plan.setAssemblyPlan(persisted.assembly);
+          if (persisted.assembly.ignoredOrderIds) useIgnoredOrders.setState({ ids: persisted.assembly.ignoredOrderIds });
+        }
         plan.reconcile(dataset.workCenters, dataset.jobs);
         setStored('loaded');
         setStoreError(null);
@@ -136,6 +143,8 @@ export default function App() {
   // Debounced autosave of the planner's layout.
   useEffect(() => {
     if (stored !== 'loaded') return;
+    setPlanSaved(false);
+    const generation = ++saveGeneration.current;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       repo
@@ -145,6 +154,7 @@ export default function App() {
           savedAt: new Date().toISOString(),
           containers,
           assembly: {
+            ignoredOrderIds,
             workerLines,
             orderCrewAssignments,
             orderStarts,
@@ -157,11 +167,12 @@ export default function App() {
             lastSeen,
           },
         })
-        .then(() => setStoreError(null))
-        .catch((e) => setStoreError(reason(e)));
+        .then(() => { if (generation === saveGeneration.current) { setStoreError(null); setPlanSaved(true); } })
+        .catch((e) => { setStoreError(reason(e)); setStored('failed'); });
     }, 600);
     return () => window.clearTimeout(saveTimer.current);
   }, [
+    ignoredOrderIds,
     stored,
     containers,
     workerLines,
@@ -203,7 +214,6 @@ export default function App() {
           <SuggestCrew board={board} />
           <SupervisorLock />
           <BarcodeOrderLookup board={board} />
-          <CsvLoader />
           <RefreshControl onRefresh={async () => {
             await refresh();
             resetOrderSort();

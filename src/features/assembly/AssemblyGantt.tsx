@@ -534,13 +534,19 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
       orderWindow === 'next-five'
         ? (row: OrderRow) => isInNextWorkingDays(row, board.today)
         : orderWindow === 'day' && orderDay
-          ? (row: OrderRow) => isRunningOnDay(row, fromDayKey(orderDay))
+          ? (row: OrderRow) => row.line.schedulable && isRunningOnDay(row, fromDayKey(orderDay))
           : null;
-    return chosen ? withPredecessors(allRows, chosen) : null;
+    if (!chosen) return null;
+    const selected = withPredecessors(allRows, chosen);
+    // Daily Assembly filtering excludes PMD, including PMD predecessors.
+    if (orderWindow === 'day') {
+      for (const row of allRows) if (!row.line.schedulable) selected.delete(String(row.job.id));
+    }
+    return selected;
   }, [allRows, board.today, orderWindow, orderDay]);
   const visibleGroups = useMemo(
     () =>
-      orderedGroups.map((group) => ({
+      orderedGroups.filter(group => orderWindow !== 'day' || group.line.schedulable).map((group) => ({
         ...group,
         rows: visibleIds
           ? group.rows.filter((row) => visibleIds.has(String(row.job.id)))
@@ -555,7 +561,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
         // of them — this used to throw that away and count the filtered rows.
         total: group.rows.length,
       })),
-    [orderedGroups, visibleIds],
+    [orderedGroups, visibleIds, orderWindow],
   );
   const visibleRows = useMemo(
     () => visibleGroups.flatMap((group) => group.rows),
@@ -685,7 +691,7 @@ export function AssemblyGantt({ board }: { board: AssemblyGanttView }) {
           <button
             className={`date-sort ${sort?.key === key ? 'active' : ''}`}
             onClick={() => changeSort(key as OrderSortKey)}
-            title={`Sort each line by ${label}`}
+            title={`Sort Assembly lines by ${label}; PMD keeps its source order`}
           >
             {label}
             <span aria-hidden="true">

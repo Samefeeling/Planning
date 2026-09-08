@@ -44,9 +44,9 @@ export interface PlanSyncState {
 }
 
 export function usePlanSync(board: AssemblyGanttView | null): PlanSyncState {
-  const list = (import.meta.env.VITE_PRODUCTION_LIST ?? '').trim();
+  const list = (import.meta.env.VITE_PRODUCTION_LIST ?? (import.meta.env.VITE_BACKEND === 'sharepoint' ? 'ASSY_Production' : '')).trim();
   const cfg = readConfigFromEnv();
-  const enabled = Boolean(list && cfg.siteUrl && cfg.token);
+  const enabled = Boolean(list && cfg.siteUrl && (cfg.token || cfg.authMode === 'session'));
   const production = usePlanStore((s) => s.production);
 
   const [state, setState] = useState<Omit<PlanSyncState, 'enabled' | 'list'>>({

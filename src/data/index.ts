@@ -84,7 +84,7 @@ class LazyExcelSource extends BaseDataSource {
 
 export function createDataSource(
   kind: DataSourceKind = (import.meta.env.VITE_DATA_SOURCE as DataSourceKind) ??
-    'mock',
+    (import.meta.env.VITE_BACKEND === 'sharepoint' || import.meta.env.VITE_SHAREPOINT_SITE_URL ? 'planning-csv' : 'mock'),
 ): DataSource {
   switch (kind) {
     case 'planning-csv':

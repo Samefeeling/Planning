@@ -310,6 +310,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set((state) => {
       const known = new Set(workCenters.map((w) => String(w.id)));
       const liveJobs = new Set(jobs.map((j) => String(j.id)));
+      const cutJobs = new Set(jobs.filter(j => /cut/i.test(j.description)).map(j => String(j.id)));
       const next: Containers = emptyContainers(workCenters);
       const placed = new Set<string>();
 
@@ -343,7 +344,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         for (const id of ids) {
           const sid = String(id);
           if (!retained(sid) || placed.has(sid)) continue;
-          next[target].push(id);
+          const destination = cutJobs.has(sid) && known.has('UPL') ? 'UPL' : target;
+          next[destination].push(id);
           placed.add(sid);
         }
       }

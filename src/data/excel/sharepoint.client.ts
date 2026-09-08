@@ -18,12 +18,14 @@ export interface SharePointConfig {
   filePath: string;
   /** OAuth bearer token for Graph (dev only; use a broker in production). */
   token: string;
+  authMode?: 'graph' | 'session';
 }
 
 export function readConfigFromEnv(): SharePointConfig {
   const env = import.meta.env;
   return {
-    siteUrl: env.VITE_SHAREPOINT_SITE_URL ?? '',
+    siteUrl: env.VITE_SHAREPOINT_SITE_URL ?? env.VITE_SITE_URL ?? '',
+    authMode: env.VITE_SHAREPOINT_AUTH === 'session' || env.VITE_BACKEND === 'sharepoint' ? 'session' : 'graph',
     filePath: env.VITE_SHAREPOINT_FILE_PATH ?? '',
     token: env.VITE_GRAPH_TOKEN ?? '',
   };

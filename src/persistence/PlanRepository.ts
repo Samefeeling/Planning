@@ -19,6 +19,8 @@ export interface PersistedPlan {
   containers: Containers;
   /** Assembly plan: crew per order, pinned starts, booked output. */
   assembly?: {
+    /** Shared exclusions from automatic crew suggestions. */
+    ignoredOrderIds?: string[];
     /**
      * The shape crew was stored in before it had day windows. Read on the way
      * in and migrated; never written. See `planStore.setAssemblyPlan`.

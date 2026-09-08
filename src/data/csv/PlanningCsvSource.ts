@@ -33,7 +33,6 @@ import {
 } from '@/data/excel/sharepoint.client';
 import { fetchListItems } from '@/data/sharepoint/lists.client';
 import { parseOperators } from '@/data/sharepoint/operator.parser';
-import { demoWorkers } from '@/data/mock/roster';
 import {
   fetchJobMaterialCsv,
   fetchPlanningCsv,
@@ -140,32 +139,23 @@ export class PlanningCsvSource extends BaseDataSource {
     ];
   }
 
-  /**
-   * The roster, from `ASSY_Operator` — or the demo people when that list
-   * cannot be read.
-   *
-   * An empty roster is not a degraded board, it is a blank one: nobody can be
-   * allocated, so no order gets a bar, no order gets an Expect Date, and the
-   * whole load histogram reads zero. Standing in the demo people keeps a real
-   * export readable while SharePoint is still being set up, and the warning
-   * says plainly that the names are not the real crew.
-   */
+  /** Read the real roster. An unreadable list never substitutes demo workers. */
   async fetchWorkers(): Promise<Worker[]> {
     const res = await fetchListItems(this.sp, OPERATOR_LIST);
     if (!res.ok) {
       this.warnings.push(
-        `${OPERATOR_LIST} not read (${res.error}) — showing the demo roster, ` +
-          'so the names and skills on this board are not the real crew',
+        `${OPERATOR_LIST} not read (${res.error}) — no crew will be allocated.`,
+
       );
-      return demoWorkers();
+      return [];
     }
     const { values, errors } = parseOperators(res.value);
     this.warnings.push(...errors);
     if (values.length === 0) {
       this.warnings.push(
-        `${OPERATOR_LIST} is empty — showing the demo roster instead`,
+        `${OPERATOR_LIST} is empty — no crew will be allocated.`,
       );
-      return demoWorkers();
+      return [];
     }
     return values;
   }

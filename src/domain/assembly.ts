@@ -35,9 +35,9 @@ export type WorkKind = 'general' | 'cut-sew' | 'smart-softie' | 'upholstery';
  */
 const RESTRICTED_KINDS: WorkKind[] = ['smart-softie'];
 
-/** What a description says the work is. Order matters — "Smart Softie Cut
- * & Sew" is softie work, and the exclusive trade has to win. */
+/** Cutting is the first process and always takes precedence over Softie. */
 const KIND_PATTERNS: [RegExp, WorkKind][] = [
+  [/cut/i, 'cut-sew'],
   [/smart\s*softie|ottoman/i, 'smart-softie'],
   [/\bcut\b|cut\s*&\s*sew|cut\s*and\s*sew|sewing/i, 'cut-sew'],
   [/upholster/i, 'upholstery'],
@@ -45,6 +45,7 @@ const KIND_PATTERNS: [RegExp, WorkKind][] = [
 
 /** The trade an order calls for, from its part description. */
 export function workKind(description: string, line: LineKey): WorkKind {
+  if (/cut/i.test(description)) return 'cut-sew';
   if (line !== 'UPL') return 'general';
   return KIND_PATTERNS.find(([re]) => re.test(description))?.[1] ?? 'upholstery';
 }

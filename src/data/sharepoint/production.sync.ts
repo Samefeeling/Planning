@@ -2,8 +2,8 @@
  * Mirrors the board into the `ASSY_Production` SharePoint list.
  *
  * One row per **order per day**, matching the list Resero already designed —
- * the same shape as `PMD_Production`, so KPI work can aggregate the two
- * departments without a second mapping layer.
+ * independently of PMD machine/shift records. MES uses a dedicated Assembly
+ * adapter and metrics, never PMD OEE aggregation.
  *
  * Each row carries two kinds of column, and the split is the whole design:
  *
@@ -331,7 +331,7 @@ export async function syncProduction(
     return out;
   }
 
-  const byJob = new Map<string, { id: string; fields: ListItemFields }[]>();
+  const byJob = new Map<string, { id: string; fields: ListItemFields; etag?: string }[]>();
   for (const item of existing.value) {
     const key = String(item.fields[PRODUCTION_COLUMNS.jobNum] ?? '').trim();
     if (!key) continue;
@@ -392,7 +392,7 @@ export async function syncProduction(
         out.unchanged++;
         continue;
       }
-      const res = await updateListItem(cfg, list, found.id, wanted);
+      const res = await updateListItem(cfg, list, found.id, wanted, ...(cfg.authMode === 'session' ? [found.etag] : []));
       if (res.ok) out.updated++;
       else note(res.error);
     }
@@ -424,7 +424,7 @@ export async function syncProduction(
         out.unchanged++;
         continue;
       }
-      const res = await updateListItem(cfg, list, row.id, stale);
+      const res = await updateListItem(cfg, list, row.id, stale, ...(cfg.authMode === 'session' ? [row.etag] : []));
       if (res.ok) out.updated++;
       else note(res.error);
     }
