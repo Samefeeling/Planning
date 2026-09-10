@@ -22,6 +22,7 @@ import {
 let manualCsv: string | null = null;
 let manualJobMaterialCsv: string | null = null;
 let manualOnHandInventoryCsv: string | null = null;
+let manualProductLinesJson: string | null = null;
 
 /** Stash a `Planning1.csv` the user picked from disk. */
 export function setManualCsv(text: string): void {
@@ -50,6 +51,15 @@ export function getManualOnHandInventoryCsv(): string | null {
   return manualOnHandInventoryCsv;
 }
 
+/** Stash a `product-lines.v3.json` the user picked from disk. */
+export function setManualProductLinesJson(text: string): void {
+  manualProductLinesJson = text;
+}
+
+export function getManualProductLinesJson(): string | null {
+  return manualProductLinesJson;
+}
+
 export interface CsvSourceConfig {
   /** Direct URL to the order export, if it is served over plain HTTP. */
   url: string;
@@ -67,6 +77,11 @@ export interface CsvSourceConfig {
   waybillUrl?: string;
   /** SharePoint drive path for the waybill export; empty disables the fetch. */
   waybillFilePath?: string;
+  /** Direct URL to product-lines.v3.json. */
+  productLinesUrl?: string;
+  /** Drive path for product-lines.v3.json; empty disables the fetch. It sits
+   *  in the same folder as JobMaterialReq.csv. */
+  productLinesFilePath?: string;
 }
 
 export function readCsvConfigFromEnv(): CsvSourceConfig {
@@ -82,6 +97,9 @@ export function readCsvConfigFromEnv(): CsvSourceConfig {
       env.VITE_ON_HAND_INVENTORY_CSV_PATH ?? '/Shared Documents/OnHandInventory.csv',
     waybillUrl: env.VITE_WAYBILL_CSV_URL ?? '',
     waybillFilePath: env.VITE_WAYBILL_CSV_PATH ?? '',
+    productLinesUrl: env.VITE_PRODUCT_LINES_URL ?? '',
+    productLinesFilePath:
+      env.VITE_PRODUCT_LINES_PATH ?? '/Shared Documents/product-lines.v3.json',
   };
 }
 
@@ -151,6 +169,31 @@ export async function fetchJobMaterialCsv(
   );
 }
 
+
+/**
+ * The reviewed routing table, or `ok(null)` when the site has not put one
+ * beside the other exports. Optional in exactly the way the material links
+ * are: without it every order is classified from its BOM instead, which is a
+ * worse answer but never a failed load.
+ */
+export async function fetchProductLinesJson(
+  cfg: CsvSourceConfig,
+  sp: SharePointConfig,
+): Promise<Result<string | null, string>> {
+  const manual = getManualProductLinesJson();
+  if (manual !== null) return ok(manual);
+
+  if (cfg.productLinesUrl) return fetchText('product-lines.v3.json', cfg.productLinesUrl, null);
+  if (!cfg.productLinesFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
+
+  return fetchText(
+    'product-lines.v3.json',
+    sp.authMode === 'session'
+      ? sessionFile(sp, cfg.productLinesFilePath)
+      : graphFile(sp, cfg.productLinesFilePath),
+    sp.token,
+  );
+}
 
 /** Optional on-hand export, using the same manual/URL/Graph order as the other files. */
 export async function fetchOnHandInventoryCsv(
