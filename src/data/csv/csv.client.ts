@@ -63,6 +63,10 @@ export interface CsvSourceConfig {
   inventoryUrl?: string;
   /** SharePoint drive path for OnHandInventory.csv; empty disables the fetch. */
   inventoryFilePath?: string;
+  /** Direct URL to the dispatch waybill export. */
+  waybillUrl?: string;
+  /** SharePoint drive path for the waybill export; empty disables the fetch. */
+  waybillFilePath?: string;
 }
 
 export function readCsvConfigFromEnv(): CsvSourceConfig {
@@ -76,6 +80,8 @@ export function readCsvConfigFromEnv(): CsvSourceConfig {
     inventoryUrl: env.VITE_ON_HAND_INVENTORY_CSV_URL ?? '',
     inventoryFilePath:
       env.VITE_ON_HAND_INVENTORY_CSV_PATH ?? '/Shared Documents/OnHandInventory.csv',
+    waybillUrl: env.VITE_WAYBILL_CSV_URL ?? '',
+    waybillFilePath: env.VITE_WAYBILL_CSV_PATH ?? '',
   };
 }
 
@@ -158,6 +164,29 @@ export async function fetchOnHandInventoryCsv(
   return fetchText(
     'OnHandInventory.csv',
     sp.authMode === 'session' ? sessionFile(sp, cfg.inventoryFilePath) : graphFile(sp, cfg.inventoryFilePath),
+    sp.token,
+  );
+}
+
+/** Is a scheduled waybill export configured, so dispatch can refresh on its own? */
+export function hasWaybillSource(cfg: CsvSourceConfig, sp: SharePointConfig): boolean {
+  if (cfg.waybillUrl) return true;
+  return Boolean(cfg.waybillFilePath && sp.siteUrl && (sp.token || sp.authMode === 'session'));
+}
+
+/**
+ * The dispatch waybill export, or `ok(null)` when none is configured. The
+ * dispatch page also takes the file from disk, which needs no configuration.
+ */
+export async function fetchWaybillCsv(
+  cfg: CsvSourceConfig,
+  sp: SharePointConfig,
+): Promise<Result<string | null, string>> {
+  if (cfg.waybillUrl) return fetchText('Waybill CSV', cfg.waybillUrl, null);
+  if (!hasWaybillSource(cfg, sp)) return ok(null);
+  return fetchText(
+    'Waybill CSV',
+    sp.authMode === 'session' ? sessionFile(sp, cfg.waybillFilePath!) : graphFile(sp, cfg.waybillFilePath!),
     sp.token,
   );
 }

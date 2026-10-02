@@ -126,6 +126,30 @@ button {
   font-weight: 650;
   letter-spacing: 0.2px;
 }
+/* Assembly / Dispatch page switch, left of the page title. */
+.view-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.view-switch button {
+  appearance: none;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.view-switch button + button {
+  border-left: 1px solid var(--border);
+}
+.view-switch button.active {
+  background: var(--accent);
+  color: #fff;
+}
 .app-header .sub {
   color: var(--muted);
   font-size: 12px;

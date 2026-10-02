@@ -1,0 +1,228 @@
+/**
+ * One order in full: its window and where the plan put it, the planner's
+ * three levers (pin a day, hold it back, correct its cube), and its lines.
+ */
+
+import { useEffect, useState } from 'react';
+import { DISPATCH_MODE_LABEL } from '@/domain/dispatch';
+import { ORDER_FLAG_LABEL } from '@/engine/dispatch/plan';
+import { useDispatchStore } from '@/store/dispatchStore';
+import { Badge, Button } from '@/ui';
+import type { DispatchModel } from './useDispatchPlan';
+import { READINESS, dayLabel, m3, money } from './format';
+
+export function OrderDrawer({
+  orderId,
+  model,
+  onClose,
+}: {
+  orderId: string;
+  model: DispatchModel;
+  onClose: () => void;
+}) {
+  const order = model.ordersById.get(orderId);
+  const op = model.plan?.orders.get(orderId);
+  const lines = model.linesByOrder.get(orderId) ?? [];
+  const decisions = useDispatchStore((s) => s.decisions);
+  const pin = useDispatchStore((s) => s.pin);
+  const hold = useDispatchStore((s) => s.hold);
+  const setVolume = useDispatchStore((s) => s.setVolume);
+
+  const [pinDay, setPinDay] = useState(decisions.pins[orderId] ?? '');
+  const [holdReason, setHoldReason] = useState('');
+  const override = decisions.volumeOverrides[orderId];
+  const [volume, setVolumeText] = useState(override !== undefined ? String(override) : '');
+  const held = decisions.holds[orderId];
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (!order || !op) return null;
+  const firm = op.flags.includes('firm');
+
+  return (
+    <aside className="order-drawer" role="dialog" aria-label={`Order ${orderId}`}>
+      <header>
+        <h2>Order {order.id}</h2>
+        <button className="close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </header>
+
+      <dl className="order-facts">
+        <dt>Customer</dt>
+        <dd>{order.custId}</dd>
+        <dt>Zone · City</dt>
+        <dd>
+          {order.zone} · {order.city}
+        </dd>
+        <dt>Ship Via</dt>
+        <dd>{order.shipVia}</dd>
+        <dt>Route</dt>
+        <dd>{op.route ? `${DISPATCH_MODE_LABEL[op.route.mode]} — ${op.route.label}` : 'Not routed'}</dd>
+        <dt>Volume</dt>
+        <dd>
+          {op.volumeKnown ? m3(op.volumeM3) : 'Unknown'}
+          {override !== undefined && ' (entered)'}
+        </dd>
+        <dt>Value</dt>
+        <dd>{money(order.value)}</dd>
+        <dt>Goods</dt>
+        <dd>
+          <Badge variant={READINESS[order.readiness].variant}>{READINESS[order.readiness].label}</Badge>{' '}
+          {order.readyLines}/{order.goodsLines} lines ready{order.inPicking ? ' · in picking' : ''}
+        </dd>
+        <dt>Ship By</dt>
+        <dd>{dayLabel(order.shipBy)}</dd>
+        <dt>Need By</dt>
+        <dd>{dayLabel(order.needBy)}</dd>
+        <dt>Window</dt>
+        <dd>
+          {op.earliest ? `${dayLabel(op.earliest)} → ${dayLabel(op.latest)}` : '—'}
+        </dd>
+        <dt>Planned</dt>
+        <dd>
+          {dayLabel(op.day)}
+          {op.loadIds.length > 1 && ` · ${op.loadIds.length} loads`}
+        </dd>
+      </dl>
+
+      {op.flags.length > 0 && (
+        <ul className="order-flags">
+          {op.flags.map((f) => (
+            <li key={f}>{ORDER_FLAG_LABEL[f]}</li>
+          ))}
+        </ul>
+      )}
+      {order.notes.length > 0 && (
+        <ul className="order-flags notes">
+          {order.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+
+      <section className="order-actions">
+        <h3>Planner actions</h3>
+        {firm && <p className="muted-note">On a confirmed load — release the load to change it.</p>}
+        <div className="action-row">
+          <label htmlFor="pin-day">Pin to day</label>
+          <input
+            id="pin-day"
+            type="date"
+            value={pinDay}
+            min={model.plan?.today}
+            disabled={firm}
+            onChange={(e) => setPinDay(e.target.value)}
+          />
+          <Button disabled={firm || !pinDay} onClick={() => pin(orderId, pinDay)}>
+            Pin
+          </Button>
+          {decisions.pins[orderId] && (
+            <Button
+              disabled={firm}
+              onClick={() => {
+                pin(orderId, null);
+                setPinDay('');
+              }}
+            >
+              Unpin
+            </Button>
+          )}
+        </div>
+        <div className="action-row">
+          <label htmlFor="volume">Volume m³</label>
+          <input
+            id="volume"
+            type="number"
+            min={0}
+            step={0.1}
+            value={volume}
+            placeholder={order.volumeM3 === null ? 'unknown' : String(order.volumeM3)}
+            disabled={firm}
+            onChange={(e) => setVolumeText(e.target.value)}
+          />
+          <Button
+            disabled={firm || volume.trim() === '' || !(Number(volume) >= 0)}
+            onClick={() => setVolume(orderId, Number(volume))}
+          >
+            Save
+          </Button>
+          {override !== undefined && (
+            <Button
+              disabled={firm}
+              onClick={() => {
+                setVolume(orderId, null);
+                setVolumeText('');
+              }}
+            >
+              Use export
+            </Button>
+          )}
+        </div>
+        <div className="action-row">
+          {held !== undefined ? (
+            <>
+              <span>Held{held ? `: ${held}` : ''}</span>
+              <Button onClick={() => hold(orderId, null)}>Release hold</Button>
+            </>
+          ) : (
+            <>
+              <label htmlFor="hold">Hold back</label>
+              <input
+                id="hold"
+                type="text"
+                placeholder="Reason (optional)"
+                value={holdReason}
+                disabled={firm}
+                onChange={(e) => setHoldReason(e.target.value)}
+              />
+              <Button disabled={firm} onClick={() => hold(orderId, holdReason.trim())}>
+                Hold
+              </Button>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <h3>Lines</h3>
+        <div className="table-scroll">
+          <table className="lines-table">
+            <thead>
+              <tr>
+                <th>Line</th>
+                <th>Part</th>
+                <th className="num">Left</th>
+                <th className="num">Alloc</th>
+                <th>UOM</th>
+                <th>Method</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((l) => (
+                <tr key={`${l.line}-${l.rel}`}>
+                  <td>
+                    {l.line}/{l.rel}
+                  </td>
+                  <td className="mono">{l.part}</td>
+                  <td className="num">{l.leftToShip}</td>
+                  <td className="num">{l.allocatedQty}</td>
+                  <td>{l.uom}</td>
+                  <td>{l.fulfillment}</td>
+                  <td>{l.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </aside>
+  );
+}

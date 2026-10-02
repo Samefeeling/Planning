@@ -1,0 +1,412 @@
+/**
+ * The numbers the plan is built with. Every default is an assumption for
+ * logistics to confirm, so each one is editable here and takes effect at once.
+ */
+
+import { useState } from 'react';
+import type { DispatchSettings, Equipment } from '@/domain/dispatch';
+import { useDispatchStore } from '@/store/dispatchStore';
+import { Button } from '@/ui';
+
+const WEEKDAYS: [number, string][] = [
+  [1, 'Mon'],
+  [2, 'Tue'],
+  [3, 'Wed'],
+  [4, 'Thu'],
+  [5, 'Fri'],
+];
+
+const list = (text: string): string[] =>
+  text
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  step = 1,
+  min = 0,
+  suffix,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+  step?: number;
+  min?: number;
+  suffix?: string;
+  hint?: string;
+}) {
+  const [text, setText] = useState(String(value));
+  return (
+    <label className="field" title={hint}>
+      {label && <span>{label}</span>}
+      <span className="field-input">
+        <input
+          type="number"
+          step={step}
+          min={min}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            const n = Number(e.target.value);
+            if (e.target.value.trim() !== '' && Number.isFinite(n) && n >= min) onChange(n);
+          }}
+        />
+        {suffix && <em>{suffix}</em>}
+      </span>
+    </label>
+  );
+}
+
+/** A comma-separated list, committed when the field loses focus. */
+function ListField({
+  label,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+  hint?: string;
+}) {
+  const [text, setText] = useState(value.join(', '));
+  return (
+    <label className="field wide" title={hint}>
+      {label && <span>{label}</span>}
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => onChange(list(text))}
+      />
+    </label>
+  );
+}
+
+function WeekdayPicker({ value, onChange }: { value: number[]; onChange: (v: number[]) => void }) {
+  return (
+    <span className="weekday-picker">
+      {WEEKDAYS.map(([n, name]) => (
+        <label key={n} className="check">
+          <input
+            type="checkbox"
+            checked={value.includes(n)}
+            onChange={(e) =>
+              onChange(
+                e.target.checked ? [...value, n].sort() : value.filter((d) => d !== n),
+              )
+            }
+          />
+          {name}
+        </label>
+      ))}
+    </span>
+  );
+}
+
+function EquipmentTable({
+  items,
+  onChange,
+}: {
+  items: Equipment[];
+  onChange: (items: Equipment[]) => void;
+}) {
+  return (
+    <table className="settings-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th className="num">Usable m³</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item, i) => (
+          <tr key={item.id}>
+            <td>
+              <input
+                type="text"
+                value={item.name}
+                onChange={(e) =>
+                  onChange(items.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
+                }
+              />
+            </td>
+            <td className="num">
+              <NumberField
+                label=""
+                value={item.capacityM3}
+                step={0.5}
+                onChange={(n) =>
+                  onChange(items.map((x, j) => (j === i ? { ...x, capacityM3: n } : x)))
+                }
+              />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function DispatchSettingsPanel() {
+  const settings = useDispatchStore((s) => s.settings);
+  const update = useDispatchStore((s) => s.updateSettings);
+  const reset = useDispatchStore((s) => s.resetSettings);
+  // Remount every field after a reset so the inputs show the defaults.
+  const [generation, setGeneration] = useState(0);
+
+  const set = (change: (s: DispatchSettings) => DispatchSettings) => update(change);
+  const { fleet, linehaul, container } = settings;
+
+  return (
+    <div className="dispatch-settings" key={generation}>
+      <p className="muted-note">
+        Every value below is a starting assumption — confirm capacities, windows and
+        departure days with logistics. Changes re-plan immediately and are kept in this
+        browser.
+      </p>
+
+      <section>
+        <h3>Warehouse</h3>
+        <div className="field-row">
+          <NumberField
+            label="Firm window"
+            suffix="working days"
+            value={settings.firmDays}
+            hint="Inside it, only orders whose goods are ready are pulled forward"
+            onChange={(n) => set((s) => ({ ...s, firmDays: Math.round(n) }))}
+          />
+          <NumberField
+            label="Marshalling capacity"
+            suffix="m³ per day"
+            value={settings.stagingCapacityM3}
+            hint="Volume the dispatch area can stage for one day's loads; 0 turns the check off"
+            onChange={(n) => set((s) => ({ ...s, stagingCapacityM3: n }))}
+          />
+          <ListField
+            label="Holidays (YYYY-MM-DD, comma separated)"
+            value={settings.holidays}
+            onChange={(v) => set((s) => ({ ...s, holidays: v.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) }))}
+          />
+        </div>
+      </section>
+
+      <section>
+        <h3>NSW fleet — direct delivery</h3>
+        <div className="field-row">
+          <NumberField
+            label="Pull forward up to"
+            suffix="working days"
+            value={fleet.earlyDays}
+            hint="How early an order may go to fill a truck. Tighten in peak season, when the warehouse is full."
+            onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, earlyDays: Math.round(n) } }))}
+          />
+          <NumberField
+            label="Trucks per day"
+            suffix="0 = no check"
+            value={fleet.maxRunsPerDay}
+            onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, maxRunsPerDay: Math.round(n) } }))}
+          />
+          <NumberField
+            label="Send by carrier up to"
+            suffix="m³"
+            step={0.5}
+            value={fleet.carrierMaxM3}
+            hint="A run carrying no more than this is handed to a carrier instead; 0 turns it off"
+            onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, carrierMaxM3: n } }))}
+          />
+        </div>
+        <h4>Trucks</h4>
+        <EquipmentTable
+          items={fleet.trucks}
+          onChange={(trucks) => set((s) => ({ ...s, fleet: { ...s.fleet, trucks } }))}
+        />
+        <h4>Run classes</h4>
+        <table className="settings-table">
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Zones (Description)</th>
+              <th className="num">Radius km</th>
+              <th className="num">Max drops</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fleet.runClasses.map((rc, i) => {
+              const change = (patch: Partial<typeof rc>) =>
+                set((s) => ({
+                  ...s,
+                  fleet: {
+                    ...s.fleet,
+                    runClasses: s.fleet.runClasses.map((x, j) => (j === i ? { ...x, ...patch } : x)),
+                  },
+                }));
+              return (
+                <tr key={rc.id}>
+                  <td>
+                    <input type="text" value={rc.label} onChange={(e) => change({ label: e.target.value })} />
+                  </td>
+                  <td>
+                    <ListField label="" value={rc.zones} onChange={(zones) => change({ zones })} />
+                  </td>
+                  <td className="num">
+                    <NumberField label="" value={rc.radiusKm} onChange={(radiusKm) => change({ radiusKm })} />
+                  </td>
+                  <td className="num">
+                    <NumberField
+                      label=""
+                      value={rc.maxDrops}
+                      min={1}
+                      onChange={(n) => change({ maxDrops: Math.round(n) })}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h3>Interstate — linehaul to the hub city, local carrier delivers</h3>
+        <div className="field-row">
+          <NumberField
+            label="Pull forward up to"
+            suffix="working days"
+            value={linehaul.earlyDays}
+            onChange={(n) => set((s) => ({ ...s, linehaul: { ...s.linehaul, earlyDays: Math.round(n) } }))}
+          />
+          <NumberField
+            label="Part load (LTL) up to"
+            suffix="m³"
+            value={linehaul.ltlMaxM3}
+            onChange={(n) => set((s) => ({ ...s, linehaul: { ...s.linehaul, ltlMaxM3: n } }))}
+          />
+          <NumberField
+            label="Build an FTL from early orders at"
+            suffix="% fill"
+            value={Math.round(linehaul.minFtlFill * 100)}
+            onChange={(n) => set((s) => ({ ...s, linehaul: { ...s.linehaul, minFtlFill: Math.min(1, n / 100) } }))}
+          />
+          <NumberField
+            label="FTL trailer"
+            suffix="m³ usable"
+            value={linehaul.trailer.capacityM3}
+            onChange={(n) =>
+              set((s) => ({ ...s, linehaul: { ...s.linehaul, trailer: { ...s.linehaul.trailer, capacityM3: n } } }))
+            }
+          />
+        </div>
+        <table className="settings-table">
+          <thead>
+            <tr>
+              <th>Hub</th>
+              <th>Zone prefixes</th>
+              <th>Departs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linehaul.hubs.map((hub, i) => {
+              const change = (patch: Partial<typeof hub>) =>
+                set((s) => ({
+                  ...s,
+                  linehaul: {
+                    ...s.linehaul,
+                    hubs: s.linehaul.hubs.map((x, j) => (j === i ? { ...x, ...patch } : x)),
+                  },
+                }));
+              return (
+                <tr key={hub.id}>
+                  <td>
+                    <input type="text" value={hub.label} onChange={(e) => change({ label: e.target.value })} />
+                  </td>
+                  <td>
+                    <ListField label="" value={hub.zonePrefixes} onChange={(zonePrefixes) => change({ zonePrefixes })} />
+                  </td>
+                  <td>
+                    <WeekdayPicker
+                      value={hub.departureWeekdays}
+                      onChange={(departureWeekdays) => change({ departureWeekdays })}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h3>Export — containers</h3>
+        <div className="field-row">
+          <NumberField
+            label="Pull forward up to"
+            suffix="working days"
+            value={container.earlyDays}
+            onChange={(n) => set((s) => ({ ...s, container: { ...s.container, earlyDays: Math.round(n) } }))}
+          />
+          <NumberField
+            label="LCL up to"
+            suffix="m³"
+            value={container.lclMaxM3}
+            onChange={(n) => set((s) => ({ ...s, container: { ...s.container, lclMaxM3: n } }))}
+          />
+          <NumberField
+            label="Build an FCL from early orders at"
+            suffix="% fill"
+            value={Math.round(container.minFclFill * 100)}
+            onChange={(n) => set((s) => ({ ...s, container: { ...s.container, minFclFill: Math.min(1, n / 100) } }))}
+          />
+          <label className="field">
+            <span>Stuffing days</span>
+            <WeekdayPicker
+              value={container.departureWeekdays}
+              onChange={(departureWeekdays) => set((s) => ({ ...s, container: { ...s.container, departureWeekdays } }))}
+            />
+          </label>
+        </div>
+        <div className="field-row">
+          <ListField
+            label="Export zone prefixes"
+            value={container.zonePrefixes}
+            onChange={(zonePrefixes) => set((s) => ({ ...s, container: { ...s.container, zonePrefixes } }))}
+          />
+          <ListField
+            label="Zones consolidated per city (different ports)"
+            value={container.splitByCityZones}
+            onChange={(splitByCityZones) => set((s) => ({ ...s, container: { ...s.container, splitByCityZones } }))}
+          />
+        </div>
+        <h4>Containers</h4>
+        <EquipmentTable
+          items={container.containers}
+          onChange={(containers) => set((s) => ({ ...s, container: { ...s.container, containers } }))}
+        />
+      </section>
+
+      <section>
+        <h3>Customer pickup</h3>
+        <div className="field-row">
+          <ListField
+            label="Pickup zones"
+            value={settings.pickupZones}
+            onChange={(pickupZones) => set((s) => ({ ...s, pickupZones }))}
+          />
+        </div>
+      </section>
+
+      <Button
+        onClick={() => {
+          reset();
+          setGeneration((g) => g + 1);
+        }}
+      >
+        Reset to defaults
+      </Button>
+    </div>
+  );
+}

@@ -72,7 +72,23 @@ export interface ClashRequest {
   toDayExclusive?: string | null;
 }
 
+/** The two pages the planning app holds. */
+export type AppView = 'assembly' | 'dispatch';
+
+const VIEW_KEY = 'resero.view';
+
+/** The page last open, so a reload lands where the planner was. */
+function readView(): AppView {
+  try {
+    return globalThis.localStorage?.getItem(VIEW_KEY) === 'dispatch' ? 'dispatch' : 'assembly';
+  } catch {
+    return 'assembly';
+  }
+}
+
 interface UiState {
+  /** Which page is showing: the assembly board or dispatch planning. */
+  view: AppView;
   /** Order shown in the inspector. */
   selectedJobId: string | null;
   /**
@@ -127,6 +143,7 @@ interface UiState {
   /** Sort the displayed rows without changing the scheduler's line sequence. */
   orderSort: OrderSort;
 
+  setView: (view: AppView) => void;
   /** Show an order's detail; `at` moves the panel, omitting it leaves it. */
   select: (jobId: string | null, at?: ClickPoint) => void;
   /** Add or remove one order from the set being moved together. */
@@ -160,6 +177,7 @@ interface UiState {
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
+  view: readView(),
   selectedJobId: null,
   marked: [],
   selectedAt: null,
@@ -177,6 +195,14 @@ export const useUiStore = create<UiState>((set, get) => ({
   showWeekends: false,
   orderSort: { key: 'start', direction: 'asc' },
 
+  setView: (view) => {
+    try {
+      globalThis.localStorage?.setItem(VIEW_KEY, view);
+    } catch {
+      // Storage blocked: the page still switches, it just is not remembered.
+    }
+    set({ view });
+  },
   // A follow-on pick — a predecessor in the detail itself — comes with no
   // point, and leaves the panel where the reader is already looking.
   select: (selectedJobId, at) =>

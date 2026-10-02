@@ -25,6 +25,7 @@ import { SuggestCrew } from '@/features/assembly/SuggestCrew';
 import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
 import { usePlanSync } from '@/features/sync/usePlanSync';
+import { DispatchPage } from '@/features/dispatch/DispatchPage';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { Badge, Spinner } from '@/ui';
 
@@ -42,6 +43,8 @@ export default function App() {
   const containers = usePlanStore((s) => s.containers);
   const manualOrders = usePlanStore(s => s.manualOrders);
   const selectedJobId = useUiStore(s => s.selectedJobId);
+  const view = useUiStore((s) => s.view);
+  const setView = useUiStore((s) => s.setView);
   const lineLayoutVersion = usePlanStore(s => s.lineLayoutVersion);
   const workerLines = usePlanStore((s) => s.workerLines);
   const orderCrewAssignments = usePlanStore((s) => s.orderCrewAssignments);
@@ -214,107 +217,135 @@ export default function App() {
       */}
       <header className="app-header">
         <div className="head-side">
-          <h1>Assembly Board</h1>
-          <Badge variant="info">{sourceName}</Badge>
+          <nav className="view-switch" aria-label="Planning pages">
+            <button
+              className={view === 'assembly' ? 'active' : ''}
+              onClick={() => setView('assembly')}
+            >
+              Assembly
+            </button>
+            <button
+              className={view === 'dispatch' ? 'active' : ''}
+              onClick={() => setView('dispatch')}
+            >
+              Dispatch
+            </button>
+          </nav>
+          <h1>{view === 'dispatch' ? 'Dispatch Planner' : 'Assembly Board'}</h1>
+          {view === 'assembly' && <Badge variant="info">{sourceName}</Badge>}
         </div>
-        <BoardTools board={board} />
-        <div className="head-side end">
-          {board && <ManualOrderButton board={board} />}
-          <SuggestCrew board={board} />
-          <SupervisorLock />
-          <BarcodeOrderLookup board={board} />
-          <RefreshControl onRefresh={async () => {
-            await refresh();
-            resetOrderSort();
-          }} />
-        </div>
+        {view === 'assembly' ? <BoardTools board={board} /> : <div />}
+        {view === 'assembly' ? (
+          <div className="head-side end">
+            {board && <ManualOrderButton board={board} />}
+            <SuggestCrew board={board} />
+            <SupervisorLock />
+            <BarcodeOrderLookup board={board} />
+            <RefreshControl onRefresh={async () => {
+              await refresh();
+              resetOrderSort();
+            }} />
+          </div>
+        ) : (
+          <div className="head-side end" />
+        )}
       </header>
 
-      {error && <div className="banner">Data error: {error}</div>}
       {/*
-        A plan that could not be read is not an empty plan. Say which of the
-        two has happened, because the board looks identical either way, and
-        make it plain that nothing is being written until it is read.
+        Dispatch is its own page over its own export. The assembly board keeps
+        loading, saving and syncing behind it, so switching back loses nothing.
       */}
-      {stored === 'failed' ? (
-        <div className="banner">
-          Saved plan not loaded ({storeError}). The board is showing the export
-          on its own — crew, dragged starts and shift entries are still in the
-          store and nothing is being saved over them.{' '}
-          <button className="banner-action" onClick={retryStoredPlan}>
-            Try again
-          </button>
-        </div>
+      {view === 'dispatch' ? (
+        <DispatchPage />
       ) : (
-        storeError && (
-          <div className="banner warn">Plan not saved: {storeError}</div>
-        )
-      )}
-      {sync.errors.length > 0 && (
-        <div className="banner warn">
-          {sync.list} not updated: {sync.errors[0]}
-          {sync.errors.length > 1 && ` · +${sync.errors.length - 1} more`}
-        </div>
-      )}
-      {warnings.length > 0 && (
-        <div className="banner warn">
-          {/* Only the first few; the rest are usually the same problem. */}
-          {warnings.slice(0, 3).join(' · ')}
-          {warnings.length > 3 && ` · +${warnings.length - 3} more`}
-        </div>
-      )}
-
-      <DndContext
-        sensors={dnd.sensors}
-        collisionDetection={dnd.collisionDetection}
-        onDragStart={dnd.onDragStart}
-        onDragEnd={dnd.onDragEnd}
-        onDragCancel={dnd.onDragCancel}
-      >
-        {/*
-          The schedule has the whole width. An order's detail opens beside the
-          pointer instead of in a column. Unassigned jobs remain in plan state
-          but no pull-job side column is rendered.
-        */}
-        <div className="app-body">
-          <div className="board-pane assembly-pane">
-            {board ? (
-              <AssemblyGantt board={board} />
-            ) : (
-              <div className="center-fill">
-                <Spinner />
-                <span>Loading assembly orders…</span>
-              </div>
-            )}
-          </div>
+        <>
+          {error && <div className="banner">Data error: {error}</div>}
           {/*
-            Orders on no line. Renders nothing at all while there are none and
-            nothing is being dragged, so on a working board it costs no room —
-            but an order that lands here is otherwise unreachable, and the
-            board holds everything waiting on its parts.
+            A plan that could not be read is not an empty plan. Say which of the
+            two has happened, because the board looks identical either way, and
+            make it plain that nothing is being written until it is read.
           */}
-          {board && <AssemblyPool board={board} />}
-          {board && (selectedJobId && manualOrders[selectedJobId] ? <ManualOrderInspector key={selectedJobId} board={board} id={selectedJobId} /> : <AssemblyInspector board={board} />)}
-        </div>
+          {stored === 'failed' ? (
+            <div className="banner">
+              Saved plan not loaded ({storeError}). The board is showing the export
+              on its own — crew, dragged starts and shift entries are still in the
+              store and nothing is being saved over them.{' '}
+              <button className="banner-action" onClick={retryStoredPlan}>
+                Try again
+              </button>
+            </div>
+          ) : (
+            storeError && (
+              <div className="banner warn">Plan not saved: {storeError}</div>
+            )
+          )}
+          {sync.errors.length > 0 && (
+            <div className="banner warn">
+              {sync.list} not updated: {sync.errors[0]}
+              {sync.errors.length > 1 && ` · +${sync.errors.length - 1} more`}
+            </div>
+          )}
+          {warnings.length > 0 && (
+            <div className="banner warn">
+              {/* Only the first few; the rest are usually the same problem. */}
+              {warnings.slice(0, 3).join(' · ')}
+              {warnings.length > 3 && ` · +${warnings.length - 3} more`}
+            </div>
+          )}
 
-        <DragOverlay dropAnimation={null}>
-          {activeWorker ? (
-            <div className="worker-drag-overlay">{activeWorker.name}</div>
-          ) : activeJob ? (
-            <div className="ord" style={{ cursor: 'grabbing', width: 240 }}>
-              <div className="ord-head">
-                <span className="ord-job">{String(activeJob.id)}</span>
-                {activeJob.orderType && (
-                  <span className="ord-type">
-                    {ORDER_TYPE_SHORT[activeJob.orderType]}
-                  </span>
+          <DndContext
+            sensors={dnd.sensors}
+            collisionDetection={dnd.collisionDetection}
+            onDragStart={dnd.onDragStart}
+            onDragEnd={dnd.onDragEnd}
+            onDragCancel={dnd.onDragCancel}
+          >
+            {/*
+              The schedule has the whole width. An order's detail opens beside the
+              pointer instead of in a column. Unassigned jobs remain in plan state
+              but no pull-job side column is rendered.
+            */}
+            <div className="app-body">
+              <div className="board-pane assembly-pane">
+                {board ? (
+                  <AssemblyGantt board={board} />
+                ) : (
+                  <div className="center-fill">
+                    <Spinner />
+                    <span>Loading assembly orders…</span>
+                  </div>
                 )}
               </div>
-              <div className="ord-desc">{activeJob.description}</div>
+              {/*
+                Orders on no line. Renders nothing at all while there are none and
+                nothing is being dragged, so on a working board it costs no room —
+                but an order that lands here is otherwise unreachable, and the
+                board holds everything waiting on its parts.
+              */}
+              {board && <AssemblyPool board={board} />}
+              {board && (selectedJobId && manualOrders[selectedJobId] ? <ManualOrderInspector key={selectedJobId} board={board} id={selectedJobId} /> : <AssemblyInspector board={board} />)}
             </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+
+            <DragOverlay dropAnimation={null}>
+              {activeWorker ? (
+                <div className="worker-drag-overlay">{activeWorker.name}</div>
+              ) : activeJob ? (
+                <div className="ord" style={{ cursor: 'grabbing', width: 240 }}>
+                  <div className="ord-head">
+                    <span className="ord-job">{String(activeJob.id)}</span>
+                    {activeJob.orderType && (
+                      <span className="ord-type">
+                        {ORDER_TYPE_SHORT[activeJob.orderType]}
+                      </span>
+                    )}
+                  </div>
+                  <div className="ord-desc">{activeJob.description}</div>
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </>
+      )}
 
       {/* Asks before any work is written into a Saturday or Sunday. */}
       <OvertimePrompt />

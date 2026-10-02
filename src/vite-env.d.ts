@@ -13,6 +13,9 @@ interface ImportMetaEnv {
   /** The material-link export, which carries the dependency chain. */
   readonly VITE_JOB_MATERIAL_CSV_URL?: string;
   readonly VITE_JOB_MATERIAL_CSV_PATH?: string;
+  /** The dispatch waybill export, for the Dispatch page's Refresh. */
+  readonly VITE_WAYBILL_CSV_URL?: string;
+  readonly VITE_WAYBILL_CSV_PATH?: string;
 }
 
 interface ImportMeta {

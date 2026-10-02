@@ -212,6 +212,16 @@ plan goes back the other way, into the `ASSY_Production` list.
 - **Material gates release** — a short component is flagged, and material that
   only lands on a future PO pushes the bar out.
 
+## Dispatch planning
+
+A second page, **Dispatch** (switch at the top left), plans outbound shipments
+from the waybill export: NSW orders on the factory's own trucks with nearby
+customers consolidated, interstate orders consolidated to each state's hub for
+the local carrier, and export orders into containers sized by volume. Orders
+stay whole unless bigger than a truck, may be pulled forward only within a
+warehouse window, and loads the planner confirms are frozen. See
+`docs/dispatch-planning.md`.
+
 ## Quick start
 
 Needs **Node 18, 20 or 22** (Vite 6's requirement). `.nvmrc` and
