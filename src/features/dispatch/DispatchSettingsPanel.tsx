@@ -220,6 +220,14 @@ export function DispatchSettingsPanel() {
             onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, carrierMaxM3: n } }))}
           />
         </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={fleet.keepShipViaApart}
+            onChange={(e) => set((s) => ({ ...s, fleet: { ...s.fleet, keepShipViaApart: e.target.checked } }))}
+          />
+          Keep each Ship Via on its own runs (off: nearby customers in neighbouring NSW zones share a truck)
+        </label>
         <h4>Trucks</h4>
         <EquipmentTable
           items={fleet.trucks}
@@ -273,6 +281,10 @@ export function DispatchSettingsPanel() {
 
       <section>
         <h3>Interstate — linehaul to the hub city, local carrier delivers</h3>
+        <p className="muted-note">
+          Each delivery zone and carrier (Description + Ship Via, e.g. QLD- Metro / AQMC) is consolidated
+          on its own: different carriers or regions never share a departure.
+        </p>
         <div className="field-row">
           <NumberField
             label="Pull forward up to"

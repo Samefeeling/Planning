@@ -78,9 +78,12 @@ export function LoadCard({
   const canEdit = load.firm !== 'dispatched' && load.mode !== 'pickup';
   const isEditing = editing && canEdit;
   // NSW runs may swap orders between run classes; a linehaul or container
-  // order only moves to another departure for the same hub or port.
+  // order only moves to another departure of the same carrier and zone.
   const moveTo = targets.filter(
-    (t) => t.id !== load.id && t.mode === load.mode && (load.mode === 'fleet' || t.group === load.group),
+    (t) =>
+      t.id !== load.id &&
+      t.mode === load.mode &&
+      ((load.mode === 'fleet' && !settings.fleet.keepShipViaApart) || t.group === load.group),
   );
   const dueLabel = DEADLINE_LABEL[deadline];
 

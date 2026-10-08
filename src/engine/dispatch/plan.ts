@@ -33,6 +33,7 @@
 
 import {
   dueDate,
+  groupBase,
   routeFor,
   type DayKey,
   type DeadlineField,
@@ -479,7 +480,7 @@ export function planDispatch(
       const due = dueOf(d.order);
       plans.set(d.orderId, {
         orderId: d.orderId,
-        route: routeFor(d.order.zone, d.order.city, settings),
+        route: routeFor(d.order.zone, d.order.city, settings, d.order.shipVia),
         earliest: firm.day,
         latest: firm.day,
         day: firm.day,
@@ -499,7 +500,7 @@ export function planDispatch(
   for (const order of orders) {
     const share = frozen.get(order.id);
     if (share === 'whole') continue;
-    const route = routeFor(order.zone, order.city, settings);
+    const route = routeFor(order.zone, order.city, settings, order.shipVia);
     const { volume: whole, known, source, weightKg } = volumeOf(order);
     // Only what frozen loads do not already carry is left to plan.
     const volume = share === undefined ? whole : whole - share;
@@ -784,7 +785,7 @@ export function planDispatch(
 
 /** The fleet run class a load's group names, if it is a fleet load. */
 const runClassOf = (group: string, settings: DispatchSettings) =>
-  settings.fleet.runClasses.find((c) => group === `fleet:${c.id}`) ?? null;
+  settings.fleet.runClasses.find((c) => groupBase(group) === `fleet:${c.id}`) ?? null;
 
 /**
  * What is wrong with a load the planner built or kept by hand. Nothing is
@@ -814,25 +815,38 @@ function frozenWarnings(
     warnings.push(`Leaves after the due date of ${late.map((d) => d.orderId).join(', ')}`);
   }
 
-  // Orders moved onto a load that does not go their way.
+  // Orders moved onto a load that does not go their way: another mode or
+  // hub, or — for linehaul and containers — another carrier or zone.
+  const mix = new Map<string, { label: string; n: number }>();
   for (const d of drops) {
     if (!d.order) continue;
-    const route = routeFor(d.order.zone, d.order.city, settings);
+    const route = routeFor(d.order.zone, d.order.city, settings, d.order.shipVia);
     if (!route) continue;
-    if (route.mode !== firm.mode || (firm.mode !== 'fleet' && route.group !== firm.group)) {
-      warnings.push(`${d.orderId} is routed ${route.label} (${d.order.zone})`);
+    if (route.mode !== firm.mode || (firm.mode !== 'fleet' && groupBase(route.group) !== groupBase(firm.group))) {
+      warnings.push(`${d.orderId} is routed ${route.label}`);
+      continue;
     }
+    const m = mix.get(route.group);
+    if (m) m.n += 1;
+    else mix.set(route.group, { label: `${d.order.zone.trim()}${d.order.shipVia ? ` (${d.order.shipVia})` : ''}`, n: 1 });
+  }
+  const keptApart = firm.mode !== 'fleet' || settings.fleet.keepShipViaApart;
+  if (keptApart && mix.size > 1) {
+    warnings.push(
+      `Mixes carriers or zones — book each separately: ${[...mix.values()]
+        .map((m) => `${m.label} ×${m.n}`)
+        .join(', ')}`,
+    );
   }
 
-  const route = firm.mode === 'linehaul'
-    ? settings.linehaul.hubs.find((h) => firm.group === `linehaul:${h.id}`)?.departureWeekdays ?? null
-    : firm.mode === 'container'
-      ? settings.container.departureWeekdays
-      : null;
+  const hub = firm.mode === 'linehaul'
+    ? settings.linehaul.hubs.find((h) => groupBase(firm.group) === `linehaul:${h.id}`) ?? null
+    : null;
+  const departs = hub ? hub.departureWeekdays : firm.mode === 'container' ? settings.container.departureWeekdays : null;
   if (!isWorkingDay(firm.day, holidays)) {
     warnings.push('Not a working day');
-  } else if (route && !route.includes(isoWeekday(firm.day))) {
-    warnings.push(`No ${firm.label} departure on this weekday`);
+  } else if (departs && !departs.includes(isoWeekday(firm.day))) {
+    warnings.push(`No ${hub ? hub.label : 'container'} departure on this weekday`);
   }
 
   const run = firm.mode === 'fleet' ? runClassOf(firm.group, settings) : null;

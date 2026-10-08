@@ -94,16 +94,16 @@ describe('routing', () => {
   it('sends NSW zones to the fleet, other states to their hub, export to containers', () => {
     expect(routeFor('NSW-Metro-South', 'Liverpool', s)?.mode).toBe('fleet');
     expect(routeFor('NSW-Reg-North', 'Lismore', s)?.group).toBe('fleet:reg-north');
-    expect(routeFor('QLD- Reg-North', 'Mt Isa', s)?.group).toBe('linehaul:QLD');
-    expect(routeFor('WA-Metro', 'Perth', s)?.group).toBe('linehaul:WA');
-    expect(routeFor('NZ-North', 'Auckland', s)?.group).toBe('container:NZ-North');
+    expect(routeFor('QLD- Reg-North', 'Mt Isa', s, 'AQRN')?.group).toBe('linehaul:QLD|QLD- Reg-North|AQRN');
+    expect(routeFor('WA-Metro', 'Perth', s, 'AWMC')?.label).toBe('Perth hub · WA-Metro · AWMC');
+    expect(routeFor('NZ-North', 'Auckland', s)?.group).toBe('container:NZ-North|');
     expect(routeFor('Hong Kong', 'San Po Kong', s)?.mode).toBe('container');
     expect(routeFor('NSW-Customer Pickup', 'Minto', s)?.mode).toBe('pickup');
   });
 
   it('consolidates rest-of-world exports per destination city', () => {
-    expect(routeFor('Export-ROW', 'Lautoka', s)?.group).toBe('container:Export-ROW · Lautoka');
-    expect(routeFor('Export-ROW', 'Taipei', s)?.group).toBe('container:Export-ROW · Taipei');
+    expect(routeFor('Export-ROW', 'Lautoka', s)?.group).toBe('container:Export-ROW · Lautoka|');
+    expect(routeFor('Export-ROW', 'Taipei', s, 'EXRO')?.group).toBe('container:Export-ROW · Taipei|EXRO');
   });
 
   it('does not let a state prefix claim a longer word', () => {
@@ -189,11 +189,48 @@ describe('NSW fleet', () => {
 });
 
 describe('interstate linehaul', () => {
+  it('never puts different carriers or zones on one departure', () => {
+    const qld = (id: string, zone: string, shipVia: string) =>
+      make(id, { zone, shipVia, city: 'Brisbane', shipBy: '2026-10-15', volumeM3: 20 });
+    const list = [
+      qld('m1', 'QLD- Metro', 'AQMC'),
+      qld('m2', 'QLD- Metro', 'AQMC'),
+      qld('n1', 'QLD- Reg-North', 'AQRN'),
+      qld('r1', 'QLD- Reg', 'AQRC'),
+    ];
+    const p = plan({}, DEFAULT_DISPATCH_SETTINGS, list);
+    for (const load of p.loads) {
+      expect(new Set(load.drops.map((d) => `${d.order!.zone}|${d.order!.shipVia}`)).size).toBe(1);
+    }
+    expect(loadsWith(p, 'm1')[0].id).toBe(loadsWith(p, 'm2')[0].id);
+    expect(loadsWith(p, 'n1')[0].label).toBe('Brisbane hub · QLD- Reg-North · AQRN');
+  });
+
+  it('warns on a frozen load that mixes carriers', () => {
+    const a = make('a', { zone: 'QLD- Metro', shipVia: 'AQMC', city: 'Brisbane', volumeM3: 20 });
+    const b = make('b', { zone: 'QLD- Reg-North', shipVia: 'AQRN', city: 'Mt Isa', volumeM3: 20 });
+    const firm: FirmLoad = {
+      id: 'old',
+      group: 'linehaul:QLD',
+      mode: 'linehaul',
+      label: 'Brisbane hub',
+      day: '2026-10-13',
+      equipment: 'FTL semi',
+      capacityM3: 75,
+      orderIds: ['a', 'b'],
+      volumes: { a: 20, b: 20 },
+      status: 'confirmed',
+      confirmedAt: '',
+    };
+    const p = plan({ firmLoads: [firm] }, DEFAULT_DISPATCH_SETTINGS, [a, b]);
+    expect(p.loads[0].warnings.join()).toMatch(/Mixes carriers or zones — book each separately: QLD- Metro \(AQMC\) ×1, QLD- Reg-North \(AQRN\) ×1/);
+  });
+
   it('leaves on the last hub departure on or before Ship By', () => {
     const [load] = loadsWith(base, '90006');
     // Friday Ship By, Brisbane departs Tuesday and Thursday.
     expect(load.day).toBe('2026-10-15');
-    expect(load.label).toBe('Brisbane hub');
+    expect(load.label).toBe('Brisbane hub · QLD- Metro · AQMC');
     expect(load.equipment).toBe('LTL');
   });
 

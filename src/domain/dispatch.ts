@@ -8,9 +8,11 @@
  * - **NSW fleet** — the factory's own trucks deliver to the customer. Orders
  *   for nearby customers share a run; an order is only split when it is
  *   bigger than the biggest truck.
- * - **Interstate linehaul** — everything for a state is consolidated and
- *   trucked to that state's hub city; the local carrier there does the last
- *   mile. A departure is a full truck (FTL) or, when small, a part load (LTL).
+ * - **Interstate linehaul** — orders are consolidated per delivery zone and
+ *   carrier (`Description` + `Ship Via`, e.g. `QLD- Metro` / `AQMC`) and
+ *   trucked to the state's hub city; the local carrier there does the last
+ *   mile. Different carriers or zones never share a departure. A departure is
+ *   a full truck (FTL) or, when small, a part load (LTL).
  * - **Export containers** — consolidated per destination into FCL containers,
  *   or LCL when too small to fill one. Volume decides the container count, so
  *   fill is shown on every container.
@@ -200,6 +202,12 @@ export interface DispatchSettings {
     maxRunsPerDay: number;
     /** A run carrying no more than this goes by carrier instead; 0 disables. */
     carrierMaxM3: number;
+    /**
+     * Keep each `Ship Via` on its own runs. Off by default: NSW runs are the
+     * factory's own trucks, and nearby customers in neighbouring zones
+     * (Metro-North and Metro-South, say) share a truck.
+     */
+    keepShipViaApart: boolean;
   };
   linehaul: {
     hubs: LinehaulHub[];
@@ -293,6 +301,7 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
     earlyDays: 3,
     maxRunsPerDay: 0,
     carrierMaxM3: 2,
+    keepShipViaApart: false,
   },
   linehaul: {
     hubs: [
@@ -341,6 +350,9 @@ export const dueDate = (order: ShipmentOrder, field: DeadlineField): DayKey | nu
   field === 'needBy' ? order.needBy ?? order.shipBy : order.shipBy ?? order.needBy;
 
 /** Where an order is routed. `group` is what may be consolidated together. */
+
+/** The part of a group before its zone and carrier: `linehaul:QLD`. */
+export const groupBase = (group: string): string => group.split('|')[0];
 export type Route =
   | { mode: 'fleet'; group: string; label: string; runClass: FleetRunClass }
   | { mode: 'linehaul'; group: string; label: string; hub: LinehaulHub }
@@ -357,13 +369,22 @@ const startsWithToken = (zone: string, prefix: string): boolean => {
   return next === '' || /[\s\-_/]/.test(next);
 };
 
-/** Route a zone (and city, for zones consolidated per port), or null if unmapped. */
+/**
+ * Route a zone, or null if unmapped. `group` is what may share a load:
+ *
+ * - NSW fleet: the run class (and the Ship Via, when kept apart);
+ * - linehaul: hub + zone + Ship Via — each carrier and region its own;
+ * - containers: destination (per city for split zones) + Ship Via.
+ */
 export function routeFor(
   zone: string,
   city: string,
   settings: DispatchSettings,
+  shipVia = '',
 ): Route | null {
   const key = zone.trim();
+  const via = shipVia.trim();
+  const tail = via ? ` · ${via}` : '';
   if (settings.pickupZones.some((z) => z.trim() === key)) {
     return { mode: 'pickup', group: 'pickup', label: 'Customer pickup' };
   }
@@ -371,18 +392,25 @@ export function routeFor(
     c.zones.some((z) => z.trim() === key),
   );
   if (runClass) {
-    return { mode: 'fleet', group: `fleet:${runClass.id}`, label: runClass.label, runClass };
+    return settings.fleet.keepShipViaApart && via
+      ? { mode: 'fleet', group: `fleet:${runClass.id}|${via}`, label: `${runClass.label}${tail}`, runClass }
+      : { mode: 'fleet', group: `fleet:${runClass.id}`, label: runClass.label, runClass };
   }
   const hub = settings.linehaul.hubs.find((h) =>
     h.zonePrefixes.some((p) => startsWithToken(key, p)),
   );
   if (hub) {
-    return { mode: 'linehaul', group: `linehaul:${hub.id}`, label: hub.label, hub };
+    return {
+      mode: 'linehaul',
+      group: `linehaul:${hub.id}|${key}|${via}`,
+      label: `${hub.label} · ${key}${tail}`,
+      hub,
+    };
   }
   if (settings.container.zonePrefixes.some((p) => startsWithToken(key, p))) {
     const perCity = settings.container.splitByCityZones.some((z) => z.trim() === key);
     const destination = perCity ? `${key} · ${city.trim()}` : key;
-    return { mode: 'container', group: `container:${destination}`, label: destination };
+    return { mode: 'container', group: `container:${destination}|${via}`, label: `${destination}${tail}` };
   }
   return null;
 }
