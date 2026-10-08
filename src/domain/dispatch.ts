@@ -134,6 +134,8 @@ export interface Equipment {
   name: string;
   /** Usable (loadable) volume, not the internal cube. */
   capacityM3: number;
+  /** What the dock needs to know to book it: deck, pallet spaces, internal size. */
+  note?: string;
 }
 
 /**
@@ -222,9 +224,9 @@ export interface DispatchSettings {
 export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   fleet: {
     trucks: [
-      { id: 'rigid-8', name: 'Rigid 8-pallet', capacityM3: 30 },
-      { id: 'rigid-12', name: 'Rigid 12-pallet', capacityM3: 45 },
-      { id: 'semi-22', name: 'Semi 22-pallet', capacityM3: 75 },
+      { id: 'rigid-8', name: 'Rigid 8-pallet', capacityM3: 30, note: '8 pallet spaces' },
+      { id: 'rigid-12', name: 'Rigid 12-pallet', capacityM3: 45, note: '12 pallet spaces' },
+      { id: 'semi-22', name: 'Semi 22-pallet', capacityM3: 75, note: '22 pallet spaces, tautliner' },
     ],
     runClasses: [
       {
@@ -268,16 +270,16 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
       { id: 'TAS', label: 'Hobart hub', zonePrefixes: ['TAS'], departureWeekdays: [3] },
       { id: 'NT', label: 'Darwin hub', zonePrefixes: ['NT'], departureWeekdays: [1] },
     ],
-    trailer: { id: 'ftl-semi', name: 'FTL semi', capacityM3: 75 },
+    trailer: { id: 'ftl-semi', name: 'FTL semi', capacityM3: 75, note: '22 pallet spaces' },
     ltlMaxM3: 25,
     minFtlFill: 0.8,
     earlyDays: 3,
   },
   container: {
     containers: [
-      { id: '20GP', name: "20' GP", capacityM3: 28 },
-      { id: '40GP', name: "40' GP", capacityM3: 58 },
-      { id: '40HC', name: "40' HC", capacityM3: 68 },
+      { id: '20GP', name: "20' GP", capacityM3: 28, note: 'Internal 5.90 × 2.35 × 2.39 m (33 m³)' },
+      { id: '40GP', name: "40' GP", capacityM3: 58, note: 'Internal 12.03 × 2.35 × 2.39 m (67 m³)' },
+      { id: '40HC', name: "40' HC", capacityM3: 68, note: 'Internal 12.03 × 2.35 × 2.69 m (76 m³)' },
     ],
     zonePrefixes: ['NZ', 'Export', 'Hong Kong'],
     splitByCityZones: ['Export-ROW'],

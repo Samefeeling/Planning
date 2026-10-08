@@ -16,7 +16,8 @@ import { m3, pct, shortDay, weekdayOf } from './format';
 const HEIGHT = 260;
 const MARGIN = { top: 26, right: 16, bottom: 44, left: 52 };
 const GAP = 2;
-const RADIUS = 4;
+/** Matches the MES charts' `rx=3` bar ends. */
+const RADIUS = 3;
 const MAX_BAR = 24;
 
 /** Round up to 1, 2, 2.5 or 5 × a power of ten, and the tick step. */
@@ -109,7 +110,7 @@ export function VolumeChart({
         {showCapacity && (
           <li>
             <span className="swatch-line" aria-hidden />
-            Marshalling capacity {m3(capacityM3)} / day
+            Marshalling capacity {m3(capacityM3)} a day
           </li>
         )}
       </ul>
@@ -193,9 +194,15 @@ export function VolumeChart({
           <line className="baseline" x1={MARGIN.left} x2={width - MARGIN.right} y1={y(0)} y2={y(0)} />
           {showCapacity && (
             <g className="capacity" pointerEvents="none">
-              <line x1={MARGIN.left} x2={width - MARGIN.right} y1={y(capacityM3)} y2={y(capacityM3)} />
+              <line
+                x1={MARGIN.left}
+                x2={width - MARGIN.right}
+                y1={y(capacityM3)}
+                y2={y(capacityM3)}
+                strokeDasharray="4 3"
+              />
               <text x={width - MARGIN.right} y={y(capacityM3) - 6} textAnchor="end">
-                Capacity {Math.round(capacityM3)}
+                Marshalling capacity {Math.round(capacityM3)}
               </text>
             </g>
           )}

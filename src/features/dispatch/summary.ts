@@ -23,6 +23,8 @@ export interface Bucket {
   vehicles: number;
   /** Fleet runs handed to a carrier, plus LTL and LCL shipments. */
   partLoads: number;
+  /** How many of each vehicle, container or part load: what to book. */
+  equipment: Record<string, number>;
   /** Fill of vehicles and containers, by volume over capacity. */
   fill: number | null;
   pulledForward: number;
@@ -62,6 +64,7 @@ export function summarise(
         weightKg: 0,
         vehicles: 0,
         partLoads: 0,
+        equipment: {},
         fill: null,
         pulledForward: 0,
         late: 0,
@@ -77,6 +80,7 @@ export function summarise(
     b.total += load.volumeM3;
     b.weightKg += load.weightKg;
     if (load.mode !== 'pickup') {
+      b.equipment[load.equipment] = (b.equipment[load.equipment] ?? 0) + 1;
       if (load.capacityM3) {
         b.vehicles += 1;
         b.capacity += load.capacityM3;
@@ -101,3 +105,10 @@ export function summarise(
     }))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
+
+/** `2 × Semi 22-pallet · 1 × 40' HC · 3 × LTL`, largest count first. */
+export const equipmentMix = (mix: Record<string, number>): string =>
+  Object.entries(mix)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, n]) => `${n} × ${name}`)
+    .join(' · ');

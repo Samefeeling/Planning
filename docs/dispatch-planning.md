@@ -109,6 +109,29 @@ The Load plan tab reads top-down:
 3. **The day** — totals, the marshalling meter, and the loads grouped by
    route.
 
+## What to book
+
+Every load card leads with its recommendation — for example
+`1 × Rigid 12-pallet truck — 45 m³ usable · 12 pallet spaces` or
+`1 × 40' HC container — 68 m³ usable · Internal 12.03 × 2.35 × 2.69 m` —
+and shows the route's whole size ladder beneath it: each truck or container
+with how full this load would make it, the ones it does not fit marked
+*too small*, and the chosen one outlined. Part loads read *send by carrier*,
+*book LTL* or *book LCL*. The day header and the weekly table add up the
+same picks into a booking list (`2 × Semi 22-pallet · 1 × 40' HC · 3 × LTL`).
+Sizes, usable volumes and notes are edited on the Settings tab.
+
+## Look and feel
+
+The page follows the MES KPI page (`src/ui/kpi.ts` / `src/styles.css` in the
+MES repository) so the two can merge: the same toolbar card with tab
+buttons, one row of headline tiles with a traffic-light top border, dark
+header tables, and the MES theme colours (read from the MES variables when
+present, with the Day-shift values as fallback). The toolbar and tiles scroll
+away with the page; only the filter row stays pinned. The route colours in
+the chart are blue, teal, violet and orchid — never orange, amber or red,
+which MES keeps for warnings.
+
 ## Planner decisions
 
 - **Confirm load** freezes a proposal: re-planning no longer touches it.

@@ -117,7 +117,7 @@ export function OrdersTable({
         <span className="muted-note">{rows.length} orders</span>
       </div>
       <div className="table-scroll">
-        <table className="orders-table">
+        <table className="summary-table orders-table">
           <thead>
             <tr>
               {head('Order', 'order')}

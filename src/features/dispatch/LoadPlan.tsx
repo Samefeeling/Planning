@@ -17,7 +17,7 @@ import { addWorkingDays } from '@/engine/dispatch/calendar';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { LoadCard } from './LoadCard';
 import { VolumeChart } from './VolumeChart';
-import { MODES, isoWeek, summarise, weekStart, type Bucket } from './summary';
+import { MODES, equipmentMix, isoWeek, summarise, weekStart, type Bucket } from './summary';
 import { dayLabel, m3, pct, shortDay, stagingTone, weekdayOf } from './format';
 
 type Range = 'week' | 'fortnight' | 'month' | 'all';
@@ -91,20 +91,20 @@ export function LoadPlan({
   return (
     <div className="load-plan">
       <div className="load-filters">
-        <div className="seg" role="group" aria-label="Route">
-          <button className={mode === 'all' ? 'active' : ''} onClick={() => setMode('all')}>
+        <div className="shift-tabs" role="group" aria-label="Route">
+          <button type="button" className={`shift-btn${mode === 'all' ? ' a' : ''}`} onClick={() => setMode('all')}>
             All routes
           </button>
           {MODES.map((m) => (
-            <button key={m} className={mode === m ? 'active' : ''} onClick={() => setMode(m)}>
+            <button key={m} type="button" className={`shift-btn${mode === m ? ' a' : ''}`} onClick={() => setMode(m)}>
               <span className={`dot series-${m}`} aria-hidden />
               {DISPATCH_MODE_LABEL[m]} <span className="seg-count">{counts.get(m) ?? 0}</span>
             </button>
           ))}
         </div>
-        <div className="seg" role="group" aria-label="Window">
+        <div className="shift-tabs" role="group" aria-label="Window">
           {(Object.keys(RANGE_LABEL) as Range[]).map((r) => (
-            <button key={r} className={range === r ? 'active' : ''} onClick={() => setRange(r)}>
+            <button key={r} type="button" className={`shift-btn${range === r ? ' a' : ''}`} onClick={() => setRange(r)}>
               {RANGE_LABEL[r]}
             </button>
           ))}
@@ -119,14 +119,14 @@ export function LoadPlan({
         </label>
       </div>
 
-      <section className="summary-panel" aria-label="Dispatch summary">
+      <section className="kpi-chart" aria-label="Dispatch summary">
         <header className="summary-head">
-          <h2>Volume to ship</h2>
-          <div className="seg" role="group" aria-label="Group by">
-            <button className={by === 'day' ? 'active' : ''} onClick={() => setBy('day')}>
+          <h4>Volume to ship, m³ by route</h4>
+          <div className="shift-tabs" role="group" aria-label="Group by">
+            <button type="button" className={`shift-btn${by === 'day' ? ' a' : ''}`} onClick={() => setBy('day')}>
               By day
             </button>
-            <button className={by === 'week' ? 'active' : ''} onClick={() => setBy('week')}>
+            <button type="button" className={`shift-btn${by === 'week' ? ' a' : ''}`} onClick={() => setBy('week')}>
               By week
             </button>
           </div>
@@ -199,6 +199,11 @@ export function LoadPlan({
             {dayTotal && settings.stagingCapacityM3 > 0 && (
               <StagingMeter volume={dayTotal.volumeM3} capacity={settings.stagingCapacityM3} />
             )}
+            {Object.keys(dayBucket.equipment).length > 0 && (
+              <p className="day-book">
+                <span className="reco-label">To book</span> {equipmentMix(dayBucket.equipment)}
+              </p>
+            )}
             {dayTotal?.overFleet && (
               <p className="tone-bad">
                 {dayTotal.fleetRuns} fleet runs — more than the {settings.fleet.maxRunsPerDay} trucks available
@@ -249,7 +254,7 @@ function StagingMeter({ volume, capacity }: { volume: number; capacity: number }
   const fraction = volume / capacity;
   return (
     <div className="staging-meter" title="Volume leaving this day against the marshalling area">
-      <span className="meter-label">Marshalling</span>
+      <span className="meter-label">Marshalling, all routes</span>
       <span className="meter-track">
         <span
           className={`meter-fill tone-${stagingTone(fraction)}`}
@@ -276,7 +281,7 @@ function WeekTable({
   if (weeks.length === 0) return null;
   return (
     <div className="table-scroll">
-      <table className="week-table">
+      <table className="summary-table week-table">
         <thead>
           <tr>
             <th>Week</th>
@@ -288,8 +293,7 @@ function WeekTable({
                 {DISPATCH_MODE_LABEL[m]}
               </th>
             ))}
-            <th className="num">Vehicles</th>
-            <th className="num">Part loads</th>
+            <th>To book</th>
             <th className="num">Fill</th>
             <th className="num">Pulled fwd</th>
             <th className="num">After Ship By</th>
@@ -320,8 +324,7 @@ function WeekTable({
                   )}
                 </td>
               ))}
-              <td className="num">{w.vehicles}</td>
-              <td className="num">{w.partLoads}</td>
+              <td className="book-mix">{equipmentMix(w.equipment) || '—'}</td>
               <td className="num">{w.fill === null ? '—' : pct(w.fill)}</td>
               <td className="num">{w.pulledForward}</td>
               <td className={`num${w.late > 0 ? ' tone-bad' : ''}`}>{w.late}</td>

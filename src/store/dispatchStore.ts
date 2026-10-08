@@ -15,6 +15,7 @@ import {
   type DayKey,
   type DispatchDecisions,
   type DispatchSettings,
+  type Equipment,
   type FirmLoad,
 } from '@/domain/dispatch';
 import type { PlannedLoad } from '@/engine/dispatch/plan';
@@ -48,6 +49,13 @@ interface DispatchState {
   updateSettings: (change: (current: DispatchSettings) => DispatchSettings) => void;
   resetSettings: () => void;
 }
+
+/** Saved equipment from before notes existed picks up the default note by id. */
+const withNotes = (saved: Equipment[] | undefined, defaults: Equipment[]): Equipment[] =>
+  (saved ?? defaults).map((e) => ({
+    ...e,
+    note: e.note ?? defaults.find((d) => d.id === e.id)?.note,
+  }));
 
 const without = <T,>(record: Record<string, T>, key: string): Record<string, T> => {
   const next = { ...record };
@@ -172,9 +180,17 @@ export const useDispatchStore = create<DispatchState>()(
             ? {
                 ...DEFAULT_DISPATCH_SETTINGS,
                 ...ps,
-                fleet: { ...DEFAULT_DISPATCH_SETTINGS.fleet, ...ps.fleet },
+                fleet: {
+                  ...DEFAULT_DISPATCH_SETTINGS.fleet,
+                  ...ps.fleet,
+                  trucks: withNotes(ps.fleet?.trucks, DEFAULT_DISPATCH_SETTINGS.fleet.trucks),
+                },
                 linehaul: { ...DEFAULT_DISPATCH_SETTINGS.linehaul, ...ps.linehaul },
-                container: { ...DEFAULT_DISPATCH_SETTINGS.container, ...ps.container },
+                container: {
+                  ...DEFAULT_DISPATCH_SETTINGS.container,
+                  ...ps.container,
+                  containers: withNotes(ps.container?.containers, DEFAULT_DISPATCH_SETTINGS.container.containers),
+                },
               }
             : current.settings,
           decisions: { ...EMPTY_DECISIONS, ...p.decisions },

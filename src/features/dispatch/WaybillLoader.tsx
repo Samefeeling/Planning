@@ -15,7 +15,6 @@ import { readConfigFromEnv } from '@/data/excel/sharepoint.client';
 import { parseWaybillCsv } from '@/data/csv/waybill.parser';
 import { looksLikeCubics, parseCubicsCsv } from '@/data/csv/cubics.parser';
 import { useDispatchStore } from '@/store/dispatchStore';
-import { Button } from '@/ui';
 
 type Kind = 'waybill' | 'cubics';
 
@@ -91,25 +90,34 @@ export function WaybillLoader() {
         hidden
         onChange={(e) => void onPick(e.target.files)}
       />
-      <Button
-        variant="primary"
+      <button
+        type="button"
+        className="kpi-btn primary"
         disabled={busy}
         onClick={() => pick('waybill')}
         title="Pick the waybill CSV export from disk"
       >
         {busy && want === 'waybill' ? 'Loading…' : 'Load waybill'}
-      </Button>
-      <Button
+      </button>
+      <button
+        type="button"
+        className="kpi-btn"
         disabled={busy}
         onClick={() => pick('cubics')}
         title="Pick the cubics sheet (Drews Cubics and Freight Calc, saved as CSV)"
       >
         {busy && want === 'cubics' ? 'Loading…' : 'Load cubics'}
-      </Button>
+      </button>
       {canRefresh && (
-        <Button disabled={busy} onClick={() => void onRefresh()} title="Fetch the configured waybill export">
+        <button
+          type="button"
+          className="kpi-btn"
+          disabled={busy}
+          onClick={() => void onRefresh()}
+          title="Fetch the configured waybill export"
+        >
           Refresh
-        </Button>
+        </button>
       )}
       {problem && <span className="dispatch-problem">{problem}</span>}
     </div>
