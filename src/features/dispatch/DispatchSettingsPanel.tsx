@@ -226,7 +226,8 @@ export function DispatchSettingsPanel() {
             checked={fleet.keepShipViaApart}
             onChange={(e) => set((s) => ({ ...s, fleet: { ...s.fleet, keepShipViaApart: e.target.checked } }))}
           />
-          Keep each Ship Via on its own runs (off: nearby customers in neighbouring NSW zones share a truck)
+          Keep each zone and Ship Via on its own runs (off: nearby customers in neighbouring NSW zones share a
+          truck)
         </label>
         <h4>Trucks</h4>
         <EquipmentTable

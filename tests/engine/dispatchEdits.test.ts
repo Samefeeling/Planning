@@ -166,7 +166,7 @@ describe('hand edits', () => {
     const q = make('q', { zone: 'QLD- Metro', city: 'Brisbane', volumeM3: 30 });
     const p0 = plan([a, q]);
     const firm = moveOrder([], S, 'a', loadOf(p0, 'a'), loadOf(p0, 'q'), NOW);
-    expect(loadOf(plan([a, q], firm), 'a').warnings.join()).toMatch(/a is routed Sydney metro/);
+    expect(loadOf(plan([a, q], firm), 'a').warnings.join()).toMatch(/a is routed NSW-Metro-South · X/);
   });
 
   it('confirms an edited load', () => {

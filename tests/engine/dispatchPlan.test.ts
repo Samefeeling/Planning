@@ -93,7 +93,8 @@ describe('routing', () => {
 
   it('sends NSW zones to the fleet, other states to their hub, export to containers', () => {
     expect(routeFor('NSW-Metro-South', 'Liverpool', s)?.mode).toBe('fleet');
-    expect(routeFor('NSW-Reg-North', 'Lismore', s)?.group).toBe('fleet:reg-north');
+    expect(routeFor('NSW-Reg-North', 'Lismore', s, 'ANRN')?.group).toBe('fleet:reg-north|NSW-Reg-North|ANRN');
+    expect(routeFor('NSW-Reg-North', 'Lismore', { ...s, fleet: { ...s.fleet, keepShipViaApart: false } })?.group).toBe('fleet:reg-north');
     expect(routeFor('QLD- Reg-North', 'Mt Isa', s, 'AQRN')?.group).toBe('linehaul:QLD|QLD- Reg-North|AQRN');
     expect(routeFor('WA-Metro', 'Perth', s, 'AWMC')?.label).toBe('Perth hub · WA-Metro · AWMC');
     expect(routeFor('NZ-North', 'Auckland', s)?.group).toBe('container:NZ-North|');
@@ -185,6 +186,23 @@ describe('NSW fleet', () => {
     const monday = loadsWith(p, 'due')[0];
     expect(monday.drops.map((d) => d.orderId).sort()).toEqual(['due', 'ready']);
     expect(p.orders.get('wip')!.day).toBe('2026-10-13');
+  });
+});
+
+describe('NSW fleet by zone and Ship Via', () => {
+  const north = make('n', { zone: 'NSW-Metro-North', shipVia: 'ANMN', city: 'Parramatta', shipBy: '2026-10-12', volumeM3: 5 });
+  const south = make('s', { zone: 'NSW-Metro-South', shipVia: 'ANMS', city: 'Bankstown', shipBy: '2026-10-12', volumeM3: 5 });
+
+  it('keeps neighbouring zones on their own runs', () => {
+    const p = plan({}, DEFAULT_DISPATCH_SETTINGS, [north, south]);
+    expect(loadsWith(p, 'n')[0].id).not.toBe(loadsWith(p, 's')[0].id);
+    expect(loadsWith(p, 's')[0].label).toBe('NSW-Metro-South · ANMS');
+  });
+
+  it('lets them share a truck when Settings allow it', () => {
+    const s = { ...DEFAULT_DISPATCH_SETTINGS, fleet: { ...DEFAULT_DISPATCH_SETTINGS.fleet, keepShipViaApart: false } };
+    const p = plan({}, s, [north, south]);
+    expect(loadsWith(p, 'n')[0].id).toBe(loadsWith(p, 's')[0].id);
   });
 });
 

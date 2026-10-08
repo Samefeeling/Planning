@@ -6,8 +6,8 @@
  * `Description` (the delivery zone):
  *
  * - **NSW fleet** — the factory's own trucks deliver to the customer. Orders
- *   for nearby customers share a run; an order is only split when it is
- *   bigger than the biggest truck.
+ *   for nearby customers in the same zone and Ship Via share a run; an order
+ *   is only split when it is bigger than the biggest truck.
  * - **Interstate linehaul** — orders are consolidated per delivery zone and
  *   carrier (`Description` + `Ship Via`, e.g. `QLD- Metro` / `AQMC`) and
  *   trucked to the state's hub city; the local carrier there does the last
@@ -203,9 +203,9 @@ export interface DispatchSettings {
     /** A run carrying no more than this goes by carrier instead; 0 disables. */
     carrierMaxM3: number;
     /**
-     * Keep each `Ship Via` on its own runs. Off by default: NSW runs are the
-     * factory's own trucks, and nearby customers in neighbouring zones
-     * (Metro-North and Metro-South, say) share a truck.
+     * Keep each delivery zone and `Ship Via` (`NSW-Metro-South` / `ANMS`) on
+     * its own runs, as interstate and export do. On by default; off lets
+     * nearby customers in neighbouring zones of a run class share a truck.
      */
     keepShipViaApart: boolean;
   };
@@ -301,7 +301,7 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
     earlyDays: 3,
     maxRunsPerDay: 0,
     carrierMaxM3: 2,
-    keepShipViaApart: false,
+    keepShipViaApart: true,
   },
   linehaul: {
     hubs: [
@@ -372,7 +372,8 @@ const startsWithToken = (zone: string, prefix: string): boolean => {
 /**
  * Route a zone, or null if unmapped. `group` is what may share a load:
  *
- * - NSW fleet: the run class (and the Ship Via, when kept apart);
+ * - NSW fleet: run class + zone + Ship Via (or the run class alone, when
+ *   neighbouring zones may share a truck);
  * - linehaul: hub + zone + Ship Via — each carrier and region its own;
  * - containers: destination (per city for split zones) + Ship Via.
  */
@@ -392,8 +393,8 @@ export function routeFor(
     c.zones.some((z) => z.trim() === key),
   );
   if (runClass) {
-    return settings.fleet.keepShipViaApart && via
-      ? { mode: 'fleet', group: `fleet:${runClass.id}|${via}`, label: `${runClass.label}${tail}`, runClass }
+    return settings.fleet.keepShipViaApart
+      ? { mode: 'fleet', group: `fleet:${runClass.id}|${key}|${via}`, label: `${key}${tail}`, runClass }
       : { mode: 'fleet', group: `fleet:${runClass.id}`, label: runClass.label, runClass };
   }
   const hub = settings.linehaul.hubs.find((h) =>

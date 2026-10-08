@@ -66,7 +66,7 @@ Load the file with **Load waybill**. Set `VITE_WAYBILL_CSV_URL` or
 
 | Zone | Route | Equipment |
 | --- | --- | --- |
-| NSW zones in a fleet run class | **NSW fleet** — own trucks deliver to the customer; nearby customers across the run class's zones share a truck (Settings can keep each `Ship Via` apart) | Rigid 8-pallet, Rigid 12-pallet, Semi 22-pallet |
+| NSW zones in a fleet run class | **NSW fleet** — own trucks deliver to the customer. Consolidated per `Description` + `Ship Via` (`NSW-Metro-South` / `ANMS`, `NSW-Metro-North` / `ANMN`, …), nearby customers first; Settings can let neighbouring zones of a run class share a truck | Rigid 8-pallet, Rigid 12-pallet, Semi 22-pallet |
 | Other states (`QLD`, `VIC`, `SA`, `WA`, `TAS`, `NT`) | **Interstate linehaul** — to the state's hub city, where the local carrier does the last mile. Consolidated per `Description` + `Ship Via` (`QLD- Metro` / `AQMC`, `QLD- Reg-North` / `AQRN`, …): different carriers or regions never share a departure | FTL semi, or LTL part load |
 | `NZ`, `Export`, `Hong Kong` | **Export containers** — consolidated per destination and `Ship Via` (`Export-ROW` per city, since its cities are different ports) | 20' GP, 40' GP, 40' HC, or LCL |
 | `NSW-Customer Pickup` | **Customer pickup** — dock schedule only | — |

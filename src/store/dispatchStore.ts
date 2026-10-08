@@ -181,6 +181,16 @@ export const useDispatchStore = create<DispatchState>()(
     }),
     {
       name: 'resero.dispatch.v1',
+      // v1: NSW runs keep each zone and Ship Via apart. Copies saved before
+      // that carry the old default (mixed), which would otherwise win.
+      version: 1,
+      migrate: (persisted, from) => {
+        const p = (persisted ?? {}) as Partial<DispatchState>;
+        if (from < 1 && p.settings?.fleet) {
+          p.settings = { ...p.settings, fleet: { ...p.settings.fleet, keepShipViaApart: true } };
+        }
+        return p as DispatchState;
+      },
       // Settings added in a later release fall back to their defaults rather
       // than arriving as undefined from an older saved copy.
       merge: (persisted, current) => {
