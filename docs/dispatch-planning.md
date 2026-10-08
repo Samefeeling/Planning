@@ -21,7 +21,34 @@ One row per order line. Columns are matched by header name:
 | `CreditHold`, `On Hold` | keep the order off every load |
 | `InPicking`, `Cust. ID`, `Ship Via`, `ReleaseVal` | shown |
 
-An order with no freight line has **unknown volume**: it is planned as 0 m³
+## Input: the cubics sheet (optional, more precise)
+
+**Load cubics** takes "Drews Cubics and Freight Calc" saved as CSV. One row
+per part and stack size:
+
+| Column | Used for |
+| --- | --- |
+| first (unnamed) | category, e.g. `SS` |
+| `CODE` | matched to the waybill's `Part` (case and spaces ignored) |
+| `Name` | shown |
+| `Quantity` | units in the stack (the first `Quantity` column; the second is the sheet's own calculator input) |
+| `Volume per STACK` | m³ of that stack; worked out from `Length` × `Depth` × `Height` (mm) when blank |
+| `Weight Per Unit` | kg, summed into each load |
+
+Section rows (`SOFT SEATING`) are read as headings; rows without a `CODE`
+cannot be matched to the waybill and are counted in the page header.
+
+Each goods line's quantity is packed into the part's stack sizes so the total
+volume is smallest: five Astral ottomans are a stack of four plus a single
+(1.27 + 0.41 m³), not two pairs and a single. An order is **sized by cubics**
+only when the sheet lists every goods line; otherwise its freight line is
+used, and failing that the part the sheet covers. Settings can make the
+freight line the first choice instead, and a volume entered on the order
+always wins. In the tables a `C` beside a volume means it came from the
+sheet, `E` that it was entered. The Exceptions tab lists every part code the
+sheet is missing, by how many open orders it holds up.
+
+An order with no volume from either source has **unknown volume**: it is planned as 0 m³
 and listed under Exceptions until someone enters its cube. An order carrying
 two freight lines with the same cube (seen once: `FRTTAS` + `FRTSEB`) uses the
 largest rather than the sum.
@@ -67,6 +94,20 @@ A zone that matches none of these is flagged *unrouted*; add it in Settings.
 
 Each day shows its loads' total volume against the marshalling area's daily
 capacity (150 m³ by default), and the fleet runs against trucks available.
+
+## Reading the plan
+
+The Load plan tab reads top-down:
+
+1. **Volume to ship** — a stacked column per day (or per ISO week), split by
+   route, against the marshalling capacity line. Hover for the breakdown;
+   click a column to open that day. The weekly view adds a table: orders,
+   m³ per route with load counts, vehicles, part loads, fill, orders pulled
+   forward and orders leaving after Ship By.
+2. **Day strip** — every dispatch day in the window with its volume, loads
+   and a marshalling status dot.
+3. **The day** — totals, the marshalling meter, and the loads grouped by
+   route.
 
 ## Planner decisions
 

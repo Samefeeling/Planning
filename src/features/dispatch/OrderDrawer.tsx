@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { DISPATCH_MODE_LABEL } from '@/domain/dispatch';
+import { DISPATCH_MODE_LABEL, VOLUME_SOURCE_LABEL } from '@/domain/dispatch';
 import { ORDER_FLAG_LABEL } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { Badge, Button } from '@/ui';
@@ -67,9 +67,24 @@ export function OrderDrawer({
         <dd>{op.route ? `${DISPATCH_MODE_LABEL[op.route.mode]} — ${op.route.label}` : 'Not routed'}</dd>
         <dt>Volume</dt>
         <dd>
-          {op.volumeKnown ? m3(op.volumeM3) : 'Unknown'}
-          {override !== undefined && ' (entered)'}
+          <strong>{op.volumeKnown ? m3(op.volumeM3) : 'Unknown'}</strong> · {VOLUME_SOURCE_LABEL[op.volumeSource]}
         </dd>
+        <dt>Freight line</dt>
+        <dd>{order.volumeM3 === null ? '—' : m3(order.volumeM3)}</dd>
+        <dt>Cubics sheet</dt>
+        <dd>
+          {order.cube
+            ? `${m3(order.cube.volumeM3)} · ${order.cube.matchedLines}/${order.cube.goodsLines} lines covered`
+            : model.cubics
+              ? 'No goods lines'
+              : 'Not loaded'}
+        </dd>
+        {op.weightKg !== null && (
+          <>
+            <dt>Weight</dt>
+            <dd>{Math.round(op.weightKg).toLocaleString('en-AU')} kg</dd>
+          </>
+        )}
         <dt>Value</dt>
         <dd>{money(order.value)}</dd>
         <dt>Goods</dt>
@@ -189,6 +204,23 @@ export function OrderDrawer({
           )}
         </div>
       </section>
+
+      {order.cube && order.cube.unmatched.length > 0 && (
+        <section>
+          <h3>Parts missing from the cubics sheet</h3>
+          <p className="muted-note">
+            Add these codes to the sheet to size the order from it; until then the
+            freight line is used where there is one.
+          </p>
+          <ul className="plain-list mono">
+            {order.cube.unmatched.map((u) => (
+              <li key={u.part}>
+                {u.part} × {u.qty}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section>
         <h3>Lines</h3>

@@ -389,6 +389,29 @@ export function DispatchSettingsPanel() {
       </section>
 
       <section>
+        <h3>Order volume</h3>
+        <div className="field-row">
+          <label className="field">
+            <span>When both are available, use</span>
+            <select
+              value={settings.preferVolume}
+              onChange={(e) =>
+                set((s) => ({ ...s, preferVolume: e.target.value as DispatchSettings['preferVolume'] }))
+              }
+            >
+              <option value="cubics">Cubics sheet (stacked, per part)</option>
+              <option value="freight">Freight CBM line on the order</option>
+            </select>
+          </label>
+        </div>
+        <p className="muted-note">
+          The cubics sheet sizes an order only when it lists every goods line; otherwise the
+          freight line is used, and failing that the part the sheet does cover. A volume
+          entered on the order always wins.
+        </p>
+      </section>
+
+      <section>
         <h3>Customer pickup</h3>
         <div className="field-row">
           <ListField

@@ -4,7 +4,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
+import { DISPATCH_MODE_LABEL, VOLUME_SOURCE_LABEL, type DispatchMode } from '@/domain/dispatch';
 import { ORDER_FLAG_LABEL, type OrderFlag } from '@/engine/dispatch/plan';
 import { Badge } from '@/ui';
 import type { DispatchModel } from './useDispatchPlan';
@@ -28,6 +28,7 @@ const FLAG_SHORT: Partial<Record<OrderFlag, string>> = {
   pinned: 'Pinned',
   firm: 'Firm',
   'no-location': 'No map',
+  'cube-partial': 'Cube partial',
 };
 
 export function OrdersTable({
@@ -46,7 +47,7 @@ export function OrdersTable({
   const rows = useMemo(() => {
     if (!parsed || !plan) return [];
     const q = query.trim().toLowerCase();
-    const list = parsed.orders
+    const list = model.orders
       .map((order) => ({ order, op: plan.orders.get(order.id)! }))
       .filter(({ order, op }) => {
         if (mode === 'none' ? op.route !== null : mode !== 'all' && op.route?.mode !== mode) return false;
@@ -72,7 +73,7 @@ export function OrdersTable({
       const kb = key(b);
       return ka < kb ? -1 : ka > kb ? 1 : a.order.id.localeCompare(b.order.id);
     });
-  }, [parsed, plan, query, mode, onlyExceptions, sort]);
+  }, [parsed, plan, model.orders, query, mode, onlyExceptions, sort]);
 
   const head = (label: string, key?: SortKey, className?: string) => (
     <th className={className}>
@@ -141,7 +142,12 @@ export function OrdersTable({
                   {order.zone} · {order.city}
                 </td>
                 <td className="ellipsis">{op.route?.label ?? '—'}</td>
-                <td className="num">{op.volumeKnown ? op.volumeM3.toFixed(2) : '?'}</td>
+                <td className="num" title={VOLUME_SOURCE_LABEL[op.volumeSource]}>
+                  {op.volumeKnown ? op.volumeM3.toFixed(2) : '?'}
+                  {op.volumeSource === 'cubics' && <sup className="src">C</sup>}
+                  {op.volumeSource === 'cubics-partial' && <sup className="src">C?</sup>}
+                  {op.volumeSource === 'entered' && <sup className="src">E</sup>}
+                </td>
                 <td className="num">{money(order.value)}</td>
                 <td>{shortDay(order.shipBy)}</td>
                 <td>{shortDay(order.needBy)}</td>

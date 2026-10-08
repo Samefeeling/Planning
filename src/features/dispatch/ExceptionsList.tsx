@@ -22,7 +22,7 @@ export const EXCEPTION_FLAGS: readonly OrderFlag[] = [
 ];
 
 /** Worth knowing but not a problem on its own. */
-const NOTICE_FLAGS: readonly OrderFlag[] = ['no-location'];
+const NOTICE_FLAGS: readonly OrderFlag[] = ['cube-partial', 'no-location'];
 
 const ACTION: Partial<Record<OrderFlag, string>> = {
   'credit-hold': 'Ask accounts to release, or hold the order',
@@ -35,6 +35,7 @@ const ACTION: Partial<Record<OrderFlag, string>> = {
   'no-volume': 'Enter the cube on the order; it is planned as 0 m³ until then',
   held: 'Release when the customer is ready',
   'no-location': 'Add the city to dispatchLocations.ts to group it by distance',
+  'cube-partial': 'Sized from the freight line, or from the parts the sheet covers — see the parts list below',
 };
 
 export function ExceptionsList({
@@ -44,8 +45,23 @@ export function ExceptionsList({
   model: DispatchModel;
   onOpenOrder: (id: string) => void;
 }) {
-  const { plan, ordersById, parsed } = model;
+  const { plan, ordersById, parsed, orders, cubics } = model;
   if (!plan) return null;
+
+  // Every part the cubics sheet is missing, with how many open orders and
+  // units it holds up: the list to add to the sheet, biggest first.
+  const missing = new Map<string, { orders: Set<string>; qty: number }>();
+  if (cubics && !cubics.error) {
+    for (const o of orders) {
+      for (const u of o.cube?.unmatched ?? []) {
+        const m = missing.get(u.part) ?? { orders: new Set<string>(), qty: 0 };
+        m.orders.add(o.id);
+        m.qty += u.qty;
+        missing.set(u.part, m);
+      }
+    }
+  }
+  const missingParts = [...missing].sort((a, b) => b[1].orders.size - a[1].orders.size || a[0].localeCompare(b[0]));
 
   const groups = [...EXCEPTION_FLAGS, ...NOTICE_FLAGS]
     .map((flag) => ({
@@ -58,7 +74,7 @@ export function ExceptionsList({
     o.notes.some((n) => !n.startsWith('No freight') && n !== 'No Ship By date'),
   );
 
-  if (groups.length === 0 && dataNotes.length === 0) {
+  if (groups.length === 0 && dataNotes.length === 0 && missingParts.length === 0) {
     return <p className="muted-note">No exceptions — every order is on a load that meets its date.</p>;
   }
 
@@ -93,6 +109,26 @@ export function ExceptionsList({
           </ul>
         </section>
       ))}
+      {missingParts.length > 0 && (
+        <section className="exception-group notice">
+          <header>
+            <h3>
+              Parts missing from the cubics sheet <span className="tab-count">{missingParts.length}</span>
+            </h3>
+            <p>
+              Add these codes to the sheet to size their orders from it. Orders, then units left to
+              ship.
+            </p>
+          </header>
+          <div className="missing-parts">
+            {missingParts.map(([part, m]) => (
+              <span key={part} className="missing-part" title={[...m.orders].join(', ')}>
+                <span className="mono">{part}</span> {m.orders.size} · {m.qty.toLocaleString('en-AU')}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
       {dataNotes.length > 0 && (
         <section className="exception-group notice">
           <header>

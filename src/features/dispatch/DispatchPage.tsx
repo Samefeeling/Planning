@@ -38,6 +38,7 @@ export function DispatchPage() {
   const { parsed, plan } = model;
   const fileName = useDispatchStore((s) => s.fileName);
   const loadedAt = useDispatchStore((s) => s.loadedAt);
+  const cubicsFileName = useDispatchStore((s) => s.cubicsFileName);
   const [tab, setTab] = useState<Tab>('loads');
   const [openOrder, setOpenOrder] = useState<string | null>(null);
 
@@ -59,9 +60,16 @@ export function DispatchPage() {
       if (o.flags.includes('overdue')) overdue++;
       if (o.flags.includes('pulled-forward')) pulled++;
     }
+    let byCubics = 0;
+    let volume = 0;
+    for (const o of plan.orders.values()) {
+      volume += o.volumeM3;
+      if (o.volumeSource === 'cubics') byCubics++;
+    }
     return {
       orders: parsed.orders.length,
-      volume: parsed.orders.reduce((s, o) => s + (o.volumeM3 ?? 0), 0),
+      volume,
+      byCubics,
       loads: active.length,
       confirmed: active.filter((l) => l.firm === 'confirmed').length,
       byMode,
@@ -77,11 +85,19 @@ export function DispatchPage() {
     <div className="dispatch">
       <div className="dispatch-bar">
         <WaybillLoader />
-        {fileName && loadedAt && (
-          <span className="dispatch-source" title="The waybill the plan is built from">
-            {fileName} · loaded {formatDay(new Date(loadedAt))} {formatTime(new Date(loadedAt))}
-          </span>
-        )}
+        <span className="dispatch-source">
+          {fileName && loadedAt && (
+            <span title="The waybill the plan is built from">
+              Waybill: {fileName} · {formatDay(new Date(loadedAt))} {formatTime(new Date(loadedAt))}
+            </span>
+          )}
+          {model.cubics && (
+            <span title="The product cube master orders are sized from">
+              Cubics: {cubicsFileName} · {model.cubics.items.length} parts
+              {model.cubics.withoutCode.length > 0 && ` (${model.cubics.withoutCode.length} rows without a code)`}
+            </span>
+          )}
+        </span>
         <nav className="dispatch-tabs" aria-label="Dispatch views">
           {(Object.keys(TAB_LABEL) as Tab[]).map((key) => (
             <button
@@ -109,6 +125,11 @@ export function DispatchPage() {
       {stats && (
         <div className="dispatch-kpis">
           <Kpi label="Open orders" value={String(stats.orders)} hint={`${m3(stats.volume)} to ship`} />
+          <Kpi
+            label="Sized by cubics"
+            value={model.cubics ? `${stats.byCubics}` : '—'}
+            hint={model.cubics ? `of ${stats.orders} orders; the rest use the freight line` : 'Load the cubics sheet'}
+          />
           <Kpi
             label="Loads planned"
             value={String(stats.loads)}

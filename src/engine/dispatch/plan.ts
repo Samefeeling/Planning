@@ -36,7 +36,9 @@ import {
   type FirmLoad,
   type Route,
   type ShipmentOrder,
+  type VolumeSource,
 } from '@/domain/dispatch';
+import { isFullCube } from '@/domain/cubics';
 import { distanceKm, locate, normalizeCity, type LatLon } from '@/domain/dispatchLocations';
 import {
   addCalendarDays,
@@ -61,7 +63,8 @@ export type OrderFlag =
   | 'pulled-forward'
   | 'pinned'
   | 'firm'
-  | 'no-location';
+  | 'no-location'
+  | 'cube-partial';
 
 export const ORDER_FLAG_LABEL: Record<OrderFlag, string> = {
   overdue: 'Ship By already passed',
@@ -78,6 +81,7 @@ export const ORDER_FLAG_LABEL: Record<OrderFlag, string> = {
   pinned: 'Day pinned by the planner',
   firm: 'On a confirmed load',
   'no-location': 'City has no map location — grouped by zone only',
+  'cube-partial': 'Some parts are missing from the cubics sheet',
 };
 
 /** Flags that keep an order off every load until someone acts. */
@@ -95,6 +99,9 @@ export interface PlannedDrop {
   order: ShipmentOrder | null;
   volumeM3: number;
   volumeKnown: boolean;
+  volumeSource: VolumeSource;
+  /** Weight of this drop from the cubics sheet, kg; null when unknown. */
+  weightKg: number | null;
   /** Set when the order is split across loads. */
   piece: { index: number; of: number } | null;
   /** Working days ahead of the order's latest dispatch day. */
@@ -114,6 +121,9 @@ export interface PlannedLoad {
   volumeM3: number;
   /** Volume over capacity, 0–1+; null for part loads and pickups. */
   fill: number | null;
+  /** Known weight, kg, and whether every drop's weight was known. */
+  weightKg: number;
+  weightComplete: boolean;
   /** Status when the planner has confirmed it; null for a proposal. */
   firm: FirmLoad['status'] | null;
   warnings: string[];
@@ -131,6 +141,9 @@ export interface OrderPlan {
   loadIds: string[];
   volumeM3: number;
   volumeKnown: boolean;
+  volumeSource: VolumeSource;
+  /** Weight from the cubics sheet when it covers the whole order, kg. */
+  weightKg: number | null;
   flags: OrderFlag[];
 }
 
@@ -333,6 +346,51 @@ function rulesFor(route: Route, s: DispatchSettings): RouteRules {
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
+export interface ResolvedVolume {
+  volume: number;
+  known: boolean;
+  source: VolumeSource;
+  weightKg: number | null;
+}
+
+/**
+ * An order's volume: what the planner entered, else the preferred of the
+ * cubics sheet (only when it covers every goods line) and the freight line,
+ * else whatever part of the order the sheet does cover.
+ */
+export function resolveVolume(
+  order: ShipmentOrder,
+  override: number | undefined,
+  prefer: DispatchSettings['preferVolume'],
+): ResolvedVolume {
+  const weight = isFullCube(order.cube) && order.cube.linesWithoutWeight === 0 ? order.cube.weightKg : null;
+  if (override !== undefined && Number.isFinite(override) && override >= 0) {
+    return { volume: override, known: true, source: 'entered', weightKg: weight };
+  }
+  const cubics: ResolvedVolume | null = isFullCube(order.cube)
+    ? { volume: order.cube.volumeM3, known: true, source: 'cubics', weightKg: weight }
+    : null;
+  const freight: ResolvedVolume | null =
+    order.volumeM3 !== null
+      ? { volume: order.volumeM3, known: true, source: 'freight', weightKg: null }
+      : null;
+  const pick = prefer === 'cubics' ? cubics ?? freight : freight ?? cubics;
+  if (pick) return pick;
+  if (order.cube && order.cube.matchedLines > 0) {
+    return { volume: order.cube.volumeM3, known: true, source: 'cubics-partial', weightKg: null };
+  }
+  return { volume: 0, known: false, source: 'none', weightKg: null };
+}
+
+/** The share of an order's weight a piece of it carries. */
+const pieceWeight = (weight: number | null, piece: number, whole: number): number | null =>
+  weight === null ? null : whole > 0 ? (weight * piece) / whole : weight;
+
+const loadWeight = (drops: PlannedDrop[]) => ({
+  weightKg: sum(drops.map((d) => d.weightKg ?? 0)),
+  weightComplete: drops.every((d) => d.weightKg !== null),
+});
+
 export function planDispatch(
   orders: readonly ShipmentOrder[],
   settings: DispatchSettings,
@@ -345,13 +403,8 @@ export function planDispatch(
   const loads: PlannedLoad[] = [];
   const plans = new Map<string, OrderPlan>();
 
-  const volumeOf = (o: ShipmentOrder): { volume: number; known: boolean } => {
-    const override = decisions.volumeOverrides[o.id];
-    if (override !== undefined && Number.isFinite(override) && override >= 0) {
-      return { volume: override, known: true };
-    }
-    return o.volumeM3 === null ? { volume: 0, known: false } : { volume: o.volumeM3, known: true };
-  };
+  const volumeOf = (o: ShipmentOrder): ResolvedVolume =>
+    resolveVolume(o, decisions.volumeOverrides[o.id], settings.preferVolume);
 
   // Confirmed loads are frozen: emitted as they were confirmed, and their
   // orders kept out of the optimiser.
@@ -359,8 +412,19 @@ export function planDispatch(
   for (const firm of decisions.firmLoads) {
     const drops: PlannedDrop[] = firm.orderIds.map((id) => {
       const order = byId.get(id) ?? null;
-      const v = order ? volumeOf(order) : { volume: firm.volumes[id] ?? 0, known: id in firm.volumes };
-      return { orderId: id, order, volumeM3: v.volume, volumeKnown: v.known, piece: null, daysEarly: 0 };
+      const v: ResolvedVolume = order
+        ? volumeOf(order)
+        : { volume: firm.volumes[id] ?? 0, known: id in firm.volumes, source: 'entered', weightKg: null };
+      return {
+        orderId: id,
+        order,
+        volumeM3: v.volume,
+        volumeKnown: v.known,
+        volumeSource: v.source,
+        weightKg: v.weightKg,
+        piece: null,
+        daysEarly: 0,
+      };
     });
     const volume = sum(drops.map((d) => d.volumeM3));
     const warnings: string[] = [];
@@ -385,6 +449,7 @@ export function planDispatch(
       drops,
       volumeM3: volume,
       fill: firm.capacityM3 ? volume / firm.capacityM3 : null,
+      ...loadWeight(drops),
       firm: firm.status,
       warnings,
     });
@@ -406,6 +471,8 @@ export function planDispatch(
           loadIds: [firm.id],
           volumeM3: d.volumeM3,
           volumeKnown: d.volumeKnown,
+          volumeSource: d.volumeSource,
+          weightKg: d.weightKg,
           flags: ['firm'],
         });
       }
@@ -417,9 +484,12 @@ export function planDispatch(
   for (const order of orders) {
     if (inFirm.has(order.id)) continue;
     const route = routeFor(order.zone, order.city, settings);
-    const { volume, known } = volumeOf(order);
+    const { volume, known, source, weightKg } = volumeOf(order);
     const flags: OrderFlag[] = [];
     if (!known) flags.push('no-volume');
+    if (order.cube && order.cube.unmatched.length > 0 && order.cube.matchedLines > 0) {
+      flags.push('cube-partial');
+    }
     const plan: OrderPlan = {
       orderId: order.id,
       route,
@@ -429,6 +499,8 @@ export function planDispatch(
       loadIds: [],
       volumeM3: volume,
       volumeKnown: known,
+      volumeSource: source,
+      weightKg,
       flags,
     };
     plans.set(order.id, plan);
@@ -512,6 +584,16 @@ export function planDispatch(
       const emit = (bin: Bin, equipment: string, capacity: number | null, advice: string[] = []) => {
         const id = `${group}|${day}|${++counter}`;
         const warnings: string[] = [...advice];
+        const drops: PlannedDrop[] = bin.pieces.map((p) => ({
+          orderId: p.c.order.id,
+          order: p.c.order,
+          volumeM3: p.volume,
+          volumeKnown: p.c.plan.volumeKnown,
+          volumeSource: p.c.plan.volumeSource,
+          weightKg: pieceWeight(p.c.plan.weightKg, p.volume, p.c.volume),
+          piece: p.piece,
+          daysEarly: p.daysEarly,
+        }));
         if (bin.pieces.some((p) => !p.c.plan.volumeKnown)) {
           warnings.push('Contains orders with unknown volume');
         }
@@ -526,16 +608,10 @@ export function planDispatch(
           day,
           equipment,
           capacityM3: capacity,
-          drops: bin.pieces.map((p) => ({
-            orderId: p.c.order.id,
-            order: p.c.order,
-            volumeM3: p.volume,
-            volumeKnown: p.c.plan.volumeKnown,
-            piece: p.piece,
-            daysEarly: p.daysEarly,
-          })),
+          drops,
           volumeM3: bin.volume,
           fill: capacity ? bin.volume / capacity : null,
+          ...loadWeight(drops),
           firm: null,
           warnings,
         });

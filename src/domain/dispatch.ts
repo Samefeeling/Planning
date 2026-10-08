@@ -18,6 +18,8 @@
  * Customer pickup orders are only scheduled for the dock, never loaded.
  */
 
+import type { OrderCube } from './cubics';
+
 /** ISO local day, `YYYY-MM-DD`. */
 export type DayKey = string;
 
@@ -92,7 +94,20 @@ export interface ShipmentOrder {
   creditHold: boolean;
   /** Data problems found while reading the order, for the exceptions list. */
   notes: string[];
+  /** Cube worked out from the cubics sheet, when one is loaded. */
+  cube?: OrderCube | null;
 }
+
+/** Where an order's volume came from, best first. */
+export type VolumeSource = 'entered' | 'cubics' | 'freight' | 'cubics-partial' | 'none';
+
+export const VOLUME_SOURCE_LABEL: Record<VolumeSource, string> = {
+  entered: 'Entered by the planner',
+  cubics: 'Cubics sheet (stacked)',
+  freight: 'Freight CBM line',
+  'cubics-partial': 'Cubics sheet — some parts missing',
+  none: 'Unknown',
+};
 
 /**
  * Freight lines whose quantity is the order's shipping volume in m³.
@@ -184,6 +199,12 @@ export interface DispatchSettings {
   };
   pickupZones: string[];
   /**
+   * Which volume wins when both are there: the cubics sheet (stack-aware, per
+   * part) or the freight CBM line on the order. The cubics sheet is only used
+   * when it covers every goods line; a partial match falls back to freight.
+   */
+  preferVolume: 'cubics' | 'freight';
+  /**
    * Firm (frozen) window in working days from today. Inside it, an order is
    * only pulled forward when its goods are already ready.
    */
@@ -266,6 +287,7 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
     earlyDays: 10,
   },
   pickupZones: ['NSW-Customer Pickup'],
+  preferVolume: 'cubics',
   firmDays: 2,
   stagingCapacityM3: 150,
   holidays: [],

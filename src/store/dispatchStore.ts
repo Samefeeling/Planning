@@ -28,11 +28,17 @@ interface DispatchState {
   csvText: string | null;
   fileName: string | null;
   loadedAt: string | null;
+  /** The cubics sheet (product cube master), as loaded. */
+  cubicsText: string | null;
+  cubicsFileName: string | null;
+  cubicsLoadedAt: string | null;
   settings: DispatchSettings;
   decisions: DispatchDecisions;
 
   loadWaybill: (text: string, fileName: string) => void;
   clearWaybill: () => void;
+  loadCubics: (text: string, fileName: string) => void;
+  clearCubics: () => void;
   pin: (orderId: string, day: DayKey | null) => void;
   hold: (orderId: string, reason: string | null) => void;
   setVolume: (orderId: string, m3: number | null) => void;
@@ -55,6 +61,9 @@ export const useDispatchStore = create<DispatchState>()(
       csvText: null,
       fileName: null,
       loadedAt: null,
+      cubicsText: null,
+      cubicsFileName: null,
+      cubicsLoadedAt: null,
       settings: DEFAULT_DISPATCH_SETTINGS,
       decisions: EMPTY_DECISIONS,
 
@@ -74,6 +83,9 @@ export const useDispatchStore = create<DispatchState>()(
           };
         }),
       clearWaybill: () => set({ csvText: null, fileName: null, loadedAt: null }),
+      loadCubics: (cubicsText, cubicsFileName) =>
+        set({ cubicsText, cubicsFileName, cubicsLoadedAt: new Date().toISOString() }),
+      clearCubics: () => set({ cubicsText: null, cubicsFileName: null, cubicsLoadedAt: null }),
 
       pin: (orderId, day) =>
         set((s) => ({

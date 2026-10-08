@@ -6,11 +6,18 @@
  * confirmed load can be marked dispatched or released back to the planner.
  */
 
-import { DISPATCH_MODE_LABEL } from '@/domain/dispatch';
+import { DISPATCH_MODE_LABEL, VOLUME_SOURCE_LABEL, type VolumeSource } from '@/domain/dispatch';
 import type { PlannedLoad } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { Badge, Button } from '@/ui';
 import { READINESS, fillTone, m3, pct, shortDay } from './format';
+
+/** One-letter marker for where a volume came from; freight is the default. */
+const SOURCE_MARK: Partial<Record<VolumeSource, string>> = {
+  cubics: 'C',
+  'cubics-partial': 'C?',
+  entered: 'E',
+};
 
 export function LoadCard({
   load,
@@ -32,9 +39,9 @@ export function LoadCard({
           <strong>{load.label}</strong>
         </div>
         <div className="load-equipment">
-          <strong>{load.equipment}</strong>
           {load.firm === 'confirmed' && <Badge variant="info">Confirmed</Badge>}
           {load.firm === 'dispatched' && <Badge variant="ok">Dispatched</Badge>}
+          <strong>{load.equipment}</strong>
         </div>
       </header>
 
@@ -54,6 +61,11 @@ export function LoadCard({
         ) : (
           <span>{m3(load.volumeM3)}</span>
         )}
+        {load.weightKg > 0 && (
+          <span title={load.weightComplete ? 'From the cubics sheet' : 'Only the drops the cubics sheet weighs'}>
+            {Math.round(load.weightKg).toLocaleString('en-AU')} kg{load.weightComplete ? '' : '+'}
+          </span>
+        )}
         <span className="load-drops">
           {drops} {load.mode === 'fleet' ? 'drop' : 'order'}
           {drops === 1 ? '' : 's'}
@@ -72,7 +84,8 @@ export function LoadCard({
         <thead>
           <tr>
             <th>Order</th>
-            <th>Customer · City</th>
+            <th>Customer</th>
+            <th>City</th>
             <th className="num">m³</th>
             <th>Ship By</th>
             <th>Goods</th>
@@ -96,11 +109,15 @@ export function LoadCard({
                   </span>
                 )}
               </td>
-              <td className="ellipsis" title={d.order ? `${d.order.custId} · ${d.order.city} (${d.order.zone})` : ''}>
-                {d.order ? `${d.order.custId} · ${d.order.city}` : 'Not in the waybill'}
+              <td className="ellipsis" title={d.order?.custId}>
+                {d.order ? d.order.custId : 'Not in the waybill'}
               </td>
-              <td className="num">
+              <td className="ellipsis" title={d.order ? `${d.order.city} (${d.order.zone})` : ''}>
+                {d.order?.city}
+              </td>
+              <td className="num" title={VOLUME_SOURCE_LABEL[d.volumeSource]}>
                 {d.volumeKnown ? d.volumeM3.toFixed(2) : <span className="tone-bad">?</span>}
+                {SOURCE_MARK[d.volumeSource] && <sup className="src">{SOURCE_MARK[d.volumeSource]}</sup>}
               </td>
               <td
                 className={d.order?.shipBy && d.order.shipBy < load.day ? 'tone-bad' : undefined}

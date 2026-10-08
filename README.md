@@ -219,8 +219,10 @@ from the waybill export: NSW orders on the factory's own trucks with nearby
 customers consolidated, interstate orders consolidated to each state's hub for
 the local carrier, and export orders into containers sized by volume. Orders
 stay whole unless bigger than a truck, may be pulled forward only within a
-warehouse window, and loads the planner confirms are frozen. See
-`docs/dispatch-planning.md`.
+warehouse window, and loads the planner confirms are frozen. Orders are sized
+from the cubics sheet (stack-aware, per part) when it covers them, else from
+the waybill's freight line; a daily and weekly volume chart leads the page.
+See `docs/dispatch-planning.md`.
 
 ## Quick start
 
