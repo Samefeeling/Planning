@@ -4,8 +4,9 @@
  * The plan is deadline-driven consolidation, the standard practice for a
  * factory shipping to order:
  *
- * 1. **Every order has a dispatch window.** It must leave by its `Ship By`
- *    (the last dispatch day of its route on or before that date) and may
+ * 1. **Every order has a dispatch window.** It must leave by its due date —
+ *    `Need By`, the latest ship date (or `Ship By`, as the settings say) —
+ *    on the last dispatch day of its route on or before it, and may
  *    leave up to `earlyDays` working days sooner. The early limit is the
  *    warehouse limit — an order shipped early has to be finished and staged
  *    early — so it is the one number to tighten in peak season.
@@ -15,20 +16,26 @@
  *    bigger than the largest vehicle, into full loads plus a remainder.
  * 4. **Spare space is topped up** with orders from the same route whose
  *    window is open — nearest customers first for the NSW fleet, the
- *    earliest Ship By first otherwise. Inside the firm window only orders
+ *    earliest due date first otherwise. Inside the firm window only orders
  *    whose goods are already ready are pulled forward.
  * 5. **Each load is then right-sized** to the smallest vehicle or container
  *    that holds it. Interstate and export shipments too small for a full
  *    load go as a part load (LTL / LCL) unless open orders can fill one.
  *
- * Loads the planner has confirmed are frozen and passed through unchanged.
+ * Loads the planner has edited or confirmed are frozen and passed through
+ * unchanged; an order only partly on them (a split piece) has the rest
+ * planned as usual. Frozen loads are checked rather than trusted: over
+ * capacity, more drops than the run allows, drops further apart than its
+ * radius, or a day the route does not depart on are all warned about.
  * The function is pure: the same export, settings, decisions and day give
  * the same plan.
  */
 
 import {
+  dueDate,
   routeFor,
   type DayKey,
+  type DeadlineField,
   type DispatchDecisions,
   type DispatchMode,
   type DispatchSettings,
@@ -44,6 +51,8 @@ import {
   addCalendarDays,
   addWorkingDays,
   dispatchDays,
+  isoWeekday,
+  isWorkingDay,
   workingDaysBetween,
 } from './calendar';
 
@@ -57,7 +66,7 @@ export type OrderFlag =
   | 'on-hold'
   | 'held'
   | 'no-volume'
-  | 'no-ship-by'
+  | 'no-date'
   | 'unrouted'
   | 'split'
   | 'pulled-forward'
@@ -67,19 +76,19 @@ export type OrderFlag =
   | 'cube-partial';
 
 export const ORDER_FLAG_LABEL: Record<OrderFlag, string> = {
-  overdue: 'Ship By already passed',
-  late: 'No dispatch day on or before Ship By',
+  overdue: 'Due date already passed',
+  late: 'No dispatch day on or before its due date',
   'not-ready': 'Due inside the firm window but goods not ready',
   'credit-hold': 'Credit hold — release before dispatch',
   'on-hold': 'Order on hold',
   held: 'Held back by the planner',
   'no-volume': 'Volume unknown — enter m³',
-  'no-ship-by': 'No Ship By date — pin a day',
+  'no-date': 'No Need By or Ship By date — pin a day',
   unrouted: 'Delivery zone not routed — add it in Settings',
   split: 'Split across loads (bigger than the largest vehicle)',
   'pulled-forward': 'Pulled forward to fill a load',
   pinned: 'Day pinned by the planner',
-  firm: 'On a confirmed load',
+  firm: 'On a load the planner edited or confirmed',
   'no-location': 'City has no map location — grouped by zone only',
   'cube-partial': 'Some parts are missing from the cubics sheet',
 };
@@ -89,7 +98,7 @@ export const BLOCKING_FLAGS: readonly OrderFlag[] = [
   'credit-hold',
   'on-hold',
   'held',
-  'no-ship-by',
+  'no-date',
   'unrouted',
 ];
 
@@ -134,7 +143,7 @@ export interface OrderPlan {
   route: Route | null;
   /** First day the order may leave; null when it is not planned. */
   earliest: DayKey | null;
-  /** Last dispatch day that still meets Ship By (or the first open one if none). */
+  /** Last dispatch day that still meets the due date (or the first open one if none). */
   latest: DayKey | null;
   /** Day the order is planned to leave (the first piece, when split). */
   day: DayKey | null;
@@ -163,12 +172,17 @@ export interface DispatchPlan {
   loads: PlannedLoad[];
   orders: Map<string, OrderPlan>;
   days: DayTotal[];
+  /** The waybill date the plan treats as the last ship day. */
+  deadline: DeadlineField;
 }
 
 interface Candidate {
   order: ShipmentOrder;
   plan: OrderPlan;
   route: Route;
+  /** Last day it may leave. */
+  due: DayKey | null;
+  /** What is left to plan: the whole order, or what frozen loads do not carry. */
   volume: number;
   loc: LatLon | null;
   city: string;
@@ -354,9 +368,10 @@ export interface ResolvedVolume {
 }
 
 /**
- * An order's volume: what the planner entered, else the preferred of the
- * cubics sheet (only when it covers every goods line) and the freight line,
- * else whatever part of the order the sheet does cover.
+ * An order's volume: what the planner entered, else the packed cube from the
+ * pick-list comment (measured, so it beats any estimate), else the preferred
+ * of the cubics sheet (only when it covers every goods line) and the freight
+ * line, else whatever part of the order the sheet does cover.
  */
 export function resolveVolume(
   order: ShipmentOrder,
@@ -366,6 +381,9 @@ export function resolveVolume(
   const weight = isFullCube(order.cube) && order.cube.linesWithoutWeight === 0 ? order.cube.weightKg : null;
   if (override !== undefined && Number.isFinite(override) && override >= 0) {
     return { volume: override, known: true, source: 'entered', weightKg: weight };
+  }
+  if (order.packedM3 != null && order.packedM3 > 0) {
+    return { volume: order.packedM3, known: true, source: 'packed', weightKg: weight };
   }
   const cubics: ResolvedVolume | null = isFullCube(order.cube)
     ? { volume: order.cube.volumeM3, known: true, source: 'cubics', weightKg: weight }
@@ -406,38 +424,35 @@ export function planDispatch(
   const volumeOf = (o: ShipmentOrder): ResolvedVolume =>
     resolveVolume(o, decisions.volumeOverrides[o.id], settings.preferVolume);
 
-  // Confirmed loads are frozen: emitted as they were confirmed, and their
-  // orders kept out of the optimiser.
-  const inFirm = new Set<string>();
+  const dueOf = (o: ShipmentOrder): DayKey | null => dueDate(o, settings.deadline);
+
+  // Edited and confirmed loads are frozen: emitted as the planner left them,
+  // and what they carry kept out of the optimiser. `frozen` holds `whole` for
+  // an order that is entirely on frozen loads, else the m³ of its frozen
+  // pieces — the rest of it is still planned.
+  const frozen = new Map<string, 'whole' | number>();
   for (const firm of decisions.firmLoads) {
     const drops: PlannedDrop[] = firm.orderIds.map((id) => {
       const order = byId.get(id) ?? null;
       const v: ResolvedVolume = order
         ? volumeOf(order)
         : { volume: firm.volumes[id] ?? 0, known: id in firm.volumes, source: 'entered', weightKg: null };
+      const share = firm.pieces?.[id];
+      const before = frozen.get(id);
+      if (share === undefined) frozen.set(id, 'whole');
+      else if (before !== 'whole') frozen.set(id, (before ?? 0) + share);
       return {
         orderId: id,
         order,
-        volumeM3: v.volume,
+        volumeM3: share ?? v.volume,
         volumeKnown: v.known,
         volumeSource: v.source,
-        weightKg: v.weightKg,
+        weightKg: share === undefined ? v.weightKg : pieceWeight(v.weightKg, share, v.volume),
         piece: null,
         daysEarly: 0,
       };
     });
     const volume = sum(drops.map((d) => d.volumeM3));
-    const warnings: string[] = [];
-    const gone = drops.filter((d) => !d.order).map((d) => d.orderId);
-    if (gone.length > 0 && firm.status === 'confirmed') {
-      warnings.push(`Not in the latest waybill: ${gone.join(', ')}`);
-    }
-    if (firm.status === 'confirmed' && firm.day < today) {
-      warnings.push('Confirmed for a past day — mark dispatched or release');
-    }
-    if (firm.capacityM3 && volume > firm.capacityM3 + EPS) {
-      warnings.push(`Over capacity by ${(volume - firm.capacityM3).toFixed(1)} m³`);
-    }
     loads.push({
       id: firm.id,
       group: firm.group,
@@ -451,58 +466,65 @@ export function planDispatch(
       fill: firm.capacityM3 ? volume / firm.capacityM3 : null,
       ...loadWeight(drops),
       firm: firm.status,
-      warnings,
+      warnings: firm.status === 'dispatched' ? [] : frozenWarnings(firm, drops, volume, settings, today, holidays),
     });
     for (const d of drops) {
-      inFirm.add(d.orderId);
-      if (d.order) {
-        const route = routeFor(d.order.zone, d.order.city, settings);
-        const existing = plans.get(d.orderId);
-        if (existing) {
-          existing.loadIds.push(firm.id);
-          continue;
-        }
-        plans.set(d.orderId, {
-          orderId: d.orderId,
-          route,
-          earliest: firm.day,
-          latest: firm.day,
-          day: firm.day,
-          loadIds: [firm.id],
-          volumeM3: d.volumeM3,
-          volumeKnown: d.volumeKnown,
-          volumeSource: d.volumeSource,
-          weightKg: d.weightKg,
-          flags: ['firm'],
-        });
+      if (!d.order) continue;
+      const existing = plans.get(d.orderId);
+      if (existing) {
+        existing.loadIds.push(firm.id);
+        if (firm.day < existing.day!) existing.day = firm.day;
+        continue;
       }
+      const due = dueOf(d.order);
+      plans.set(d.orderId, {
+        orderId: d.orderId,
+        route: routeFor(d.order.zone, d.order.city, settings),
+        earliest: firm.day,
+        latest: firm.day,
+        day: firm.day,
+        loadIds: [firm.id],
+        volumeM3: d.volumeM3,
+        volumeKnown: d.volumeKnown,
+        volumeSource: d.volumeSource,
+        weightKg: d.weightKg,
+        flags:
+          firm.status !== 'dispatched' && due && due < today ? ['firm', 'overdue'] : ['firm'],
+      });
     }
   }
 
   // Route and window every other order.
   const groups = new Map<string, Candidate[]>();
   for (const order of orders) {
-    if (inFirm.has(order.id)) continue;
+    const share = frozen.get(order.id);
+    if (share === 'whole') continue;
     const route = routeFor(order.zone, order.city, settings);
-    const { volume, known, source, weightKg } = volumeOf(order);
-    const flags: OrderFlag[] = [];
+    const { volume: whole, known, source, weightKg } = volumeOf(order);
+    // Only what frozen loads do not already carry is left to plan.
+    const volume = share === undefined ? whole : whole - share;
+    if (share !== undefined && volume <= 0.01) continue;
+    const existing = plans.get(order.id);
+    const flags: OrderFlag[] = existing?.flags ?? [];
     if (!known) flags.push('no-volume');
     if (order.cube && order.cube.unmatched.length > 0 && order.cube.matchedLines > 0) {
       flags.push('cube-partial');
     }
-    const plan: OrderPlan = {
-      orderId: order.id,
-      route,
-      earliest: null,
-      latest: null,
-      day: null,
-      loadIds: [],
-      volumeM3: volume,
-      volumeKnown: known,
-      volumeSource: source,
-      weightKg,
-      flags,
-    };
+    const plan: OrderPlan = existing
+      ? Object.assign(existing, { volumeM3: whole })
+      : {
+          orderId: order.id,
+          route,
+          earliest: null,
+          latest: null,
+          day: null,
+          loadIds: [],
+          volumeM3: whole,
+          volumeKnown: known,
+          volumeSource: source,
+          weightKg,
+          flags,
+        };
     plans.set(order.id, plan);
 
     if (!route) flags.push('unrouted');
@@ -510,12 +532,13 @@ export function planDispatch(
     if (order.onHold) flags.push('on-hold');
     if (decisions.holds[order.id] !== undefined) flags.push('held');
     const pin = decisions.pins[order.id];
-    if (!order.shipBy && !pin) flags.push('no-ship-by');
+    const due = dueOf(order);
+    if (!due && !pin) flags.push('no-date');
     if (flags.some((f) => BLOCKING_FLAGS.includes(f)) || !route) continue;
 
     const loc = route.mode === 'fleet' ? locate(order.city) : null;
     if (route.mode === 'fleet' && !loc) flags.push('no-location');
-    const c: Candidate = { order, plan, route, volume, loc, city: normalizeCity(order.city) };
+    const c: Candidate = { order, plan, route, due, volume, loc, city: normalizeCity(order.city) };
     const list = groups.get(route.group);
     if (list) list.push(c);
     else groups.set(route.group, [c]);
@@ -526,9 +549,9 @@ export function planDispatch(
     const rules = rulesFor(route, settings);
 
     // Every dispatch day the route has, far enough out to cover the latest
-    // Ship By or pin in the group.
+    // due date or pin in the group.
     const lastDate = candidates
-      .map((c) => decisions.pins[c.order.id] ?? c.order.shipBy ?? today)
+      .map((c) => decisions.pins[c.order.id] ?? c.due ?? today)
       .reduce((a, b) => (a > b ? a : b), today);
     const days = dispatchDays(today, addCalendarDays(lastDate, 21), rules.weekdays, holidays);
     if (days.length === 0) continue;
@@ -540,15 +563,16 @@ export function planDispatch(
         c.plan.earliest = day;
         c.plan.latest = day;
         c.plan.flags.push('pinned');
-        if (c.order.shipBy && c.order.shipBy < today) c.plan.flags.push('overdue');
+        if (c.due && c.due < today && !c.plan.flags.includes('overdue')) c.plan.flags.push('overdue');
         continue;
       }
-      const shipBy = c.order.shipBy!;
-      const onOrBefore = days.filter((d) => d <= shipBy);
+      const due = c.due!;
+      const onOrBefore = days.filter((d) => d <= due);
       const latest = onOrBefore.length > 0 ? onOrBefore[onOrBefore.length - 1] : days[0];
-      if (shipBy < today) c.plan.flags.push('overdue');
-      else if (latest > shipBy) c.plan.flags.push('late');
-      const openFrom = addWorkingDays(shipBy, -rules.earlyDays, holidays);
+      if (due < today) {
+        if (!c.plan.flags.includes('overdue')) c.plan.flags.push('overdue');
+      } else if (latest > due) c.plan.flags.push('late');
+      const openFrom = addWorkingDays(due, -rules.earlyDays, holidays);
       const earliest = days.find((d) => d >= openFrom) ?? latest;
       c.plan.earliest = earliest > latest ? latest : earliest;
       c.plan.latest = latest;
@@ -716,6 +740,23 @@ export function planDispatch(
       a.id.localeCompare(b.id, undefined, { numeric: true }),
   );
 
+  // An order on more than one load — split by the optimiser, by the planner,
+  // or partly frozen — is numbered across all of them in dispatch order.
+  const onLoads = new Map<string, PlannedDrop[]>();
+  for (const load of loads) {
+    for (const d of load.drops) {
+      const list = onLoads.get(d.orderId);
+      if (list) list.push(d);
+      else onLoads.set(d.orderId, [d]);
+    }
+  }
+  for (const [id, list] of onLoads) {
+    if (list.length < 2) continue;
+    list.forEach((d, i) => (d.piece = { index: i + 1, of: list.length }));
+    const plan = plans.get(id);
+    if (plan && !plan.flags.includes('split')) plan.flags.push('split');
+  }
+
   const totals = new Map<DayKey, DayTotal>();
   for (const load of loads) {
     if (load.firm === 'dispatched') continue;
@@ -737,5 +778,120 @@ export function planDispatch(
     loads,
     orders: plans,
     days: [...totals.values()].sort((a, b) => a.day.localeCompare(b.day)),
+    deadline: settings.deadline,
   };
+}
+
+/** The fleet run class a load's group names, if it is a fleet load. */
+const runClassOf = (group: string, settings: DispatchSettings) =>
+  settings.fleet.runClasses.find((c) => group === `fleet:${c.id}`) ?? null;
+
+/**
+ * What is wrong with a load the planner built or kept by hand. Nothing is
+ * refused — the planner may know better — but nothing is hidden either.
+ */
+function frozenWarnings(
+  firm: FirmLoad,
+  drops: PlannedDrop[],
+  volume: number,
+  settings: DispatchSettings,
+  today: DayKey,
+  holidays: ReadonlySet<DayKey>,
+): string[] {
+  const warnings: string[] = [];
+  const gone = drops.filter((d) => !d.order).map((d) => d.orderId);
+  if (gone.length > 0) warnings.push(`Not in the latest waybill: ${gone.join(', ')}`);
+  if (firm.day < today) warnings.push(`${firm.status === 'edited' ? 'Planned' : 'Confirmed'} for a past day — mark dispatched or release`);
+  if (firm.capacityM3 && volume > firm.capacityM3 + EPS) {
+    warnings.push(`Over capacity by ${(volume - firm.capacityM3).toFixed(1)} m³`);
+  }
+
+  const late = drops.filter((d) => {
+    const due = d.order ? dueDate(d.order, settings.deadline) : null;
+    return due !== null && due < firm.day;
+  });
+  if (late.length > 0) {
+    warnings.push(`Leaves after the due date of ${late.map((d) => d.orderId).join(', ')}`);
+  }
+
+  // Orders moved onto a load that does not go their way.
+  for (const d of drops) {
+    if (!d.order) continue;
+    const route = routeFor(d.order.zone, d.order.city, settings);
+    if (!route) continue;
+    if (route.mode !== firm.mode || (firm.mode !== 'fleet' && route.group !== firm.group)) {
+      warnings.push(`${d.orderId} is routed ${route.label} (${d.order.zone})`);
+    }
+  }
+
+  const route = firm.mode === 'linehaul'
+    ? settings.linehaul.hubs.find((h) => firm.group === `linehaul:${h.id}`)?.departureWeekdays ?? null
+    : firm.mode === 'container'
+      ? settings.container.departureWeekdays
+      : null;
+  if (!isWorkingDay(firm.day, holidays)) {
+    warnings.push('Not a working day');
+  } else if (route && !route.includes(isoWeekday(firm.day))) {
+    warnings.push(`No ${firm.label} departure on this weekday`);
+  }
+
+  const run = firm.mode === 'fleet' ? runClassOf(firm.group, settings) : null;
+  if (run) {
+    const stops = new Set(drops.map((d) => d.orderId)).size;
+    if (stops > run.maxDrops) warnings.push(`${stops} drops — a ${run.label} run takes ${run.maxDrops}`);
+    let far = { km: 0, a: '', b: '' };
+    const placed = drops
+      .filter((d) => d.order)
+      .map((d) => ({ city: d.order!.city, at: locate(d.order!.city) }))
+      .filter((p): p is { city: string; at: LatLon } => p.at !== null);
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const km = distanceKm(placed[i].at, placed[j].at);
+        if (km > far.km) far = { km, a: placed[i].city, b: placed[j].city };
+      }
+    }
+    if (far.km > run.radiusKm + EPS) {
+      warnings.push(
+        `${far.a} and ${far.b} are ${Math.round(far.km)} km apart — beyond the ${run.radiusKm} km run radius`,
+      );
+    }
+  }
+  return warnings;
+}
+
+/**
+ * The vehicle, container or part load a volume needs on a route — the same
+ * rule the optimiser sizes with, for loads the planner changes by hand.
+ */
+export function fitEquipment(
+  mode: DispatchMode,
+  volume: number,
+  settings: DispatchSettings,
+): { equipment: string; capacityM3: number | null } {
+  switch (mode) {
+    case 'pickup':
+      return { equipment: 'Pickup', capacityM3: null };
+    case 'fleet': {
+      if (settings.fleet.carrierMaxM3 > 0 && volume <= settings.fleet.carrierMaxM3 + EPS) {
+        return { equipment: 'Carrier', capacityM3: null };
+      }
+      const trucks = byCapacity(settings.fleet.trucks);
+      if (trucks.length === 0) return { equipment: 'Carrier', capacityM3: null };
+      const t = rightSize(trucks, volume);
+      return { equipment: t.name, capacityM3: t.capacityM3 };
+    }
+    case 'linehaul': {
+      if (volume <= settings.linehaul.ltlMaxM3 + EPS) return { equipment: 'LTL', capacityM3: null };
+      const t = settings.linehaul.trailer;
+      return { equipment: t.name, capacityM3: t.capacityM3 };
+    }
+    case 'container': {
+      const boxes = byCapacity(settings.container.containers);
+      if (volume <= settings.container.lclMaxM3 + EPS || boxes.length === 0) {
+        return { equipment: 'LCL', capacityM3: null };
+      }
+      const c = rightSize(boxes, volume);
+      return { equipment: c.name, capacityM3: c.capacityM3 };
+    }
+  }
 }

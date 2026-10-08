@@ -720,7 +720,7 @@
 
 .load-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(640px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -758,8 +758,121 @@
   min-width: 0;
 }
 .load-title strong {
+  flex: none;
   font-size: 18px;
   font-weight: 800;
+}
+/* The route and who the load goes to, on one line. */
+.title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.ship-to {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tx);
+  font-size: 16px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ship-to .more {
+  color: var(--mu);
+}
+.ship-cell .ship-name {
+  display: block;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ship-sub {
+  display: block;
+  overflow: hidden;
+  color: var(--mu);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-note {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 1px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: var(--soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Edit mode: cards take the full row so every column and the move list fit. */
+.load-card.editing {
+  grid-column: 1 / -1;
+  border-style: dashed;
+  border-left-style: solid;
+}
+.load-card.firm-edited {
+  box-shadow: inset 0 0 0 2px #fcd34d;
+}
+.edit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 10px;
+  border: 1px dashed var(--bd);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.edit-bar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+.edit-bar input,
+.move-select {
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tx);
+  font: inherit;
+  font-size: 14px;
+}
+.move-select {
+  width: 100%;
+}
+.size-ladder.pickable li {
+  padding: 0;
+}
+.size-ladder.pickable button {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.size-ladder.pickable li:not(.chosen):hover {
+  border-color: var(--dk);
+}
+.size-ladder.pickable button:focus-visible {
+  outline: 2px solid var(--dk);
+  outline-offset: 2px;
 }
 .load-mode {
   color: var(--mu);
@@ -876,6 +989,7 @@
 
 .drop-table {
   table-layout: fixed;
+  min-width: 600px;
 }
 .dispatch .drop-table th,
 .dispatch .drop-table td {
@@ -885,10 +999,15 @@
 .dispatch .drop-table thead th {
   font-size: 11.5px;
 }
-.drop-table th:nth-child(1) { width: 25%; }
-.drop-table th:nth-child(4) { width: 12%; }
-.drop-table th:nth-child(5) { width: 12%; }
-.drop-table th:nth-child(6) { width: 19%; }
+.drop-table th:nth-child(1) { width: 15%; }
+.drop-table th:nth-child(2) { width: 29%; }
+.drop-table th:nth-child(3) { width: 11%; }
+.drop-table th:nth-child(4) { width: 10%; }
+.drop-table th:nth-child(5) { width: 9%; }
+.drop-table th:nth-child(6) { width: 9%; }
+.drop-table th:nth-child(7) { width: 17%; }
+.drop-table th:nth-child(8) { width: 27%; }
+.load-card.editing .drop-table { min-width: 860px; }
 
 .dispatch button.link {
   appearance: none;
@@ -1269,10 +1388,165 @@ sup.src {
     grid-template-columns: auto 1fr;
     width: 100%;
   }
-  .drop-table th:nth-child(3),
-  .drop-table td:nth-child(3),
-  .drop-table th:nth-child(6),
-  .drop-table td:nth-child(6) {
+  .title-row {
+    flex-wrap: wrap;
+    gap: 2px 10px;
+  }
+}
+
+/* ---- day tools, booking sheet, columns read ------------------------------ */
+.day-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.booking-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+}
+.sheet-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.sheet-head h3 {
+  margin: 0;
+  color: var(--dk);
+  font-size: 18px;
+  font-weight: 800;
+}
+.sheet-actions {
+  display: flex;
+  gap: 8px;
+}
+.dispatch .sheet-table th,
+.dispatch .sheet-table td {
+  padding: 6px 8px;
+  font-size: 14px;
+  vertical-align: top;
+}
+.dispatch .sheet-table tbody tr.sheet-load th {
+  padding: 10px 8px 6px;
+  border-top: 2px solid var(--series, var(--bd));
+  background: var(--soft);
+  color: var(--tx);
+  font-size: 14.5px;
+  font-weight: 600;
+  text-align: left;
+  text-transform: none;
+}
+.sheet-load.mode-fleet { --series: var(--series-fleet); }
+.sheet-load.mode-linehaul { --series: var(--series-linehaul); }
+.sheet-load.mode-container { --series: var(--series-container); }
+.sheet-load.mode-pickup { --series: var(--series-pickup); }
+.sheet-book {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 800;
+}
+.sheet-meta {
+  display: block;
+  color: var(--mu);
+}
+.sheet-warn {
+  display: block;
+  color: #78350f;
+}
+.sheet-table .ship-sub {
+  white-space: normal;
+}
+.columns-used {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+}
+.columns-used summary {
+  color: var(--dk);
+  font-weight: 700;
+  cursor: pointer;
+}
+.columns-used ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 2px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.columns-used li.muted {
+  color: var(--mu);
+}
+
+/* Printing prints the booking sheet only, on landscape paper. The app shell
+   is a fixed-height, clipped viewport on screen; for paper it has to grow
+   with the sheet, or only the first page would print. */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  html,
+  body,
+  #root,
+  .app,
+  .dispatch,
+  .dispatch-scroll {
+    position: static !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  .app-header,
+  .dispatch .kpi-head,
+  .dispatch .banner,
+  .dispatch .kpi-stats,
+  .dispatch .load-filters,
+  .dispatch .kpi-chart,
+  .dispatch .day-strip,
+  .dispatch .day-detail-head,
+  .order-drawer {
+    display: none !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .booking-sheet,
+  .booking-sheet * {
+    visibility: visible;
+  }
+  .booking-sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    padding: 0;
+  }
+  .booking-sheet .sheet-actions,
+  .booking-sheet .muted-note {
     display: none;
+  }
+  .booking-sheet .table-scroll {
+    overflow: visible;
+  }
+  .dispatch .sheet-table th,
+  .dispatch .sheet-table td {
+    font-size: 10.5px;
+  }
+  .sheet-table tbody {
+    break-inside: avoid;
   }
 }

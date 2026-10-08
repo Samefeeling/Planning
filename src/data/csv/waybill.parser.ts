@@ -8,17 +8,26 @@
  *   AllocatedQty, UOM, ExpDeliveryDt, Ship By, Need By, ReleaseVal,
  *   FulfillmentMethod, Status, City
  *
- * Columns are matched by header name, so the BAQ can be reordered. Dates are
- * Australian `d/mm/yyyy`.
+ Fuller exports add `PickListComment`, `ShipToCustName` and the ship-to
+ * address; they are read when present.
+ *
+ * Columns are matched by header name, so the BAQ can be reordered. When a
+ * name appears twice (a part `Description` beside the ship-via one, a
+ * customer `City` beside the ship-to one) the column whose values look like
+ * delivery zones is taken for `Description`, and the last `City` for the
+ * ship-to city; the columns used are reported. Dates are Australian
+ * `d/mm/yyyy`.
  *
  * The order is the unit dispatch plans with, so lines are rolled up:
  * - **volume** is the order's freight line (`FRTNSW`, `FRTSEB`, … in `CBM`),
  *   the cube Epicor already calculated for the consignment;
+ * - **packed volume** is read from the pick-list comment, where the
+ *   warehouse writes the measured cube once packed (`2C` = 2 m³);
  * - **readiness** comes from the goods lines (everything but `Other`): a line
  *   is ready when its `Status` is `Ready` or it is fully allocated.
  */
 
-import { mapHeaders, parseCsv } from '@/lib/csv';
+import { mapHeaders, normalizeHeader, parseCsv } from '@/lib/csv';
 import {
   FREIGHT_VOLUME_PARTS,
   type DayKey,
@@ -49,18 +58,41 @@ const ALIASES = {
   releaseValue: ['ReleaseVal', 'Release Val'],
   fulfillment: ['FulfillmentMethod', 'Fulfillment Method'],
   status: ['Status'],
-  city: ['City', 'ShipToCity'],
+  city: ['ShipToCity', 'Ship To City', 'City'],
+  pickListComment: ['PickListComment', 'Pick List Comment', 'PickList Comment'],
+  shipToName: ['ShipToCustName', 'Ship To Cust Name', 'ShipToName', 'Ship To Name'],
+  address1: ['ShipToAddress1', 'Ship To Address1', 'Address1', 'Address'],
+  address2: ['ShipToAddress2', 'Ship To Address2', 'Address2'],
+  address3: ['ShipToAddress3', 'Ship To Address3', 'Address3'],
+  state: ['ShipToState', 'Ship To State', 'State'],
+  postcode: ['ShipToZip', 'Ship To Zip', 'Zip', 'PostCode', 'Postcode', 'Post Code'],
 } as const;
 
 type Field = keyof typeof ALIASES;
 
-/** Columns the dispatch plan cannot work without. */
-const REQUIRED: Field[] = ['order', 'zone', 'shipBy'];
+/** Columns the dispatch plan cannot work without (plus Need By or Ship By). */
+const REQUIRED: Field[] = ['order', 'zone'];
+
+/** A spreadsheet column letter: 0 → A, 26 → AA. */
+export function columnLetter(index: number): string {
+  let n = index + 1;
+  let out = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    out = String.fromCharCode(65 + r) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+/** What each field was read from: header as written and its column letter. */
+export type ColumnsUsed = Partial<Record<Field, { header: string; column: string }>>;
 
 export interface WaybillParseResult {
   lines: WaybillLine[];
   orders: ShipmentOrder[];
   warnings: string[];
+  columns: ColumnsUsed;
   /** Set when the file is not a waybill export at all. */
   error: string | null;
 }
@@ -92,6 +124,28 @@ const bool = (raw: string | undefined): boolean =>
   /^(true|yes|y|1)$/i.test((raw ?? '').trim());
 
 const FREIGHT = new Set<string>(FREIGHT_VOLUME_PARTS);
+
+/**
+ * Cube in a pick-list comment: `2C`, `1.5 C`, `2CBM`, `0.8 m3`. Several
+ * figures in one comment (`1C + 0.5C`) are added. Words that merely start
+ * with a C (`2 cartons`, `3 chairs`) are not cube.
+ */
+export function parsePackedCube(comment: string): number | null {
+  const re = /(\d+(?:\.\d+)?)\s*(?:cbm|cube?s?|c|m3|m³)(?![a-z])/gi;
+  let total = 0;
+  let found = false;
+  for (const m of comment.matchAll(re)) {
+    const v = Number(m[1]);
+    if (Number.isFinite(v) && v > 0) {
+      total += v;
+      found = true;
+    }
+  }
+  return found ? Math.round(total * 1000) / 1000 : null;
+}
+
+/** Looks like a delivery zone (`NSW-Metro`, `QLD- Metro`, `Export-ROW`)? */
+const ZONE_LIKE = /^(NSW|ACT|QLD|VIC|SA|WA|TAS|NT|NZ|Export|Hong Kong)\b/i;
 
 /** Is this a line whose quantity is the consignment's cube? */
 export const isFreightVolumeLine = (line: WaybillLine): boolean =>
@@ -154,20 +208,38 @@ export function toShipmentOrder(id: string, lines: WaybillLine[]): ShipmentOrder
           : 'not-ready';
 
   const shipBy = mostCommon(lines.map((l) => l.shipBy));
-  if (new Set(lines.map((l) => l.shipBy).filter(Boolean)).size > 1) {
-    notes.push('Lines carry different Ship By dates — most common used');
+  const needBy = mostCommon(lines.map((l) => l.needBy));
+  if (new Set(lines.map((l) => l.needBy).filter(Boolean)).size > 1) {
+    notes.push('Lines carry different Need By dates — most common used');
   }
-  if (!shipBy) notes.push('No Ship By date');
+  if (!needBy && !shipBy) notes.push('No Need By or Ship By date');
+
+  // The comment is usually written once per order and repeated on every
+  // line; different comments on different lines are each counted.
+  const comments = [...new Set(lines.map((l) => l.pickListComment.trim()).filter(Boolean))];
+  const packed = comments.map(parsePackedCube).filter((v): v is number => v !== null);
+  const packedM3 = packed.length > 0 ? Math.round(packed.reduce((a, b) => a + b, 0) * 1000) / 1000 : null;
+  if (packed.length > 1) {
+    notes.push(`${packed.length} different pick-list cubes (${comments.join(' | ')}) — added together`);
+  }
+
+  const text = (pick: (l: WaybillLine) => string) => mostCommon(lines.map((l) => pick(l).trim() || null)) ?? '';
 
   return {
     id,
     custId: first.custId,
+    shipToName: text((l) => l.shipToName),
+    address: text((l) => l.address),
+    state: text((l) => l.state),
+    postcode: text((l) => l.postcode),
     shipVia: first.shipVia,
     zone: first.zone,
     city: first.city.replace(/ /g, ' ').trim(),
     shipBy,
-    needBy: mostCommon(lines.map((l) => l.needBy)),
+    needBy,
     expDelivery: mostCommon(lines.map((l) => l.expDelivery)),
+    pickListComment: comments.join(' | '),
+    packedM3,
     volumeM3,
     value: lines.reduce((sum, l) => sum + l.releaseValue, 0),
     lineCount: lines.length,
@@ -183,11 +255,13 @@ export function toShipmentOrder(id: string, lines: WaybillLine[]): ShipmentOrder
 
 export function parseWaybillCsv(text: string): WaybillParseResult {
   const rows = parseCsv(text);
-  const empty = { lines: [], orders: [], warnings: [] };
+  const empty = { lines: [], orders: [], warnings: [], columns: {} };
   if (rows.length === 0) return { ...empty, error: 'The file is empty.' };
 
-  const col = mapHeaders(rows[0], ALIASES);
+  const header = rows[0];
+  const col = mapHeaders(header, ALIASES);
   const missing = REQUIRED.filter((f) => col[f] === undefined);
+  if (col.needBy === undefined && col.shipBy === undefined) missing.push('needBy');
   if (missing.length > 0) {
     return {
       ...empty,
@@ -198,14 +272,45 @@ export function parseWaybillCsv(text: string): WaybillParseResult {
     };
   }
 
+  const warnings: string[] = [];
+  const body = rows.slice(1);
+  const sameName = (at: number | undefined): number[] =>
+    at === undefined
+      ? []
+      : header.flatMap((h, i) => (normalizeHeader(h) === normalizeHeader(header[at]) ? [i] : []));
+
+  // Two columns named `Description`: the delivery zone is the one whose
+  // values look like zones.
+  const zoneCols = sameName(col.zone);
+  if (zoneCols.length > 1) {
+    const score = (i: number) => body.filter((r) => ZONE_LIKE.test((r[i] ?? '').trim())).length;
+    col.zone = zoneCols.reduce((best, i) => (score(i) > score(best) ? i : best));
+    warnings.push(
+      `${zoneCols.length} "${header[col.zone].trim()}" columns — delivery zone read from column ${columnLetter(col.zone)}`,
+    );
+  }
+  // Two columns named `City`: the ship-to city is the later one.
+  const cityCols = sameName(col.city);
+  if (cityCols.length > 1) {
+    col.city = cityCols[cityCols.length - 1];
+    warnings.push(
+      `${cityCols.length} "${header[col.city].trim()}" columns — ship-to city read from column ${columnLetter(col.city)}`,
+    );
+  }
+
+  const columns: ColumnsUsed = {};
+  for (const f of Object.keys(ALIASES) as Field[]) {
+    const at = col[f];
+    if (at !== undefined) columns[f] = { header: header[at].trim(), column: columnLetter(at) };
+  }
+
   const cell = (row: string[], f: Field): string => {
     const at = col[f];
     return at === undefined ? '' : (row[at] ?? '').trim();
   };
 
-  const warnings: string[] = [];
   const lines: WaybillLine[] = [];
-  rows.slice(1).forEach((row, i) => {
+  body.forEach((row, i) => {
     if (row.every((c) => c.trim() === '')) return;
     const order = cell(row, 'order');
     if (!order) {
@@ -241,6 +346,11 @@ export function parseWaybillCsv(text: string): WaybillParseResult {
       inPicking: bool(cell(row, 'inPicking')),
       onHold: bool(cell(row, 'onHold')),
       creditHold: bool(cell(row, 'creditHold')),
+      pickListComment: cell(row, 'pickListComment'),
+      shipToName: cell(row, 'shipToName'),
+      address: [cell(row, 'address1'), cell(row, 'address2'), cell(row, 'address3')].filter(Boolean).join(', '),
+      state: cell(row, 'state'),
+      postcode: cell(row, 'postcode'),
     });
   });
 
@@ -251,5 +361,5 @@ export function parseWaybillCsv(text: string): WaybillParseResult {
     else byOrder.set(line.order, [line]);
   }
   const orders = [...byOrder].map(([id, ls]) => toShipmentOrder(id, ls));
-  return { lines, orders, warnings, error: null };
+  return { lines, orders, warnings, columns, error: null };
 }

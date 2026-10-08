@@ -16,7 +16,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
+import { DEADLINE_LABEL, DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
 import { BLOCKING_FLAGS } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { formatDay, formatTime } from '@/lib/time';
@@ -159,10 +159,10 @@ export function DispatchPage() {
               />
               <Stat label="Pulled forward" value={String(stats.pulled)} title="Orders sent early to fill space on a load" />
               <Stat
-                label="Past Ship By"
+                label={`Past ${plan ? DEADLINE_LABEL[plan.deadline] : 'Need By'}`}
                 value={String(stats.overdue)}
                 tone={stats.overdue > 0 ? 'red' : 'green'}
-                title="Orders whose Ship By has already gone"
+                title="Orders whose last ship day has already gone"
               />
               <Stat
                 label="Exceptions"
@@ -179,9 +179,9 @@ export function DispatchPage() {
             <div className="dispatch-empty">
               <h2>No waybill loaded</h2>
               <p>
-                Load the waybill export (one row per order line: Order, Ship Via, Description,
-                City, Ship By, freight CBM lines, Status) to build the dispatch plan. Settings can
-                be reviewed before loading.
+                Load the waybill export (one row per order line: Order, PickListComment,
+                ShipToCustName, Ship Via, Description, ExpDeliveryDt, Need By, City, freight CBM
+                lines, Status) to build the dispatch plan. Settings can be reviewed before loading.
               </p>
             </div>
           ) : tab === 'loads' ? (

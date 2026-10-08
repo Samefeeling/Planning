@@ -4,6 +4,7 @@
  * action each needs, worst first.
  */
 
+import { DEADLINE_LABEL, dueDate } from '@/domain/dispatch';
 import { ORDER_FLAG_LABEL, type OrderFlag } from '@/engine/dispatch/plan';
 import type { DispatchModel } from './useDispatchPlan';
 import { m3, shortDay } from './format';
@@ -13,7 +14,7 @@ export const EXCEPTION_FLAGS: readonly OrderFlag[] = [
   'credit-hold',
   'on-hold',
   'unrouted',
-  'no-ship-by',
+  'no-date',
   'overdue',
   'late',
   'not-ready',
@@ -28,9 +29,9 @@ const ACTION: Partial<Record<OrderFlag, string>> = {
   'credit-hold': 'Ask accounts to release, or hold the order',
   'on-hold': 'Order is on hold in Epicor',
   unrouted: 'Add the zone to a fleet run class, hub or export prefix in Settings',
-  'no-ship-by': 'Pin a dispatch day on the order',
+  'no-date': 'Pin a dispatch day on the order',
   overdue: 'Planned on the first open day — confirm the customer can take it',
-  late: 'No departure before Ship By — pin a day or book a dedicated run',
+  late: 'No departure before its due date — pin a day or book a dedicated run',
   'not-ready': 'Chase production or move the order out',
   'no-volume': 'Enter the cube on the order; it is planned as 0 m³ until then',
   held: 'Release when the customer is ready',
@@ -71,7 +72,7 @@ export function ExceptionsList({
     .filter((g) => g.ids.length > 0);
 
   const dataNotes = (parsed?.orders ?? []).filter((o) =>
-    o.notes.some((n) => !n.startsWith('No freight') && n !== 'No Ship By date'),
+    o.notes.some((n) => !n.startsWith('No freight') && n !== 'No Need By or Ship By date'),
   );
 
   if (groups.length === 0 && dataNotes.length === 0 && missingParts.length === 0) {
@@ -98,9 +99,11 @@ export function ExceptionsList({
                     {id}
                   </button>
                   <span>
-                    {o?.custId} · {o?.zone} · {o?.city}
+                    {o?.shipToName || o?.custId} · {o?.zone} · {o?.city}
                   </span>
-                  <span>Ship By {shortDay(o?.shipBy ?? null)}</span>
+                  <span>
+                    {DEADLINE_LABEL[plan.deadline]} {shortDay(o ? dueDate(o, plan.deadline) : null)}
+                  </span>
                   <span>{op?.volumeKnown ? m3(op.volumeM3) : 'm³ ?'}</span>
                   {op?.day && <span>Planned {shortDay(op.day)}</span>}
                 </li>

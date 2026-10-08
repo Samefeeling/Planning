@@ -16,9 +16,9 @@ import {
   type DispatchDecisions,
   type DispatchSettings,
   type Equipment,
-  type FirmLoad,
 } from '@/domain/dispatch';
 import type { PlannedLoad } from '@/engine/dispatch/plan';
+import { confirm, moveOrder, redateLoad, resizeLoad } from '@/engine/dispatch/edits';
 import { addCalendarDays } from '@/engine/dispatch/calendar';
 import { toDayKey } from '@/lib/time';
 
@@ -43,8 +43,17 @@ interface DispatchState {
   pin: (orderId: string, day: DayKey | null) => void;
   hold: (orderId: string, reason: string | null) => void;
   setVolume: (orderId: string, m3: number | null) => void;
+  /** Book a proposed or edited load. */
   confirmLoad: (load: PlannedLoad) => void;
+  /**
+   * Move an order to another load, onto a new one when `to` is null, or off
+   * this one for the optimiser to place with `replan`.
+   */
+  moveOrder: (orderId: string, from: PlannedLoad, to: PlannedLoad | null | 'replan') => void;
+  resizeLoad: (load: PlannedLoad, equipment: string, capacityM3: number | null) => void;
+  redateLoad: (load: PlannedLoad, day: DayKey) => void;
   markDispatched: (loadId: string) => void;
+  /** Hand a frozen load's orders back to the optimiser. */
   releaseLoad: (loadId: string) => void;
   updateSettings: (change: (current: DispatchSettings) => DispatchSettings) => void;
   resetSettings: () => void;
@@ -124,26 +133,30 @@ export const useDispatchStore = create<DispatchState>()(
         })),
 
       confirmLoad: (load) =>
-        set((s) => {
-          if (load.firm) return s;
-          const orderIds = [...new Set(load.drops.map((d) => d.orderId))];
-          const volumes: Record<string, number> = {};
-          for (const d of load.drops) volumes[d.orderId] = (volumes[d.orderId] ?? 0) + d.volumeM3;
-          const firm: FirmLoad = {
-            id: `firm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-            group: load.group,
-            mode: load.mode,
-            label: load.label,
-            day: load.day,
-            equipment: load.equipment,
-            capacityM3: load.capacityM3,
-            orderIds,
-            volumes,
-            status: 'confirmed',
-            confirmedAt: new Date().toISOString(),
-          };
-          return { decisions: { ...s.decisions, firmLoads: [...s.decisions.firmLoads, firm] } };
-        }),
+        set((s) => ({
+          decisions: { ...s.decisions, firmLoads: confirm(s.decisions.firmLoads, load, new Date().toISOString()) },
+        })),
+      moveOrder: (orderId, from, to) =>
+        set((s) => ({
+          decisions: {
+            ...s.decisions,
+            firmLoads: moveOrder(s.decisions.firmLoads, s.settings, orderId, from, to, new Date().toISOString()),
+          },
+        })),
+      resizeLoad: (load, equipment, capacityM3) =>
+        set((s) => ({
+          decisions: {
+            ...s.decisions,
+            firmLoads: resizeLoad(s.decisions.firmLoads, load, equipment, capacityM3, new Date().toISOString()),
+          },
+        })),
+      redateLoad: (load, day) =>
+        set((s) => ({
+          decisions: {
+            ...s.decisions,
+            firmLoads: redateLoad(s.decisions.firmLoads, load, day, new Date().toISOString()),
+          },
+        })),
       markDispatched: (loadId) =>
         set((s) => ({
           decisions: {

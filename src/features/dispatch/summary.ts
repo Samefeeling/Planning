@@ -3,7 +3,7 @@
  * weekly table. Pure, so the two views and their tests agree on every number.
  */
 
-import type { DayKey, DispatchMode } from '@/domain/dispatch';
+import { dueDate, type DayKey, type DeadlineField, type DispatchMode } from '@/domain/dispatch';
 import type { PlannedLoad } from '@/engine/dispatch/plan';
 import { addCalendarDays, isoWeekday } from '@/engine/dispatch/calendar';
 import { fromDayKey } from '@/lib/time';
@@ -28,7 +28,7 @@ export interface Bucket {
   /** Fill of vehicles and containers, by volume over capacity. */
   fill: number | null;
   pulledForward: number;
-  /** Orders leaving after their Ship By. */
+  /** Orders leaving after their due date (Need By, or Ship By). */
   late: number;
 }
 
@@ -48,6 +48,7 @@ export function isoWeek(day: DayKey): number {
 export function summarise(
   loads: readonly PlannedLoad[],
   by: 'day' | 'week',
+  deadline: DeadlineField = 'needBy',
 ): Bucket[] {
   const buckets = new Map<DayKey, Bucket & { capacity: number; filled: number; orderIds: Set<string> }>();
   for (const load of loads) {
@@ -93,7 +94,8 @@ export function summarise(
       if (b.orderIds.has(d.orderId)) continue;
       b.orderIds.add(d.orderId);
       if (d.daysEarly > 0) b.pulledForward += 1;
-      if (d.order?.shipBy && d.order.shipBy < load.day) b.late += 1;
+      const due = d.order ? dueDate(d.order, deadline) : null;
+      if (due && due < load.day) b.late += 1;
     }
   }
   return [...buckets.values()]

@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { DISPATCH_MODE_LABEL, VOLUME_SOURCE_LABEL } from '@/domain/dispatch';
+import { fullAddress } from './booking';
 import { ORDER_FLAG_LABEL } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { Badge, Button } from '@/ui';
@@ -55,6 +56,11 @@ export function OrderDrawer({
       </header>
 
       <dl className="order-facts">
+        <dt>Ship to</dt>
+        <dd>
+          <strong>{order.shipToName || '—'}</strong>
+          {fullAddress(order) && <div>{fullAddress(order)}</div>}
+        </dd>
         <dt>Customer</dt>
         <dd>{order.custId}</dd>
         <dt>Zone · City</dt>
@@ -68,6 +74,11 @@ export function OrderDrawer({
         <dt>Volume</dt>
         <dd>
           <strong>{op.volumeKnown ? m3(op.volumeM3) : 'Unknown'}</strong> · {VOLUME_SOURCE_LABEL[op.volumeSource]}
+        </dd>
+        <dt>Pick list</dt>
+        <dd>
+          {order.pickListComment || '—'}
+          {order.packedM3 !== null && ` · packed ${m3(order.packedM3)}`}
         </dd>
         <dt>Freight line</dt>
         <dd>{order.volumeM3 === null ? '—' : m3(order.volumeM3)}</dd>
@@ -92,10 +103,12 @@ export function OrderDrawer({
           <Badge variant={READINESS[order.readiness].variant}>{READINESS[order.readiness].label}</Badge>{' '}
           {order.readyLines}/{order.goodsLines} lines ready{order.inPicking ? ' · in picking' : ''}
         </dd>
+        <dt>Need By</dt>
+        <dd>{dayLabel(order.needBy)} · last ship day</dd>
+        <dt>Customer receives</dt>
+        <dd>{dayLabel(order.expDelivery)} · ExpDeliveryDt</dd>
         <dt>Ship By</dt>
         <dd>{dayLabel(order.shipBy)}</dd>
-        <dt>Need By</dt>
-        <dd>{dayLabel(order.needBy)}</dd>
         <dt>Window</dt>
         <dd>
           {op.earliest ? `${dayLabel(op.earliest)} → ${dayLabel(op.latest)}` : '—'}
@@ -124,7 +137,11 @@ export function OrderDrawer({
 
       <section className="order-actions">
         <h3>Planner actions</h3>
-        {firm && <p className="muted-note">On a confirmed load — release the load to change it.</p>}
+        {firm && (
+          <p className="muted-note">
+            On an edited or confirmed load — move it with Edit loads, or reset the load to change it here.
+          </p>
+        )}
         <div className="action-row">
           <label htmlFor="pin-day">Pin to day</label>
           <input

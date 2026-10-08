@@ -7,15 +7,18 @@
  *    (or week) shown below.
  * 2. **Day strip** — every dispatch day in the window with its volume and
  *    loads, so the week can be stepped through.
- * 3. **The day** — its loads by route, one card each.
+ * 3. **The day** — its loads by route, one card each, or as the booking
+ *    sheet the dock rings carriers from (CSV and print). **Edit loads**
+ *    opens every card of the day for hand changes.
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { DEADLINE_LABEL, DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
 import type { DispatchPlan, PlannedLoad } from '@/engine/dispatch/plan';
 import { addWorkingDays } from '@/engine/dispatch/calendar';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { LoadCard } from './LoadCard';
+import { BookingSheet } from './BookingSheet';
 import { VolumeChart } from './VolumeChart';
 import { MODES, equipmentMix, isoWeek, summarise, weekStart, type Bucket } from './summary';
 import { dayLabel, m3, pct, shortDay, stagingTone, weekdayOf } from './format';
@@ -46,6 +49,9 @@ export function LoadPlan({
   const [by, setBy] = useState<'day' | 'week'>('day');
   const [showDispatched, setShowDispatched] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [view, setView] = useState<'cards' | 'sheet'>('cards');
+  const [editing, setEditing] = useState(false);
+  const dueLabel = DEADLINE_LABEL[plan.deadline];
 
   const holidays = useMemo(() => new Set(settings.holidays), [settings.holidays]);
   const until = range === 'all' ? null : addWorkingDays(plan.today, RANGE_DAYS[range], holidays);
@@ -61,8 +67,14 @@ export function LoadPlan({
     [plan.loads, mode, showDispatched, until],
   );
 
-  const days = useMemo(() => summarise(visible, 'day'), [visible]);
-  const weeks = useMemo(() => summarise(visible, 'week'), [visible]);
+  const days = useMemo(() => summarise(visible, 'day', plan.deadline), [visible, plan.deadline]);
+  const weeks = useMemo(() => summarise(visible, 'week', plan.deadline), [visible, plan.deadline]);
+
+  // Loads an order may be moved onto: anything not gone, from today on.
+  const targets = useMemo(
+    () => plan.loads.filter((l) => l.firm !== 'dispatched' && l.mode !== 'pickup' && l.day >= plan.today),
+    [plan.loads, plan.today],
+  );
 
   // Keep a day picked: the one chosen if it is still in the window, else the
   // first day with something leaving.
@@ -85,6 +97,13 @@ export function LoadPlan({
 
   const selectedWeek = selectedDay ? weekStart(selectedDay) : null;
   const dayLoads = visible.filter((l) => l.day === selectedDay);
+  // Numbered across every route of the day, so L3 on a card is L3 on the
+  // booking sheet whatever route filter is on.
+  const numbers = new Map(
+    plan.loads
+      .filter((l) => l.day === selectedDay && (showDispatched || l.firm !== 'dispatched'))
+      .map((l, i) => [l.id, i + 1] as const),
+  );
   const dayBucket = days.find((d) => d.key === selectedDay) ?? null;
   const dayTotal = plan.days.find((d) => d.day === selectedDay);
 
@@ -192,7 +211,10 @@ export function LoadPlan({
                 {dayBucket.partLoads > 0 && ` + ${dayBucket.partLoads} part load${dayBucket.partLoads === 1 ? '' : 's'}`}
                 {dayBucket.fill !== null && ` · fill ${pct(dayBucket.fill)}`}
                 {dayBucket.late > 0 && (
-                  <strong className="tone-bad"> · {dayBucket.late} after Ship By</strong>
+                  <strong className="tone-bad">
+                    {' '}
+                    · {dayBucket.late} after {dueLabel}
+                  </strong>
                 )}
               </p>
             </div>
@@ -204,6 +226,38 @@ export function LoadPlan({
                 <span className="reco-label">To book</span> {equipmentMix(dayBucket.equipment)}
               </p>
             )}
+            <div className="day-tools">
+              <div className="shift-tabs" role="group" aria-label="Show the day as">
+                <button
+                  type="button"
+                  className={`shift-btn${view === 'cards' ? ' a' : ''}`}
+                  onClick={() => setView('cards')}
+                >
+                  Load cards
+                </button>
+                <button
+                  type="button"
+                  className={`shift-btn${view === 'sheet' ? ' a' : ''}`}
+                  onClick={() => {
+                    setView('sheet');
+                    setEditing(false);
+                  }}
+                >
+                  Booking sheet
+                </button>
+              </div>
+              {view === 'cards' && (
+                <button
+                  type="button"
+                  className={`kpi-btn${editing ? ' primary' : ''}`}
+                  aria-pressed={editing}
+                  onClick={() => setEditing(!editing)}
+                  title="Move orders between loads, pick sizes and days by hand"
+                >
+                  {editing ? 'Done editing' : 'Edit loads'}
+                </button>
+              )}
+            </div>
             {dayTotal?.overFleet && (
               <p className="tone-bad">
                 {dayTotal.fleetRuns} fleet runs — more than the {settings.fleet.maxRunsPerDay} trucks available
@@ -211,11 +265,36 @@ export function LoadPlan({
             )}
           </header>
 
-          {MODES.map((m) => {
-            const group = dayLoads.filter((l) => l.mode === m);
-            if (group.length === 0) return null;
-            return <ModeGroup key={m} mode={m} loads={group} onOpenOrder={onOpenOrder} />;
-          })}
+          {view === 'sheet' ? (
+            <BookingSheet
+              day={selectedDay}
+              loads={dayLoads}
+              numbers={numbers}
+              deadline={plan.deadline}
+              onOpenOrder={onOpenOrder}
+            />
+          ) : (
+            MODES.map((m) => {
+              const group = dayLoads.filter((l) => l.mode === m);
+              if (group.length === 0) return null;
+              return (
+                <ModeGroup key={m} mode={m} loads={group}>
+                  {group.map((load) => (
+                    <LoadCard
+                      key={load.id}
+                      load={load}
+                      number={numbers.get(load.id) ?? 0}
+                      targets={targets}
+                      today={plan.today}
+                      deadline={plan.deadline}
+                      editing={editing}
+                      onOpenOrder={onOpenOrder}
+                    />
+                  ))}
+                </ModeGroup>
+              );
+            })
+          )}
         </section>
       )}
     </div>
@@ -225,11 +304,11 @@ export function LoadPlan({
 function ModeGroup({
   mode,
   loads,
-  onOpenOrder,
+  children,
 }: {
   mode: DispatchMode;
   loads: PlannedLoad[];
-  onOpenOrder: (id: string) => void;
+  children: ReactNode;
 }) {
   const volume = loads.reduce((s, l) => s + l.volumeM3, 0);
   return (
@@ -241,11 +320,7 @@ function ModeGroup({
           {loads.length} load{loads.length === 1 ? '' : 's'} · {m3(volume)}
         </span>
       </h3>
-      <div className="load-grid">
-        {loads.map((load) => (
-          <LoadCard key={load.id} load={load} onOpenOrder={onOpenOrder} />
-        ))}
-      </div>
+      <div className="load-grid">{children}</div>
     </div>
   );
 }
@@ -296,7 +371,7 @@ function WeekTable({
             <th>To book</th>
             <th className="num">Fill</th>
             <th className="num">Pulled fwd</th>
-            <th className="num">After Ship By</th>
+            <th className="num">After due date</th>
           </tr>
         </thead>
         <tbody>

@@ -4,14 +4,15 @@
  */
 
 import { useMemo, useState } from 'react';
-import { DISPATCH_MODE_LABEL, VOLUME_SOURCE_LABEL, type DispatchMode } from '@/domain/dispatch';
+import { DEADLINE_LABEL, DISPATCH_MODE_LABEL, VOLUME_SOURCE_LABEL, dueDate, type DispatchMode } from '@/domain/dispatch';
 import { ORDER_FLAG_LABEL, type OrderFlag } from '@/engine/dispatch/plan';
 import { Badge } from '@/ui';
 import type { DispatchModel } from './useDispatchPlan';
 import { EXCEPTION_FLAGS } from './ExceptionsList';
 import { READINESS, money, shortDay } from './format';
+import { SOURCE_MARK } from './LoadCard';
 
-type SortKey = 'shipBy' | 'planned' | 'volume' | 'order';
+type SortKey = 'due' | 'planned' | 'volume' | 'order';
 
 const FLAG_SHORT: Partial<Record<OrderFlag, string>> = {
   overdue: 'Overdue',
@@ -21,7 +22,7 @@ const FLAG_SHORT: Partial<Record<OrderFlag, string>> = {
   'on-hold': 'On hold',
   held: 'Held',
   'no-volume': 'No m³',
-  'no-ship-by': 'No Ship By',
+  'no-date': 'No date',
   unrouted: 'Unrouted',
   split: 'Split',
   'pulled-forward': 'Early',
@@ -30,6 +31,26 @@ const FLAG_SHORT: Partial<Record<OrderFlag, string>> = {
   'no-location': 'No map',
   'cube-partial': 'Cube partial',
 };
+
+/** The fields worth checking, in the order a planner reads an order. */
+const COLUMN_LABEL = {
+  order: 'Order',
+  pickListComment: 'Pick-list comment (packed m³)',
+  custId: 'Customer ID',
+  shipToName: 'Ship-to name',
+  shipVia: 'Ship Via',
+  zone: 'Delivery zone',
+  expDelivery: 'Customer receives',
+  shipBy: 'Ship By',
+  needBy: 'Need By (last ship day)',
+  city: 'Ship-to city',
+  address1: 'Ship-to address',
+  state: 'State',
+  postcode: 'Postcode',
+  part: 'Part',
+  leftToShip: 'Left to ship',
+  status: 'Status',
+} as const;
 
 export function OrdersTable({
   model,
@@ -42,7 +63,7 @@ export function OrdersTable({
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<DispatchMode | 'all' | 'none'>('all');
   const [onlyExceptions, setOnlyExceptions] = useState(false);
-  const [sort, setSort] = useState<SortKey>('shipBy');
+  const [sort, setSort] = useState<SortKey>('due');
 
   const rows = useMemo(() => {
     if (!parsed || !plan) return [];
@@ -53,13 +74,13 @@ export function OrdersTable({
         if (mode === 'none' ? op.route !== null : mode !== 'all' && op.route?.mode !== mode) return false;
         if (onlyExceptions && !op.flags.some((f) => EXCEPTION_FLAGS.includes(f))) return false;
         if (!q) return true;
-        return [order.id, order.custId, order.city, order.zone, order.shipVia]
+        return [order.id, order.custId, order.shipToName, order.city, order.zone, order.shipVia]
           .some((v) => v.toLowerCase().includes(q));
       });
     const key = (r: (typeof list)[number]): string | number => {
       switch (sort) {
-        case 'shipBy':
-          return r.order.shipBy ?? '9999';
+        case 'due':
+          return dueDate(r.order, plan.deadline) ?? '9999';
         case 'planned':
           return r.op.day ?? '9999';
         case 'volume':
@@ -93,7 +114,7 @@ export function OrdersTable({
         <input
           className="search"
           type="search"
-          placeholder="Order, customer, city, zone…"
+          placeholder="Order, ship-to, customer, city, zone…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -116,18 +137,39 @@ export function OrdersTable({
         </label>
         <span className="muted-note">{rows.length} orders</span>
       </div>
+      {parsed && (
+        <details className="columns-used">
+          <summary>Waybill columns read</summary>
+          <p>
+            Check these against the export: the plan reads each field from the column shown.
+            Fields not listed are not in the file.
+          </p>
+          <ul>
+            {Object.entries(COLUMN_LABEL).map(([field, label]) => {
+              const c = parsed.columns[field as keyof typeof parsed.columns];
+              return (
+                <li key={field} className={c ? undefined : 'muted'}>
+                  <b>{label}</b> {c ? `← ${c.header} (column ${c.column})` : '— not in the file'}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
       <div className="table-scroll">
         <table className="summary-table orders-table">
           <thead>
             <tr>
               {head('Order', 'order')}
-              <th>Customer</th>
+              <th>Ship to</th>
               <th>Zone · City</th>
               <th>Route</th>
               {head('m³', 'volume', 'num')}
+              <th>Pick list</th>
               <th className="num">Value</th>
-              {head('Ship By', 'shipBy')}
-              <th>Need By</th>
+              {head(plan ? DEADLINE_LABEL[plan.deadline] : 'Need By', 'due')}
+              <th title="ExpDeliveryDt">Deliver</th>
+              <th>Ship By</th>
               <th>Goods</th>
               {head('Planned', 'planned')}
               <th>Flags</th>
@@ -137,20 +179,24 @@ export function OrdersTable({
             {rows.map(({ order, op }) => (
               <tr key={order.id} onClick={() => onOpenOrder(order.id)} className="clickable">
                 <td className="mono">{order.id}</td>
-                <td>{order.custId}</td>
+                <td className="ellipsis" title={order.custId}>
+                  {order.shipToName || order.custId}
+                </td>
                 <td className="ellipsis" title={`${order.zone} · ${order.city}`}>
                   {order.zone} · {order.city}
                 </td>
                 <td className="ellipsis">{op.route?.label ?? '—'}</td>
                 <td className="num" title={VOLUME_SOURCE_LABEL[op.volumeSource]}>
                   {op.volumeKnown ? op.volumeM3.toFixed(2) : '?'}
-                  {op.volumeSource === 'cubics' && <sup className="src">C</sup>}
-                  {op.volumeSource === 'cubics-partial' && <sup className="src">C?</sup>}
-                  {op.volumeSource === 'entered' && <sup className="src">E</sup>}
+                  {SOURCE_MARK[op.volumeSource] && <sup className="src">{SOURCE_MARK[op.volumeSource]}</sup>}
+                </td>
+                <td className="ellipsis" title={order.pickListComment}>
+                  {order.pickListComment || <span className="muted">—</span>}
                 </td>
                 <td className="num">{money(order.value)}</td>
-                <td>{shortDay(order.shipBy)}</td>
-                <td>{shortDay(order.needBy)}</td>
+                <td>{shortDay(plan ? dueDate(order, plan.deadline) : order.needBy)}</td>
+                <td>{shortDay(order.expDelivery)}</td>
+                <td className="muted">{shortDay(order.shipBy)}</td>
                 <td>
                   <Badge variant={READINESS[order.readiness].variant}>{READINESS[order.readiness].label}</Badge>
                 </td>

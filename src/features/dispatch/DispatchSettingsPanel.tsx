@@ -405,9 +405,30 @@ export function DispatchSettingsPanel() {
           </label>
         </div>
         <p className="muted-note">
-          The cubics sheet sizes an order only when it lists every goods line; otherwise the
-          freight line is used, and failing that the part the sheet does cover. A volume
-          entered on the order always wins.
+          A volume entered on the order always wins, then the packed cube in the pick-list
+          comment (2C = 2 m³). After that the cubics sheet sizes an order only when it lists
+          every goods line; otherwise the freight line is used, and failing that the part the
+          sheet does cover.
+        </p>
+      </section>
+
+      <section>
+        <h3>Due date</h3>
+        <div className="field-row">
+          <label className="field">
+            <span>Last day an order may leave</span>
+            <select
+              value={settings.deadline}
+              onChange={(e) => set((s) => ({ ...s, deadline: e.target.value as DispatchSettings['deadline'] }))}
+            >
+              <option value="needBy">Need By (latest ship date)</option>
+              <option value="shipBy">Ship By</option>
+            </select>
+          </label>
+        </div>
+        <p className="muted-note">
+          ExpDeliveryDt is the day the customer receives the goods and is shown on every load. When
+          an order has no date in the chosen column, the other one is used.
         </p>
       </section>
 

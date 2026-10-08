@@ -59,6 +59,17 @@ export interface WaybillLine {
   inPicking: boolean;
   onHold: boolean;
   creditHold: boolean;
+  /**
+   * The export's `PickListComment`: what the warehouse wrote on the pick list
+   * once the goods were packed, e.g. `2C` for 2 m³ packed.
+   */
+  pickListComment: string;
+  /** `ShipToCustName`: who the consignment is addressed to. */
+  shipToName: string;
+  /** Ship-to street address, state and postcode, when the export has them. */
+  address: string;
+  state: string;
+  postcode: string;
 }
 
 /**
@@ -72,12 +83,26 @@ export type Readiness = 'ready' | 'partial' | 'not-ready' | 'no-goods';
 export interface ShipmentOrder {
   id: string;
   custId: string;
+  /** `ShipToCustName`; blank when the export does not carry it. */
+  shipToName: string;
+  address: string;
+  state: string;
+  postcode: string;
   shipVia: string;
   zone: string;
   city: string;
   shipBy: DayKey | null;
+  /** `Need By`: the last day the order may leave the factory. */
   needBy: DayKey | null;
+  /** `ExpDeliveryDt`: the day the customer expects to receive it. */
   expDelivery: DayKey | null;
+  /** Pick-list comments on the order, as written (`2C`). */
+  pickListComment: string;
+  /**
+   * Packed cube read from the pick-list comment (`2C` = 2 m³): measured after
+   * packing, so the best volume there is. Null when no comment gives one.
+   */
+  packedM3: number | null;
   /**
    * Cubic metres still to ship, from the order's freight line (a `CBM` line
    * such as `FRTNSW`). Null when the order carries no freight volume.
@@ -99,10 +124,11 @@ export interface ShipmentOrder {
 }
 
 /** Where an order's volume came from, best first. */
-export type VolumeSource = 'entered' | 'cubics' | 'freight' | 'cubics-partial' | 'none';
+export type VolumeSource = 'entered' | 'packed' | 'cubics' | 'freight' | 'cubics-partial' | 'none';
 
 export const VOLUME_SOURCE_LABEL: Record<VolumeSource, string> = {
   entered: 'Entered by the planner',
+  packed: 'Packed — from the pick-list comment',
   cubics: 'Cubics sheet (stacked)',
   freight: 'Freight CBM line',
   'cubics-partial': 'Cubics sheet — some parts missing',
@@ -165,7 +191,7 @@ export interface DispatchSettings {
     trucks: Equipment[];
     runClasses: FleetRunClass[];
     /**
-     * How many working days before Ship By an order may go to fill a truck.
+     * How many working days before its due date an order may go to fill a truck.
      * This is the warehouse limit: an order pulled forward has to be finished
      * and staged that much earlier.
      */
@@ -206,6 +232,13 @@ export interface DispatchSettings {
    * when it covers every goods line; a partial match falls back to freight.
    */
   preferVolume: 'cubics' | 'freight';
+  /**
+   * Which waybill date is the last day an order may leave. `Need By` is the
+   * latest ship date and `ExpDeliveryDt` the day the customer receives it;
+   * `Ship By` is kept for exports that only fill that one in. Either way the
+   * other date is the fallback when an order has none.
+   */
+  deadline: DeadlineField;
   /**
    * Firm (frozen) window in working days from today. Inside it, an order is
    * only pulled forward when its goods are already ready.
@@ -290,10 +323,22 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   },
   pickupZones: ['NSW-Customer Pickup'],
   preferVolume: 'cubics',
+  deadline: 'needBy',
   firmDays: 2,
   stagingCapacityM3: 150,
   holidays: [],
 };
+
+export type DeadlineField = 'needBy' | 'shipBy';
+
+export const DEADLINE_LABEL: Record<DeadlineField, string> = {
+  needBy: 'Need By',
+  shipBy: 'Ship By',
+};
+
+/** The last day an order may leave, from the date the settings name. */
+export const dueDate = (order: ShipmentOrder, field: DeadlineField): DayKey | null =>
+  field === 'needBy' ? order.needBy ?? order.shipBy : order.shipBy ?? order.needBy;
 
 /** Where an order is routed. `group` is what may be consolidated together. */
 export type Route =
@@ -342,7 +387,15 @@ export function routeFor(
   return null;
 }
 
-/** A load the planner confirmed: frozen, no longer re-optimised. */
+/**
+ * A load the planner has taken over from the optimiser: frozen, no longer
+ * re-planned.
+ *
+ * - `edited` — changed by hand (an order moved, a size or day picked) but not
+ *   booked yet;
+ * - `confirmed` — booked with the carrier or the fleet;
+ * - `dispatched` — gone.
+ */
 export interface FirmLoad {
   id: string;
   group: string;
@@ -353,9 +406,16 @@ export interface FirmLoad {
   equipment: string;
   capacityM3: number | null;
   orderIds: string[];
-  /** Volume per order when confirmed, for orders that later leave the export. */
+  /** Volume per order when frozen, for orders that later leave the export. */
   volumes: Record<string, number>;
-  status: 'confirmed' | 'dispatched';
+  /**
+   * Orders only partly on this load (a split piece), with the m³ carried
+   * here. The rest of such an order is still planned.
+   */
+  pieces?: Record<string, number>;
+  /** The planner picked the size: keep it when orders move on or off. */
+  sizeLocked?: boolean;
+  status: 'edited' | 'confirmed' | 'dispatched';
   confirmedAt: string;
   dispatchedAt?: string;
 }
