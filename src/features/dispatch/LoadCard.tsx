@@ -29,6 +29,7 @@ import type { PlannedLoad } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { Badge } from '@/ui';
 import { contractorOf, fullAddress, shipToNames } from './booking';
+import { BuildChip, buildCheckOf, useAssemblyLink } from './assemblyLink';
 import { recommendation, sizeLadder } from './equipment';
 import { LIMIT_LABEL, READINESS, dollars, dollarsFull, fillTone, m3, pct, shortDay, weekdayOf } from './format';
 import { loadValue } from '@/engine/dispatch/shipments';
@@ -79,6 +80,7 @@ export function LoadCard({
   const ladder = sizeLadder(load, settings);
   const names = shipToNames(load);
   const contractor = contractorOf(load, settings.contractors);
+  const link = useAssemblyLink();
   const canEdit = load.firm !== 'dispatched' && load.mode !== 'pickup';
   const isEditing = editing && canEdit;
   // NSW runs may swap orders between run classes; a linehaul or container
@@ -312,6 +314,7 @@ export function LoadCard({
                       </Badge>
                     )}
                     {o?.inPicking && <span className="tag">Picking</span>}
+                    <BuildChip check={buildCheckOf(link, d.orderId, load.day)} />
                   </td>
                   {isEditing && (
                     <td>

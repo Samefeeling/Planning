@@ -1,16 +1,19 @@
 /**
- * One order in full: its window and where the plan put it, the planner's
- * three levers (pin a day, hold it back, correct its cube), and its lines.
+ * One order in full: its window and where the plan put it, the Assembly jobs
+ * building it, the planner's three levers (pin a day, hold it back, correct
+ * its cube), and its lines.
  */
 
 import { useEffect, useState } from 'react';
-import { DISPATCH_MODE_LABEL, VOLUME_SOURCE_LABEL } from '@/domain/dispatch';
+import { DISPATCH_MODE_LABEL, VOLUME_SOURCE_LABEL, dueDate } from '@/domain/dispatch';
 import { fullAddress } from './booking';
 import { ORDER_FLAG_LABEL } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { Badge, Button } from '@/ui';
 import type { DispatchModel } from './useDispatchPlan';
 import { READINESS, dayLabel, m3, money } from './format';
+import { BuildChip, buildCheckOf, useAssemblyLink } from './assemblyLink';
+import { formatShortDay, formatTime, toDayKey } from '@/lib/time';
 
 export function OrderDrawer({
   orderId,
@@ -119,6 +122,8 @@ export function OrderDrawer({
           {op.loadIds.length > 1 && ` · ${op.loadIds.length} loads`}
         </dd>
       </dl>
+
+      <AssemblySection orderId={order.id} day={op.day} due={dueDate(order, model.plan!.deadline)} />
 
       {op.flags.length > 0 && (
         <ul className="order-flags">
@@ -273,5 +278,66 @@ export function OrderDrawer({
         </div>
       </section>
     </aside>
+  );
+}
+
+/**
+ * The Assembly jobs building this order, from the board: which line, how
+ * many still to build, and when the board expects them off it — against the
+ * day the order is planned to leave and its due date.
+ */
+function AssemblySection({ orderId, day, due }: { orderId: string; day: string | null; due: string | null }) {
+  const link = useAssemblyLink();
+  if (!link.loaded) return null;
+  const check = buildCheckOf(link, orderId, day ?? due ?? '9999-12-31');
+  if (!check) {
+    return (
+      <section className="order-assembly">
+        <h3>Assembly</h3>
+        <p className="muted-note">No job on the Assembly board is built for this order (stock goods, or not in Planning1).</p>
+      </section>
+    );
+  }
+  const finishAfterDue = check.finish !== null && due !== null && check.finish > due;
+  return (
+    <section className="order-assembly">
+      <h3>
+        Assembly <BuildChip check={day ? check : null} />
+      </h3>
+      <p className="muted-note">
+        {check.verdict === 'done'
+          ? 'Every job is finished.'
+          : check.verdict === 'unknown'
+            ? 'A job still to build has no Expect Date: put it on a line and crew it on the Assembly board.'
+            : `Off the line ${dayLabel(check.finish)}${day ? `; planned to leave ${dayLabel(day)}` : ''}.`}
+        {finishAfterDue && ` That is after its due date (${dayLabel(due)}): it will miss SIFOT unless Assembly brings it forward.`}
+      </p>
+      <table className="summary-table assembly-jobs">
+        <thead>
+          <tr>
+            <th>Job</th>
+            <th>Line</th>
+            <th className="num">To build</th>
+            <th>Start</th>
+            <th>Expect</th>
+          </tr>
+        </thead>
+        <tbody>
+          {check.jobs.map((j) => (
+            <tr key={j.jobId}>
+              <td className="mono" title={`${j.partNum} · ${j.description}`}>
+                {j.jobId}
+              </td>
+              <td>{j.lineName ?? <span className="muted">no line</span>}</td>
+              <td className="num">{j.state === 'done' ? 'done' : j.remainingQty}</td>
+              <td>{j.start ? formatShortDay(j.start) : '—'}</td>
+              <td className={j.expect && day && toDayKey(j.expect) > day ? 'tone-bad' : undefined}>
+                {j.expect ? `${formatShortDay(j.expect)} ${formatTime(j.expect)}` : j.state === 'done' ? '—' : 'no date'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }

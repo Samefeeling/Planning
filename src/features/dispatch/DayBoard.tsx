@@ -22,6 +22,7 @@ import { loadValue } from '@/engine/dispatch/shipments';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { LoadCard } from './LoadCard';
 import { BookingSheet } from './BookingSheet';
+import { buildCheckOf, buildIssues, useAssemblyLink, type BuildIssue } from './assemblyLink';
 import { MODES, equipmentMix } from './summary';
 import { dayLabel, dollars, m3, pct, shortDay, stagingTone, weekdayOf } from './format';
 
@@ -92,6 +93,16 @@ export function DayBoard({
   const total = plan.days.find((d) => d.day === day);
   const staging = stagingCapacity(settings);
   const levelled = all.filter((l) => l.levelled).length;
+  // What Assembly says about the orders still to go: built to order, and
+  // whether the board has them off the line before their load leaves.
+  const link = useAssemblyLink();
+  const assy = buildIssues(link, pending);
+  const assyLate = assy.filter((x) => x.check.verdict === 'late');
+  const assySameDay = assy.filter((x) => x.check.verdict === 'same-day');
+  const assyUnknown = assy.filter((x) => x.check.verdict === 'unknown');
+  const builtToOrder = new Set(
+    pending.flatMap((l) => l.drops.filter((d) => buildCheckOf(link, d.orderId, l.day)).map((d) => d.orderId)),
+  ).size;
   const warned = pending.filter((l) => l.warnings.length > 0).length;
 
   const counts = new Map<DispatchMode, number>();
@@ -166,6 +177,24 @@ export function DayBoard({
             </span>
           </div>
 
+          {builtToOrder > 0 && (
+            <div className={`dayboard-check${assyLate.length > 0 ? ' alert' : ''}`}>
+              <span className="stage-label">Assembly</span>
+              <b className={`stage-count${assyLate.length > 0 ? ' tone-bad' : assy.length > 0 ? ' tone-mid' : ' tone-good'}`}>
+                {assyLate.length > 0
+                  ? `${assyLate.length} late`
+                  : assySameDay.length > 0
+                    ? `${assySameDay.length} same day`
+                    : assyUnknown.length > 0
+                      ? `${assyUnknown.length} no date`
+                      : 'on time'}
+              </b>
+              <span className="stage-sub">
+                of {builtToOrder} built-to-order order{builtToOrder === 1 ? '' : 's'} still to go
+              </span>
+            </div>
+          )}
+
           {(settings.trucksPerDay > 0 || settings.containersPerDay > 0) && (
             <div className={`dayboard-check${total?.overTrucks || total?.overContainers ? ' alert' : ''}`}>
               <span className="stage-label">Load-out</span>
@@ -210,6 +239,7 @@ export function DayBoard({
           total?.overContainers ||
           total?.overStaging ||
           levelled > 0 ||
+          assy.length > 0 ||
           notReady.length > 0) && (
           <ul className="dayboard-alerts">
             {behind.length > 0 && (
@@ -239,6 +269,24 @@ export function DayBoard({
                 ))}
                 {notReadyOrders.size > 12 && ` +${notReadyOrders.size - 12} more`} — check with production
                 before booking.
+              </li>
+            )}
+            {assyLate.length > 0 && (
+              <li>
+                Assembly finishes after the load leaves: <BuildList items={assyLate} onOpenOrder={onOpenOrder} /> —
+                move them to a later load, or ask Assembly to bring them forward.
+              </li>
+            )}
+            {assySameDay.length > 0 && (
+              <li>
+                Assembly finishes the day they leave: <BuildList items={assySameDay} onOpenOrder={onOpenOrder} /> —
+                book a late pickup or check with the line.
+              </li>
+            )}
+            {assyUnknown.length > 0 && (
+              <li>
+                No Assembly date yet (no crew, or on no line):{' '}
+                <BuildList items={assyUnknown} onOpenOrder={onOpenOrder} />.
               </li>
             )}
             {warned > 0 && (
@@ -359,6 +407,24 @@ export function DayBoard({
         })
       )}
     </div>
+  );
+}
+
+/** Order numbers with the day Assembly expects them, each opening the order. */
+function BuildList({ items, onOpenOrder }: { items: BuildIssue[]; onOpenOrder: (id: string) => void }) {
+  return (
+    <>
+      {items.slice(0, 12).map((x, i) => (
+        <span key={x.orderId}>
+          {i > 0 && ', '}
+          <button type="button" className="link" onClick={() => onOpenOrder(x.orderId)}>
+            {x.orderId}
+          </button>
+          {x.check.finish && ` (${weekdayOf(x.check.finish)} ${shortDay(x.check.finish)})`}
+        </span>
+      ))}
+      {items.length > 12 && ` +${items.length - 12} more`}
+    </>
   );
 }
 

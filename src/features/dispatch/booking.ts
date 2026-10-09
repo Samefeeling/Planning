@@ -59,6 +59,8 @@ export function bookingCsv(
   deadline: DeadlineField,
   numbers?: ReadonlyMap<string, number>,
   contractors: Readonly<Record<string, string>> = {},
+  /** The Assembly status of an order leaving on a day, when the board is loaded. */
+  assembly?: (orderId: string, day: string) => string,
 ): string {
   const header = [
     'Dispatch day',
@@ -90,6 +92,7 @@ export function bookingCsv(
     'ExpDeliveryDt',
     'Goods',
     'InPicking',
+    'Assembly',
   ];
   const rows: string[][] = [header];
   loads.forEach((load, i) => {
@@ -125,6 +128,7 @@ export function bookingCsv(
         day(o?.expDelivery ?? null),
         o ? READINESS[o.readiness].label : '',
         o?.inPicking ? 'Yes' : '',
+        assembly?.(d.orderId, load.day) ?? '',
       ]);
     }
   });

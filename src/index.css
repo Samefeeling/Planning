@@ -297,6 +297,7 @@ button {
 /* Assembly / Dispatch page switch, left of the page title. */
 .view-switch {
   display: inline-flex;
+  flex: none;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
@@ -2978,8 +2979,8 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
   gap: 3px;
   cursor: help;
 }
-/* One chip per export, lit when that file is in: which of the four the board
-   is reading from disk reads at a glance, the names and times on hover. */
+/* How many of the four exports are in from disk; which, with names and
+   times, on hover. Dimmed while any is missing. */
 .file-chip {
   padding: 1px 6px;
   border: 1px solid var(--head-rule);
@@ -2989,9 +2990,15 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
   font-weight: 650;
   opacity: 0.45;
 }
-.file-chip.on {
+.file-chip.on,
+.file-chip.part {
   background: var(--chrome-tint-hi);
   opacity: 1;
+  white-space: nowrap;
+  cursor: help;
+}
+.file-chip.part {
+  border-style: dashed;
 }
 .file-clear {
   appearance: none;
@@ -3010,3 +3017,4 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.file-loader .btn { white-space: nowrap; }

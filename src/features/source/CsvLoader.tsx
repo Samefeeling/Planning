@@ -151,15 +151,17 @@ export function CsvLoader() {
         {busy ? 'Loading…' : 'Load files'}
       </Button>
       {kinds.length > 0 && (
-        <span
-          className="file-loader-set"
-          title={kinds.map((k) => `${EXPORT_FILE[k]}: ${loaded[k]!.name}, picked ${stamp(loaded[k]!.loadedAt)}`).join('\n')}
-        >
-          {ORDER.map((k) => (
-            <span key={k} className={`file-chip${loaded[k] ? ' on' : ''}`}>
-              {EXPORT_FILE[k]}
-            </span>
-          ))}
+        <span className="file-loader-set">
+          <span
+            className={`file-chip${kinds.length === ORDER.length ? ' on' : ' part'}`}
+            title={ORDER.map((k) =>
+              loaded[k]
+                ? `${EXPORT_FILE[k]}: ${loaded[k]!.name}, picked ${stamp(loaded[k]!.loadedAt)}`
+                : `${EXPORT_FILE[k]}: not loaded`,
+            ).join('\n')}
+          >
+            Files {kinds.length}/{ORDER.length}
+          </span>
           <button type="button" className="file-clear" onClick={() => void clear()} disabled={busy} title="Forget the picked files">
             Clear
           </button>

@@ -1839,3 +1839,50 @@ sup.src {
   gap: 6px;
   margin-top: 8px;
 }
+
+/* ---- the Assembly link ------------------------------------------------------ */
+/* When the Assembly board has an order off the line, against its load. The
+   word carries the meaning (Assy 14/10, Assy no date), the colour only how it
+   sits with the load: green before it, amber the same day or undated, red
+   after it has left. */
+.dispatch .build-chip {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: help;
+}
+.dispatch .build-chip.tone-ok {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+.dispatch .build-chip.tone-mid {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+.dispatch .build-chip.tone-bad {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+.order-assembly {
+  margin: 0 0 12px;
+}
+.order-assembly h3 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.order-assembly .muted-note {
+  margin: 0 0 6px;
+}
+.assembly-jobs td,
+.assembly-jobs th {
+  font-size: 13px;
+}

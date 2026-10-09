@@ -281,7 +281,7 @@ export default function App() {
         loading, saving and syncing behind it, so switching back loses nothing.
       */}
       {view === 'dispatch' ? (
-        <DispatchPage />
+        <DispatchPage assembly={board} />
       ) : (
         <>
           {error && <div className="banner">Data error: {error}</div>}

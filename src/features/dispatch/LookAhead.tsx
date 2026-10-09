@@ -30,6 +30,7 @@ import { useDispatchStore } from '@/store/dispatchStore';
 import { VolumeChart } from './VolumeChart';
 import { MODES, equipmentMix, isoWeek, summarise, weekStart, type Bucket } from './summary';
 import { contractorOf, loadStatus, shipToNames } from './booking';
+import { buildIssues, useAssemblyLink } from './assemblyLink';
 import { LIMIT_LABEL, dayLabel, dollars, fillTone, m3, pct, shortDay, stagingTone, weekdayOf } from './format';
 
 type Range = 'week' | 'fortnight' | 'month' | 'all';
@@ -113,6 +114,12 @@ export function LookAhead({
     };
   }, [plan]);
 
+  const link = useAssemblyLink();
+  const assyLate = useMemo(
+    () => buildIssues(link, plan.loads).filter((x) => x.check.verdict === 'late').length,
+    [link, plan.loads],
+  );
+
   const counts = new Map<DispatchMode, number>();
   for (const l of plan.loads) {
     if (l.firm === 'dispatched' && !showDispatched) continue;
@@ -145,6 +152,14 @@ export function LookAhead({
           value={cubicsLoaded || facts.byCubics > 0 ? String(facts.byCubics) : '—'}
           title="Orders sized from the packed cube or the cubics sheet; the rest use the freight line"
         />
+        {link.loaded && link.builds.size > 0 && (
+          <Fact
+            label="Assembly late"
+            value={String(assyLate)}
+            tone={assyLate > 0 ? 'bad' : undefined}
+            title="Orders on a load that leaves before the Assembly board expects them off the line"
+          />
+        )}
         <Fact
           label={`Past ${dueLabel}`}
           value={String(facts.overdue)}
@@ -265,6 +280,9 @@ function DayOverview({ plan, day, onOpenDay }: { plan: DispatchPlan; day: string
   ).size;
   const mix: Record<string, number> = {};
   for (const l of pending) if (l.mode !== 'pickup') mix[l.equipment] = (mix[l.equipment] ?? 0) + 1;
+  const link = useAssemblyLink();
+  const assy = buildIssues(link, pending);
+  const assyLate = assy.filter((x) => x.check.verdict === 'late');
 
   return (
     <section className="kpi-chart day-overview" aria-label={`Overview of ${dayLabel(day)}`}>
@@ -304,6 +322,18 @@ function DayOverview({ plan, day, onOpenDay }: { plan: DispatchPlan; day: string
             />
             <Fact label="Value" value={dollars(value)} />
             <Fact label="Goods not ready" value={String(notReady)} tone={notReady > 0 ? 'bad' : undefined} />
+            {link.loaded && link.builds.size > 0 && (
+              <Fact
+                label="Assembly late"
+                value={String(assyLate.length)}
+                tone={assyLate.length > 0 ? 'bad' : undefined}
+                title={
+                  assy.length > 0
+                    ? assy.map((x) => `${x.orderId}: ${x.check.finish ? `off the line ${x.check.finish}` : 'no Assembly date'}`).join('\n')
+                    : 'Every built-to-order order on this day is off the line before its load leaves'
+                }
+              />
+            )}
           </div>
           {Object.keys(mix).length > 0 && (
             <p className="day-book">

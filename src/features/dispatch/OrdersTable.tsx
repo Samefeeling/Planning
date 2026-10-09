@@ -11,6 +11,8 @@ import type { DispatchModel } from './useDispatchPlan';
 import { EXCEPTION_FLAGS } from './ExceptionsList';
 import { READINESS, money, shortDay } from './format';
 import { SOURCE_MARK } from './LoadCard';
+import { BuildChip, buildCheckOf, useAssemblyLink } from './assemblyLink';
+import { orderKey } from '@/domain/orderLink';
 
 type SortKey = 'due' | 'planned' | 'volume' | 'order';
 
@@ -64,6 +66,7 @@ export function OrdersTable({
   const [mode, setMode] = useState<DispatchMode | 'all' | 'none'>('all');
   const [onlyExceptions, setOnlyExceptions] = useState(false);
   const [sort, setSort] = useState<SortKey>('due');
+  const link = useAssemblyLink();
 
   const rows = useMemo(() => {
     if (!parsed || !plan) return [];
@@ -137,6 +140,7 @@ export function OrdersTable({
         </label>
         <span className="muted-note">{rows.length} orders</span>
       </div>
+      {link.loaded && parsed && <AssemblyCoverage model={model} />}
       {parsed && (
         <details className="columns-used">
           <summary>Waybill columns read</summary>
@@ -171,6 +175,7 @@ export function OrdersTable({
               <th title="ExpDeliveryDt">Deliver</th>
               <th>Ship By</th>
               <th>Goods</th>
+              {link.loaded && <th title="When the Assembly board expects the order off the line">Assembly</th>}
               {head('Planned', 'planned')}
               <th>Flags</th>
             </tr>
@@ -200,6 +205,11 @@ export function OrdersTable({
                 <td>
                   <Badge variant={READINESS[order.readiness].variant}>{READINESS[order.readiness].label}</Badge>
                 </td>
+                {link.loaded && (
+                  <td>
+                    <BuildChip check={op.day ? buildCheckOf(link, order.id, op.day) : null} />
+                  </td>
+                )}
                 <td>{shortDay(op.day)}</td>
                 <td className="flags">
                   {op.flags.map((f) => (
@@ -218,5 +228,38 @@ export function OrdersTable({
         </table>
       </div>
     </div>
+  );
+}
+
+/**
+ * Did the link land? Of the waybill orders with goods built to order
+ * (`FulfillmentMethod` Job), how many the Assembly board has a job for —
+ * matched on the job number, `0` + the order number. None found usually
+ * means the board is showing another export (or the demo data).
+ */
+function AssemblyCoverage({ model }: { model: DispatchModel }) {
+  const link = useAssemblyLink();
+  const jobOrders = [...model.linesByOrder.entries()]
+    .filter(([, lines]) => lines.some((l) => l.fulfillment.trim().toLowerCase() === 'job'))
+    .map(([id]) => id);
+  const found = jobOrders.filter((id) => link.builds.has(orderKey(id)));
+  const missing = jobOrders.filter((id) => !link.builds.has(orderKey(id)));
+  return (
+    <details className="columns-used">
+      <summary>
+        Assembly link: {found.length} of {jobOrders.length} built-to-order orders found on the Assembly board
+      </summary>
+      <p>
+        An Assembly job is matched to its sales order by its number: <code>018140-1-1</code> builds order{' '}
+        <code>18140</code>, line 1, release 1. Orders whose waybill lines are all stock or freight are not
+        expected on the board.
+      </p>
+      {missing.length > 0 && (
+        <p className="muted">
+          Not on the board: {missing.slice(0, 40).join(', ')}
+          {missing.length > 40 && ` +${missing.length - 40} more`}
+        </p>
+      )}
+    </details>
   );
 }

@@ -15,6 +15,7 @@ import { recommendation } from './equipment';
 import { READINESS, dayLabel, m3, pct, shortDay } from './format';
 import { SOURCE_MARK } from './LoadCard';
 import { equipmentMix } from './summary';
+import { BuildChip, buildCheckOf, buildText, useAssemblyLink } from './assemblyLink';
 
 export function BookingSheet({
   day,
@@ -30,6 +31,7 @@ export function BookingSheet({
   onOpenOrder: (id: string) => void;
 }) {
   const settings = useDispatchStore((s) => s.settings);
+  const link = useAssemblyLink();
   const dueLabel = DEADLINE_LABEL[deadline];
   const mix: Record<string, number> = {};
   for (const l of loads) if (l.mode !== 'pickup') mix[l.equipment] = (mix[l.equipment] ?? 0) + 1;
@@ -37,7 +39,7 @@ export function BookingSheet({
   const kg = loads.reduce((s, l) => s + l.weightKg, 0);
 
   const download = () => {
-    const blob = new Blob([bookingCsv(loads, deadline, numbers, settings.contractors)], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([bookingCsv(loads, deadline, numbers, settings.contractors, (orderId, day) => buildText(buildCheckOf(link, orderId, day)))], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -139,6 +141,7 @@ export function BookingSheet({
                     <td>
                       {o ? READINESS[o.readiness].label : ''}
                       {o?.inPicking ? ' · Picking' : ''}
+                      <BuildChip check={buildCheckOf(link, d.orderId, load.day)} />
                     </td>
                   </tr>
                 );

@@ -118,6 +118,41 @@ can load out in a day, at the largest sizes — 3 × 75 m³ (semi or FTL
 trailer) + 2 × 68 m³ (40' HC) = **361 m³**. It follows the limits and the
 sizes on the Settings tab; turn derivation off there to enter a figure.
 
+## Input: the Assembly board
+
+Goods built to order (`FulfillmentMethod` = `Job`) come off the Assembly
+board, and the two pages share one join: an Assembly job is named after the
+order release it fills — `0` + the order number, then line and release.
+`018140-1-1` builds order `18140`, line 1, release 1, the same `Order`,
+`Line` and `Rel` as the waybill. Stock jobs (`SFM…`, `ASM…`) map to no order.
+
+For every order on a load, the Dispatch page reads the board's forecast for
+the jobs building the order lines still open on the waybill: the line each
+is on, what is left to build, and its **Expect Date** (the end of its bar at
+the crew it has). The last one off the line decides:
+
+| Chip | Meaning |
+| --- | --- |
+| `Assy 14/10` green | off the line before the load leaves |
+| `Assy 15/10` amber | off the line the day the load leaves — tight |
+| `Assy 16/10` red | off the line after the load has left |
+| `Assy no date` amber | a job still to build has no Expect Date: on no line, or nobody on it |
+| `Assy done` green | every job finished |
+
+The chip is on each order of a load card, the booking sheet (and an
+*Assembly* column in its CSV) and the Orders table. The Day board adds an
+**Assembly** tile and alerts naming the orders that are late, same-day or
+undated; the Look-ahead adds *Assembly late* to the plan facts and each day's
+overview; an order's detail lists its jobs with line, quantity, start and
+Expect, and says when Assembly finishes after its due date (a SIFOT miss
+unless Assembly brings it forward). **Assembly link** on the Orders tab says
+how many of the waybill's built-to-order orders the board has a job for, and
+lists the ones it does not. The plan itself is not moved by it: it flags.
+
+The board's dates are only as good as its crew. Without the `ASSY_Operator`
+roster (no SharePoint), nobody is on any order and every order reads *no
+date*.
+
 ## Who it is for, and the page
 
 Three readers: the **warehouse manager** (space, labour, what is not ready),
