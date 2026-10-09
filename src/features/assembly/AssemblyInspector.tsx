@@ -9,13 +9,14 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
+import type { PoLine } from '@/domain/types';
 import { findOrderRow } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
 import { remainingQty } from '@/engine/assembly/duration';
 import { startEligibility } from '@/engine/assembly/release';
 import { nextWorkingMoment } from '@/engine/assembly/shift';
-import { formatDay, formatTime } from '@/lib/time';
+import { formatDay, formatShortDay, formatTime } from '@/lib/time';
 import { Badge, Button } from '@/ui';
 import type { PauseReason, ProductionEntry } from '@/store/planStore';
 import { signInAt, useSupervisorStore } from '@/store/supervisorStore';
@@ -58,6 +59,35 @@ const isoDay = (d: Date): string =>
     d.getDate(),
   ).padStart(2, '0')}`;
 
+/**
+ * The next open receipt for a component: when, and how many, with every open
+ * PO line for the part on hover. Blank when none is open.
+ */
+function NextPo({ lines }: { lines: readonly PoLine[] | undefined }) {
+  const open = (lines ?? [])
+    .map((p) => ({ p, when: p.dueDate ?? p.promiseDate }))
+    .sort((a, b) => (a.when?.getTime() ?? Infinity) - (b.when?.getTime() ?? Infinity));
+  if (open.length === 0) {
+    return (
+      <span className="qty none" title="No open PO in PODetail.csv">
+        —
+      </span>
+    );
+  }
+  const next = open[0];
+  return (
+    <span
+      className="qty po"
+      title={open
+        .map(({ p, when }) => `PO ${p.poNum ?? '?'}: ${p.outstandingQty} due ${when ? formatDay(when) : 'undated'}`)
+        .join('\n')}
+    >
+      {next.when ? formatShortDay(next.when) : 'undated'} · {next.p.outstandingQty}
+      {open.length > 1 && <sup>+{open.length - 1}</sup>}
+    </span>
+  );
+}
+
 /** Fixed numeric date for the production popup, independent of browser locale. */
 export const popupDate = (date: Date | null): string =>
   date ? formatDay(date) : '—';
@@ -68,6 +98,8 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const select = useUiStore((s) => s.select);
   const row = findOrderRow(board, selectedJobId);
   const inventoryByPart = useDataStore((s) => s.indexes?.inventoryByPart);
+  const poByPart = useDataStore((s) => s.indexes?.poByPart);
+  const withPo = (poByPart?.size ?? 0) > 0;
   const panel = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<Place | null>(null);
 
@@ -563,12 +595,13 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           {picks.length === 0 ? (
             <p className="hint">No materials found in JobMaterialReq.csv.</p>
           ) : (
-            <div className="pick-list">
+            <div className={`pick-list${withPo ? ' with-po' : ''}`}>
               <div className="pick-list-row pick-list-head" aria-hidden="true">
                 <span>Part</span>
                 <span>Required</span>
                 <span>On hand</span>
                 <span title="Calculated_Demand">Demand</span>
+                {withPo && <span title="The next open receipt from PODetail.csv">Next PO</span>}
               </div>
               {picks.map((material, index) => (
                 <div className="pick-list-row" key={`${String(material.childPart)}-${index}`}>
@@ -597,6 +630,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                   <span className="qty" title="Calculated_Demand from OnHandInventory.csv">
                     {inventoryByPart?.get(material.childPart)?.calculatedDemand ?? '—'}
                   </span>
+                  {withPo && <NextPo lines={poByPart?.get(material.childPart)} />}
                 </div>
               ))}
             </div>

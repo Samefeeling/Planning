@@ -1040,6 +1040,12 @@ button {
   color: var(--faint);
   font-weight: 400;
 }
+/* With PODetail.csv loaded, a fifth column: the next open receipt. */
+.pick-list.with-po .pick-list-row {
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(48px, auto)) minmax(72px, auto);
+}
+.pick-list-row .qty.po { text-align: right; white-space: nowrap; }
+.pick-list-row .qty.po sup { color: var(--faint); font-weight: 400; }
 
 .arow,
 .assy-head {
@@ -2958,3 +2964,49 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
 /* Overlay only: the alignment aid never moves rows or catches the pointer. */
 .drag-time-guide { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed #0869ad; z-index: 12; pointer-events: none; }
 .drag-time-guide span { position: sticky; top: 58px; display: block; width: max-content; margin-left: 5px; padding: 3px 6px; border-radius: 3px; background: #075985; color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; box-shadow: 0 1px 4px #0003; }
+
+/* ---- Load files: the four Epicor exports from disk ----------------------- */
+.file-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.file-loader-set {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
+}
+/* One chip per export, lit when that file is in: which of the four the board
+   is reading from disk reads at a glance, the names and times on hover. */
+.file-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--head-rule);
+  border-radius: 999px;
+  color: var(--head-tx);
+  font-size: 10.5px;
+  font-weight: 650;
+  opacity: 0.45;
+}
+.file-chip.on {
+  background: var(--chrome-tint-hi);
+  opacity: 1;
+}
+.file-clear {
+  appearance: none;
+  margin-left: 2px;
+  padding: 1px 6px;
+  border: 0;
+  background: none;
+  color: var(--head-tx);
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.file-loader .board-warn {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

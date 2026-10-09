@@ -26,6 +26,7 @@ import { useScheduledRefresh } from '@/features/refresh/useScheduledRefresh';
 import { RefreshControl } from '@/features/refresh/RefreshControl';
 import { usePlanSync } from '@/features/sync/usePlanSync';
 import { DispatchPage } from '@/features/dispatch/DispatchPage';
+import { CsvLoader, restorePickedFiles } from '@/features/source/CsvLoader';
 import { ORDER_TYPE_SHORT } from '@/domain/assembly';
 import { Spinner } from '@/ui';
 
@@ -91,9 +92,9 @@ export default function App() {
   const reason = (e: unknown): string =>
     e instanceof Error ? e.message : String(e);
 
-  // Initial data load.
+  // Initial data load — from the files picked last time, when there are any.
   useEffect(() => {
-    void load();
+    void restorePickedFiles().finally(() => load());
   }, [load]);
 
   /*
@@ -260,6 +261,7 @@ export default function App() {
           <div className="head-side end">
             <SupervisorLock />
             <BarcodeOrderLookup board={board} />
+            <CsvLoader />
             {/* Which export this is stays on the hover of the time it was read,
                 rather than as a chip: the source has not changed since the board
                 was built and never changes while anybody is looking at it, so it

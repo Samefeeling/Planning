@@ -7,8 +7,9 @@
  * lines are scheduled here. The material export is what ties them together:
  * a chair cannot start before the press job making its shell is finished.
  *
- * On-hand inventory is optional and comes from `OnHandInventory.csv`. BOM,
- * purchase orders and demand still belong to the master workbook source.
+ * On-hand inventory is optional and comes from `OnHandInventory.csv`, open
+ * purchase orders from `PODetail.csv`. BOM and demand still belong to the
+ * master workbook source.
  */
 
 import type {
@@ -37,6 +38,7 @@ import {
   fetchJobMaterialCsv,
   fetchPlanningCsv,
   fetchOnHandInventoryCsv,
+  fetchPoDetailCsv,
   fetchProductLinesJson,
   readCsvConfigFromEnv,
   type CsvSourceConfig,
@@ -44,6 +46,7 @@ import {
 import { parsePlanningCsv } from './planning.parser';
 import { parseJobMaterialCsv } from './materialReq.parser';
 import { parseOnHandInventoryCsv } from './onHandInventory.parser';
+import { parsePoDetailCsv } from './poDetail.parser';
 import { parseProductLines, EMPTY_PRODUCT_LINES } from '@/domain/productLines';
 import { makeLineRouter, type LineRouter } from '@/engine/assembly/lineRouter';
 
@@ -59,6 +62,7 @@ export class PlanningCsvSource extends BaseDataSource {
   private jobsOnce: Promise<Job[]> | null = null;
   private linksOnce: Promise<JobMaterialLink[]> | null = null;
   private inventoryOnce: Promise<InventoryItem[]> | null = null;
+  private poOnce: Promise<PoLine[]> | null = null;
   private routerOnce: Promise<LineRouter> | null = null;
 
   constructor(
@@ -121,6 +125,7 @@ export class PlanningCsvSource extends BaseDataSource {
     this.jobsOnce = null;
     this.linksOnce = null;
     this.inventoryOnce = null;
+    this.poOnce = null;
     this.routerOnce = null;
     this.warnings.length = 0;
   }
@@ -219,7 +224,16 @@ export class PlanningCsvSource extends BaseDataSource {
     return [];
   }
   async fetchPo(): Promise<PoLine[]> {
-    return [];
+    return (this.poOnce ??= fetchPoDetailCsv(this.csv, this.sp).then((res) => {
+      if (!res.ok) {
+        this.warnings.push(res.error);
+        return [];
+      }
+      if (res.value === null) return [];
+      const { values, errors } = parsePoDetailCsv(res.value);
+      this.warnings.push(...errors);
+      return values;
+    }));
   }
   async fetchDemand(): Promise<DemandLine[]> {
     return [];

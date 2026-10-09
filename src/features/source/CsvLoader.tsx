@@ -1,155 +1,175 @@
 /**
- * Load the Epicor exports from disk.
+ * **Load files** — the Epicor exports from disk, all four in one pick.
  *
- * The scheduled path is SharePoint → Graph, but that needs a token the planner
- * does not have in a browser tab. Picking the files by hand runs exactly the
- * same parsers, so an export can be checked against the board before any auth
- * is wired up.
+ * The scheduled path is SharePoint, but that needs a signed-in site the
+ * planner does not always have; picking the files runs exactly the same
+ * parsers. Each file is recognised by its header row (see `pickedFiles`), so
+ * the four can be picked together in any order and under any name, and one
+ * that is none of them says so instead of loading as something it is not.
  *
- * Separate buttons, because the three files answer different questions and are
- * checked separately: `Planning1.csv` is what to build, `JobMaterialReq.csv`
- * is what each order consumes — and therefore which order has to finish before
- * which. Either can still be dropped into the other picker; which is which is
- * decided by the header row rather than the file name, because an export saved
- * from Excel rarely keeps the name the BAQ gave it. Picking the wrong one says
- * so instead of quietly loading it as the other.
+ * The board needs `Planning1.csv`; the other three add to it — the material
+ * chain, on-hand quantities and the open POs on each order's pick list. Until
+ * a `Planning1.csv` is in, the board keeps whatever it was showing. Picked
+ * files are kept in this browser until **Clear**.
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createDataSource } from '@/data';
+import { PlanningCsvSource } from '@/data/csv/PlanningCsvSource';
+import {
+  EXPORT_FILE,
+  applyPicked,
+  clearPicked,
+  exportKind,
+  hasPickedOrders,
+  keepPicked,
+  readPicked,
+  restorePicked,
+  type ExportKind,
+  type PickedFile,
+} from '@/data/csv/pickedFiles';
 import { useDataStore } from '@/store/dataStore';
 import { useUiStore } from '@/store/uiStore';
-import {
-  setManualCsv,
-  setManualJobMaterialCsv,
-  setManualOnHandInventoryCsv,
-} from '@/data/csv/csv.client';
-import { PlanningCsvSource } from '@/data/csv/PlanningCsvSource';
-import { normalizeHeader, parseCsv } from '@/lib/csv';
 import { Button } from '@/ui';
 
+const ORDER: ExportKind[] = ['orders', 'links', 'inventory', 'po'];
+
+type Loaded = Partial<Record<ExportKind, Pick<PickedFile, 'name' | 'loadedAt'>>>;
+
+const stamp = (iso: string) =>
+  new Date(iso).toLocaleString('en-AU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+
 /**
- * A material-link export names the job on the `JobMtl` table; the order export
- * never does. That one header is enough to tell them apart.
+ * Put kept files back before the board's first load, and read from them when
+ * a `Planning1.csv` is among them.
  */
-function exportKind(text: string): Kind {
-  const header = parseCsv(text.slice(0, 4096))[0] ?? [];
-  const names = new Set(header.map(normalizeHeader));
-  if (names.has('partnum') && names.has('onhand')) return 'inventory';
-  if (
-    names.has('jobmtljobnum') ||
-    names.has('jobmtlpartnum') ||
-    (names.has('mtlpartnum') && names.has('jobnum'))
-  ) return 'links';
-  return 'orders';
+export async function restorePickedFiles(): Promise<void> {
+  const files = await restorePicked();
+  if (files.some((f) => f.kind === 'orders')) useDataStore.getState().setSource(new PlanningCsvSource());
 }
-
-type Kind = 'orders' | 'links' | 'inventory';
-
-const KIND_LABEL: Record<Kind, string> = {
-  orders: 'order',
-  links: 'material',
-  inventory: 'on-hand inventory',
-};
 
 export function CsvLoader() {
   const setSource = useDataStore((s) => s.setSource);
   const load = useDataStore((s) => s.load);
+  const sourceName = useDataStore((s) => s.source.name);
   const setLastRefresh = useUiStore((s) => s.setLastRefresh);
-  const orders = useRef<HTMLInputElement>(null);
-  const links = useRef<HTMLInputElement>(null);
-  const inventory = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<Kind | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState<Loaded>({});
+  const [note, setNote] = useState<string | null>(null);
 
-  const onPick = async (files: FileList | null, want: Kind) => {
+  useEffect(() => {
+    let live = true;
+    void readPicked().then((files) => {
+      if (!live) return;
+      const next: Loaded = {};
+      for (const f of files) next[f.kind] = { name: f.name, loadedAt: f.loadedAt };
+      setLoaded(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const reload = async () => {
+    await load();
+    setLastRefresh(new Date());
+  };
+
+  const onPick = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setBusy(want);
-    setProblem(null);
+    setBusy(true);
+    setNote(null);
     try {
-      let read = 0;
+      const next: Loaded = { ...loaded };
+      const unknown: string[] = [];
       for (const file of Array.from(files)) {
         const text = await file.text();
         const kind = exportKind(text);
-        // Both pickers take either file, but say so when they differ — a
-        // silent swap is how you end up sure you loaded something you did not.
-        if (kind !== want) {
-          setProblem(
-            `${file.name} looks like the ${KIND_LABEL[kind]} export, not the ` +
-              `${KIND_LABEL[want]} ` +
-              'one — loaded as what it is.',
-          );
+        if (!kind) {
+          unknown.push(file.name);
+          continue;
         }
-        if (kind === 'links') setManualJobMaterialCsv(text);
-        else if (kind === 'inventory') setManualOnHandInventoryCsv(text);
-        else setManualCsv(text);
-        read++;
+        const picked: PickedFile = { kind, name: file.name, loadedAt: new Date().toISOString(), text };
+        applyPicked(picked);
+        await keepPicked(picked);
+        next[kind] = { name: picked.name, loadedAt: picked.loadedAt };
       }
-      if (read === 0) return;
-      setSource(new PlanningCsvSource());
-      await load();
-      setLastRefresh(new Date());
+      setLoaded(next);
+      const notes: string[] = [];
+      if (unknown.length > 0) {
+        notes.push(
+          `${unknown.join(', ')}: not one of Planning1, JobMaterialReq, OnHandInventory or PODetail ` +
+            '(by its header row) — not loaded.',
+        );
+      }
+      if (hasPickedOrders()) {
+        if (sourceName !== 'planning-csv') setSource(new PlanningCsvSource());
+        await reload();
+      } else if (sourceName === 'planning-csv') {
+        await reload();
+      } else if (Object.keys(next).length > 0) {
+        notes.push('Add Planning1.csv as well: the board shows its current orders until then.');
+      }
+      setNote(notes.length > 0 ? notes.join(' ') : null);
     } finally {
-      setBusy(null);
-      // Allow re-picking the same file.
-      if (orders.current) orders.current.value = '';
-      if (links.current) links.current.value = '';
-      if (inventory.current) inventory.current.value = '';
+      setBusy(false);
+      if (input.current) input.current.value = '';
     }
   };
 
+  const clear = async () => {
+    setBusy(true);
+    try {
+      await clearPicked();
+      setLoaded({});
+      setNote(null);
+      setSource(createDataSource());
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const kinds = ORDER.filter((k) => loaded[k]);
+
   return (
-    <>
+    <span className="file-loader">
       <input
-        ref={orders}
+        ref={input}
         type="file"
         accept=".csv,text/csv"
         multiple
         hidden
-        onChange={(e) => void onPick(e.target.files, 'orders')}
-      />
-      <input
-        ref={links}
-        type="file"
-        accept=".csv,text/csv"
-        hidden
-        onChange={(e) => void onPick(e.target.files, 'links')}
-      />
-      <input
-        ref={inventory}
-        type="file"
-        accept=".csv,text/csv"
-        hidden
-        onChange={(e) => void onPick(e.target.files, 'inventory')}
+        onChange={(e) => void onPick(e.target.files)}
       />
       <Button
-        onClick={() => orders.current?.click()}
-        disabled={busy !== null}
-        title="Parse Planning1.csv — the orders, their hours and their dates"
+        onClick={() => input.current?.click()}
+        disabled={busy}
+        title="Pick Planning1, JobMaterialReq, OnHandInventory and PODetail (.csv) — together or one at a time"
       >
-        {busy === 'orders' ? 'Loading…' : 'Load orders'}
+        {busy ? 'Loading…' : 'Load files'}
       </Button>
-      <Button
-        onClick={() => links.current?.click()}
-        disabled={busy !== null}
-        title={
-          'Parse JobMaterialReq.csv — what each order consumes, which is ' +
-          'what tells the board that one order has to finish before another'
-        }
-      >
-        {busy === 'links' ? 'Loading…' : 'Load JobMaterialReq'}
-      </Button>
-      <Button
-        onClick={() => inventory.current?.click()}
-        disabled={busy !== null}
-        title="Parse OnHandInventory.csv — Calculated_OnHand by Part_PartNum"
-      >
-        {busy === 'inventory' ? 'Loading…' : 'Load OnHandInventory'}
-      </Button>
-      {problem && (
-        <span className="board-warn" title={problem}>
-          Check the file
+      {kinds.length > 0 && (
+        <span
+          className="file-loader-set"
+          title={kinds.map((k) => `${EXPORT_FILE[k]}: ${loaded[k]!.name}, picked ${stamp(loaded[k]!.loadedAt)}`).join('\n')}
+        >
+          {ORDER.map((k) => (
+            <span key={k} className={`file-chip${loaded[k] ? ' on' : ''}`}>
+              {EXPORT_FILE[k]}
+            </span>
+          ))}
+          <button type="button" className="file-clear" onClick={() => void clear()} disabled={busy} title="Forget the picked files">
+            Clear
+          </button>
         </span>
       )}
-    </>
+      {note && (
+        <span className="board-warn" title={note}>
+          {note}
+        </span>
+      )}
+    </span>
   );
 }

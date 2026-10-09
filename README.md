@@ -10,9 +10,10 @@ polling.
 
 Source data comes from Epicor via SharePoint, refreshed **every five minutes
 and on demand**: orders from the `Planning1.csv` export, people from the
-`ASSY_Operator` list, material requirements from `JobMaterialReq.csv`, and
-on-hand quantities from `OnHandInventory.csv`. The
-plan goes back the other way, into the `ASSY_Production` list.
+`ASSY_Operator` list, material requirements from `JobMaterialReq.csv`,
+on-hand quantities from `OnHandInventory.csv` and open purchase orders from
+`PODetail.csv`. The plan goes back the other way, into the `ASSY_Production`
+list.
 
 ## What it does
 
@@ -271,20 +272,26 @@ Configure via `.env.local` (see `.env.example`):
 | `VITE_DATA_SOURCE` | Behaviour |
 | ------------------ | --------- |
 | `mock` (default)   | Bundled `seed.json`. Instant, offline. |
-| `planning-csv`     | Orders from `Planning1.csv`, dependencies from `JobMaterialReq.csv`, people from the `ASSY_Operator` SharePoint list. |
+| `planning-csv`     | Orders from `Planning1.csv`, dependencies from `JobMaterialReq.csv`, on hand from `OnHandInventory.csv`, open POs from `PODetail.csv`, people from the `ASSY_Operator` SharePoint list. |
 | `excel`            | Fetch the master workbook from SharePoint (Microsoft Graph) and parse it with SheetJS. Falls back to a manual file upload if Graph isn't configured. |
 
 The Excel source (and the heavy `xlsx` dependency) is **lazy-loaded**, so
 neither the mock nor the CSV build ships the parser.
 
-Whichever is configured, **Load orders** and **Load JobMaterialReq** in the
-header parse files picked from disk through exactly the same code — the
-quickest way to check an export against the board without wiring up Graph auth.
-Two buttons because the two files answer different questions and are checked
-separately: what to build, and what has to finish first. Either picker still
-takes either file — which is which is decided by the header row, not the file
-name, so a copy saved out of Excel lands in the right parser — but picking the
-wrong one says so rather than loading it silently.
+Whichever is configured, **Load files** in the header reads the four Epicor
+exports from disk — `Planning1`, `JobMaterialReq`, `OnHandInventory` and
+`PODetail` — through exactly the same parsers: the quickest way to check an
+export against the board without wiring up SharePoint. Pick them together or
+one at a time. Which is which is decided by the header row, not the file name,
+so a copy saved out of Excel lands in the right parser, and a file that is
+none of the four says so instead of loading. A chip per export lights when
+that file is in (names and times on hover). Picked files win over the
+configured paths and are kept in this browser (IndexedDB), so a reload opens
+on them, until **Clear**. The board needs `Planning1.csv`; until it is in, the
+other three wait. With `PODetail.csv` in, each component on an order's pick
+list shows its next open receipt — date and quantity, every open PO line on
+hover. Without the `ASSY_Operator` list (no SharePoint) nobody is on the
+roster, so orders have no crew and no Expect date.
 
 **Did the links land?** The header carries the answer: *N orders wait on
 another*, and hovering it lists every one of them — `ASM8020 (UPL) waits on

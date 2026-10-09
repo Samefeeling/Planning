@@ -1,7 +1,8 @@
 /**
  * Fetches Epicor CSV exports as text: `Planning1.csv` (orders),
- * `JobMaterialReq.csv` (material demand and dependencies), and optional
- * `OnHandInventory.csv` (calculated on-hand quantity by part).
+ * `JobMaterialReq.csv` (material demand and dependencies), and the optional
+ * `OnHandInventory.csv` (calculated on-hand quantity by part) and
+ * `PODetail.csv` (open purchase-order receipts).
  *
  * Three paths each, in order: a file the planner picked from disk (works
  * today, with no auth), a plain URL (an export dropped on a share or served by
@@ -23,6 +24,7 @@ let manualCsv: string | null = null;
 let manualJobMaterialCsv: string | null = null;
 let manualOnHandInventoryCsv: string | null = null;
 let manualProductLinesJson: string | null = null;
+let manualPoDetailCsv: string | null = null;
 
 /** Stash a `Planning1.csv` the user picked from disk. */
 export function setManualCsv(text: string): void {
@@ -51,6 +53,23 @@ export function getManualOnHandInventoryCsv(): string | null {
   return manualOnHandInventoryCsv;
 }
 
+/** Stash a `PODetail.csv` the user picked from disk. */
+export function setManualPoDetailCsv(text: string): void {
+  manualPoDetailCsv = text;
+}
+
+export function getManualPoDetailCsv(): string | null {
+  return manualPoDetailCsv;
+}
+
+/** Forget every file picked from disk, so the configured sources answer again. */
+export function clearManualFiles(): void {
+  manualCsv = null;
+  manualJobMaterialCsv = null;
+  manualOnHandInventoryCsv = null;
+  manualPoDetailCsv = null;
+}
+
 /** Stash a `product-lines.v3.json` the user picked from disk. */
 export function setManualProductLinesJson(text: string): void {
   manualProductLinesJson = text;
@@ -73,6 +92,10 @@ export interface CsvSourceConfig {
   inventoryUrl?: string;
   /** SharePoint drive path for OnHandInventory.csv; empty disables the fetch. */
   inventoryFilePath?: string;
+  /** Direct URL to PODetail.csv. */
+  poUrl?: string;
+  /** SharePoint drive path for PODetail.csv; empty disables the fetch. */
+  poFilePath?: string;
   /** Direct URL to the dispatch waybill export. */
   waybillUrl?: string;
   /** SharePoint drive path for the waybill export; empty disables the fetch. */
@@ -95,6 +118,8 @@ export function readCsvConfigFromEnv(): CsvSourceConfig {
     inventoryUrl: env.VITE_ON_HAND_INVENTORY_CSV_URL ?? '',
     inventoryFilePath:
       env.VITE_ON_HAND_INVENTORY_CSV_PATH ?? '/Shared Documents/OnHandInventory.csv',
+    poUrl: env.VITE_PO_DETAIL_CSV_URL ?? '',
+    poFilePath: env.VITE_PO_DETAIL_CSV_PATH ?? '',
     waybillUrl: env.VITE_WAYBILL_CSV_URL ?? '',
     waybillFilePath: env.VITE_WAYBILL_CSV_PATH ?? '',
     productLinesUrl: env.VITE_PRODUCT_LINES_URL ?? '',
@@ -207,6 +232,25 @@ export async function fetchOnHandInventoryCsv(
   return fetchText(
     'OnHandInventory.csv',
     sp.authMode === 'session' ? sessionFile(sp, cfg.inventoryFilePath) : graphFile(sp, cfg.inventoryFilePath),
+    sp.token,
+  );
+}
+
+/**
+ * Optional open-PO export. Off unless a file is picked or a URL or path is
+ * set: without it a short component simply has no PO to wait for.
+ */
+export async function fetchPoDetailCsv(
+  cfg: CsvSourceConfig,
+  sp: SharePointConfig,
+): Promise<Result<string | null, string>> {
+  const manual = getManualPoDetailCsv();
+  if (manual !== null) return ok(manual);
+  if (cfg.poUrl) return fetchText('PODetail.csv', cfg.poUrl, null);
+  if (!cfg.poFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
+  return fetchText(
+    'PODetail.csv',
+    sp.authMode === 'session' ? sessionFile(sp, cfg.poFilePath) : graphFile(sp, cfg.poFilePath),
     sp.token,
   );
 }
