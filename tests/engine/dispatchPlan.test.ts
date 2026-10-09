@@ -172,9 +172,9 @@ describe('NSW fleet', () => {
     expect(p.loads.map((l) => l.drops.length).sort()).toEqual([1, 2]);
   });
 
-  it('hands a run of a pallet or two to a carrier', () => {
+  it('books a run of a pallet or two as a part load', () => {
     const p = plan({}, DEFAULT_DISPATCH_SETTINGS, [make('tiny', { volumeM3: 1.5, shipBy: '2026-10-12' })]);
-    expect(p.loads[0].equipment).toBe('Carrier');
+    expect(p.loads[0].equipment).toBe('Part load');
   });
 
   it('pulls forward inside the firm window only when the goods are ready', () => {

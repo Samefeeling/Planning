@@ -222,7 +222,8 @@ export function DayBoard({
             )}
             {total?.overFleet && (
               <li>
-                {total.fleetRuns} fleet runs — more than the {settings.fleet.maxRunsPerDay} trucks available.
+                {total.fleetRuns} NSW runs — more than the {settings.fleet.maxRunsPerDay} contractor trucks set per
+                day.
               </li>
             )}
           </ul>

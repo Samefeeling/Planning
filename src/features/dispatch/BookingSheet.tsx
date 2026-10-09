@@ -10,7 +10,7 @@
 import { DEADLINE_LABEL, DISPATCH_MODE_LABEL, dueDate, type DeadlineField } from '@/domain/dispatch';
 import type { PlannedLoad } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
-import { bookingCsv, fullAddress, loadStatus } from './booking';
+import { bookingCsv, contractorOf, fullAddress, loadStatus } from './booking';
 import { recommendation } from './equipment';
 import { READINESS, dayLabel, m3, pct, shortDay } from './format';
 import { SOURCE_MARK } from './LoadCard';
@@ -37,7 +37,7 @@ export function BookingSheet({
   const kg = loads.reduce((s, l) => s + l.weightKg, 0);
 
   const download = () => {
-    const blob = new Blob([bookingCsv(loads, deadline, numbers)], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([bookingCsv(loads, deadline, numbers, settings.contractors)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -92,7 +92,10 @@ export function BookingSheet({
                 <th colSpan={11} scope="rowgroup">
                   <span className={`dot series-${load.mode}`} aria-hidden />
                   <b>L{numbers.get(load.id)}</b> · {DISPATCH_MODE_LABEL[load.mode]} · {load.label}
-                  <span className="sheet-book">{recommendation(load, settings)}</span>
+                  <span className="sheet-book">
+                    {recommendation(load, settings)}
+                    {contractorOf(load, settings.contractors) && ` · with ${contractorOf(load, settings.contractors)}`}
+                  </span>
                   <span className="sheet-meta">
                     {m3(load.volumeM3)}
                     {load.fill !== null && ` · ${pct(load.fill)} full`}

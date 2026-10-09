@@ -28,7 +28,7 @@ const NOTICE_FLAGS: readonly OrderFlag[] = ['cube-partial', 'no-location'];
 const ACTION: Partial<Record<OrderFlag, string>> = {
   'credit-hold': 'Ask accounts to release, or hold the order',
   'on-hold': 'Order is on hold in Epicor',
-  unrouted: 'Add the zone to a fleet run class, hub or export prefix in Settings',
+  unrouted: 'Add the zone to an NSW run class, hub or export prefix in Settings',
   'no-date': 'Pin a dispatch day on the order',
   overdue: 'Planned on the first open day — confirm the customer can take it',
   late: 'No departure before its due date — pin a day or book a dedicated run',

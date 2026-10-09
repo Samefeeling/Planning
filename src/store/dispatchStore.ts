@@ -12,6 +12,7 @@ import { persist } from 'zustand/middleware';
 import {
   DEFAULT_DISPATCH_SETTINGS,
   EMPTY_DECISIONS,
+  PART_LOAD,
   type DayKey,
   type DispatchDecisions,
   type DispatchSettings,
@@ -194,11 +195,21 @@ export const useDispatchStore = create<DispatchState>()(
       name: 'resero.dispatch.v1',
       // v1: NSW runs keep each zone and Ship Via apart. Copies saved before
       // that carry the old default (mixed), which would otherwise win.
-      version: 1,
+      // v2: no own fleet — the small NSW run once called `Carrier` is a
+      // `Part load` booked with the contractor.
+      version: 2,
       migrate: (persisted, from) => {
         const p = (persisted ?? {}) as Partial<DispatchState>;
         if (from < 1 && p.settings?.fleet) {
           p.settings = { ...p.settings, fleet: { ...p.settings.fleet, keepShipViaApart: true } };
+        }
+        if (from < 2) {
+          const rename = <T extends { equipment: string }>(x: T): T =>
+            x.equipment === 'Carrier' ? { ...x, equipment: PART_LOAD } : x;
+          if (p.decisions?.firmLoads) {
+            p.decisions = { ...p.decisions, firmLoads: p.decisions.firmLoads.map(rename) };
+          }
+          if (p.shipments) p.shipments = p.shipments.map(rename);
         }
         return p as DispatchState;
       },

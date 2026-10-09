@@ -44,16 +44,16 @@ describe('recommendation', () => {
   it('says how to book a part load', () => {
     expect(recommendation(load('linehaul', 'LTL', 5, null), s)).toMatch(/LTL/);
     expect(recommendation(load('container', 'LCL', 6, null), s)).toMatch(/LCL/);
-    expect(recommendation(load('fleet', 'Carrier', 1, null), s)).toMatch(/carrier/);
+    expect(recommendation(load('fleet', 'Part load', 1, null), s)).toMatch(/part load \(pallet freight\)/);
   });
 });
 
 describe('sizeLadder', () => {
   it('lists every truck with its fill, the smaller ones too small', () => {
     const ladder = sizeLadder(load('fleet', 'Rigid 12-pallet', 37, 45), s);
-    expect(ladder.map((o) => o.name)).toEqual(['Carrier', 'Rigid 8-pallet', 'Rigid 12-pallet', 'Semi 22-pallet']);
-    const [carrier, rigid8, rigid12, semi] = ladder;
-    expect(carrier.fits).toBe(false);
+    expect(ladder.map((o) => o.name)).toEqual(['Part load', 'Rigid 8-pallet', 'Rigid 12-pallet', 'Semi 22-pallet']);
+    const [partLoad, rigid8, rigid12, semi] = ladder;
+    expect(partLoad.fits).toBe(false);
     expect(rigid8.fits).toBe(false);
     expect(rigid12).toMatchObject({ chosen: true, fits: true });
     expect(rigid12.fill).toBeCloseTo(37 / 45);

@@ -215,12 +215,13 @@ plan goes back the other way, into the `ASSY_Production` list.
 ## Dispatch planning
 
 A second page, **Dispatch** (switch at the top left), plans outbound shipments
-from the waybill export: NSW orders on the factory's own trucks with nearby
-customers consolidated, interstate orders consolidated to each state's hub for
-the local carrier, and export orders into containers sized by volume. Orders
-stay whole unless bigger than a truck, may be pulled forward only within a
-warehouse window before their `Need By`, and loads can be re-arranged by hand
-(move orders, pick sizes and days) and confirmed. Orders are sized from the
+from the waybill export: NSW orders on contractor trucks with nearby
+customers consolidated (there is no own fleet; every load is booked),
+interstate orders consolidated to each state's hub for the local carrier,
+and export orders into containers sized by volume. Orders stay whole unless
+bigger than a truck, may be pulled forward only within a warehouse window
+before their `Need By`, and loads can be re-arranged by hand (move orders,
+pick sizes and days) and marked booked. Orders are sized from the
 packed cube on the pick list (`2C`), else the cubics sheet (stack-aware, per
 part) when it covers them, else the waybill's freight line; a daily and weekly
 volume chart leads the look-ahead, and each day prints or downloads as a

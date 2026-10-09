@@ -19,9 +19,9 @@ export interface Bucket {
   total: number;
   orders: number;
   weightKg: number;
-  /** Full fleet runs, linehaul trailers and containers (not part loads). */
+  /** NSW truck runs, linehaul trailers and containers (not part loads). */
   vehicles: number;
-  /** Fleet runs handed to a carrier, plus LTL and LCL shipments. */
+  /** NSW part loads, plus LTL and LCL shipments. */
   partLoads: number;
   /** How many of each vehicle, container or part load: what to book. */
   equipment: Record<string, number>;

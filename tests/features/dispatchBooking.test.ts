@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { parseCsv } from '@/lib/csv';
 import type { ShipmentOrder } from '@/domain/dispatch';
 import type { PlannedLoad } from '@/engine/dispatch/plan';
-import { bookingCsv, fullAddress, loadStatus, shipToNames } from '@/features/dispatch/booking';
+import { bookingCsv, contractorOf, fullAddress, loadStatus, shipToNames } from '@/features/dispatch/booking';
 
 const order = (id: string, patch: Partial<ShipmentOrder> = {}): ShipmentOrder => ({
   id,
@@ -86,6 +86,12 @@ describe('bookingCsv', () => {
     expect(col('ExpDeliveryDt')).toBe('13/10/2026');
     expect(col('Status')).toBe('Edited');
     expect(col('Description')).toBe('NSW-Metro-South');
+    expect(col('Contractor')).toBe('');
+  });
+
+  it('names the contractor booked for the Ship Via', () => {
+    const named = parseCsv(bookingCsv([load], 'needBy', undefined, { ANMS: 'Metro Freight' }));
+    expect(named[1][named[0].indexOf('Contractor')]).toBe('Metro Freight');
   });
 });
 
@@ -94,5 +100,7 @@ describe('sheet helpers', () => {
     expect(shipToNames(load)).toEqual(['Site 1, "North"', 'Site 2, "North"']);
     expect(fullAddress(order('1'))).toBe('1 Hume Hwy, Liverpool NSW 2170');
     expect(loadStatus({ ...load, firm: null })).toBe('Proposed');
+    expect(contractorOf(load, { ANMS: ' Metro Freight ', AQMC: 'Other' })).toBe('Metro Freight');
+    expect(contractorOf(load, {})).toBe('');
   });
 });

@@ -199,7 +199,7 @@ describe('split orders', () => {
 
 describe('fitEquipment', () => {
   it('sizes a hand-built load by the optimiser’s rules', () => {
-    expect(fitEquipment('fleet', 1, S).equipment).toBe('Carrier');
+    expect(fitEquipment('fleet', 1, S).equipment).toBe('Part load');
     expect(fitEquipment('fleet', 40, S)).toEqual({ equipment: 'Rigid 12-pallet', capacityM3: 45 });
     expect(fitEquipment('linehaul', 10, S).equipment).toBe('LTL');
     expect(fitEquipment('container', 30, S)).toEqual({ equipment: "40' GP", capacityM3: 58 });

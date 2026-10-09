@@ -19,6 +19,7 @@
 import {
   DEADLINE_LABEL,
   DISPATCH_MODE_LABEL,
+  PART_LOAD,
   VOLUME_SOURCE_LABEL,
   dueDate,
   type DeadlineField,
@@ -27,7 +28,7 @@ import {
 import type { PlannedLoad } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { Badge } from '@/ui';
-import { fullAddress, shipToNames } from './booking';
+import { contractorOf, fullAddress, shipToNames } from './booking';
 import { recommendation, sizeLadder } from './equipment';
 import { READINESS, dollars, dollarsFull, fillTone, m3, pct, shortDay, weekdayOf } from './format';
 import { loadValue } from '@/engine/dispatch/shipments';
@@ -77,6 +78,7 @@ export function LoadCard({
   const value = loadValue(load, settings.shipmentValue);
   const ladder = sizeLadder(load, settings);
   const names = shipToNames(load);
+  const contractor = contractorOf(load, settings.contractors);
   const canEdit = load.firm !== 'dispatched' && load.mode !== 'pickup';
   const isEditing = editing && canEdit;
   // NSW runs may swap orders between run classes; a linehaul or container
@@ -135,7 +137,10 @@ export function LoadCard({
         <span className="reco-label">
           {load.firm === 'confirmed' || load.firm === 'dispatched' ? 'Booked' : 'Recommended'}
         </span>
-        <strong className="reco-value">{recommendation(load, settings)}</strong>
+        <strong className="reco-value">
+          {recommendation(load, settings)}
+          {contractor && <span className="reco-contractor"> · with {contractor}</span>}
+        </strong>
         <div className="load-volume">
           {load.fill !== null && load.capacityM3 ? (
             <>
@@ -172,7 +177,9 @@ export function LoadCard({
             const body = (
               <>
                 <span className="rung-name">{o.name}</span>
-                <span className="rung-cap">{o.capacityM3 === null ? 'part load' : `${o.capacityM3} m³`}</span>
+                <span className="rung-cap">
+                  {o.capacityM3 === null ? (o.name === PART_LOAD ? 'pallet freight' : 'part load') : `${o.capacityM3} m³`}
+                </span>
                 <span className="rung-fill">
                   {!o.fits ? 'too small' : o.fill === null ? (o.chosen ? 'chosen' : 'fits') : `${pct(o.fill)} full`}
                 </span>
@@ -338,9 +345,9 @@ export function LoadCard({
             type="button"
             className="kpi-btn"
             onClick={() => confirmLoad(load)}
-            title="Booked with the carrier or the fleet: re-planning will no longer change it"
+            title="Booked with the contractor: re-planning will no longer change it"
           >
-            Confirm load
+            Mark booked
           </button>
         )}
         {load.firm === 'edited' && (
@@ -358,7 +365,7 @@ export function LoadCard({
             type="button"
             className="kpi-btn primary"
             onClick={() => markDispatched(load)}
-            title="It has left: log the shipment (own-fleet runs need no booking first)"
+            title="It has left: log the shipment (for a load booked by phone and not marked booked)"
           >
             Mark dispatched
           </button>

@@ -114,14 +114,14 @@ export const dropValue = (d: PlannedDrop, basis: Basis): number =>
 export const loadValue = (load: PlannedLoad, basis: Basis): number =>
   load.drops.reduce((s, d) => s + dropValue(d, basis), 0);
 
-/** A whole truck or trailer: own fleet runs and linehaul FTL, not part loads. */
+/** A whole truck or trailer: NSW truck runs and linehaul FTL, not part loads. */
 export const isTruck = (l: { mode: DispatchMode; capacityM3: number | null }): boolean =>
   (l.mode === 'fleet' || l.mode === 'linehaul') && l.capacityM3 !== null;
 
 export const isContainer = (l: { mode: DispatchMode; capacityM3: number | null }): boolean =>
   l.mode === 'container' && l.capacityM3 !== null;
 
-/** Carrier runs, LTL and LCL: booked by the cube, not by the vehicle. */
+/** NSW part loads, LTL and LCL: booked by the cube, not by the vehicle. */
 export const isPartLoad = (l: { mode: DispatchMode; capacityM3: number | null }): boolean =>
   l.mode !== 'pickup' && l.capacityM3 === null;
 

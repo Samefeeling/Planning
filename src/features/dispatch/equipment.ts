@@ -5,7 +5,7 @@
  * the next size down would not do.
  */
 
-import type { DispatchSettings, Equipment } from '@/domain/dispatch';
+import { PART_LOAD, type DispatchSettings, type Equipment } from '@/domain/dispatch';
 import type { PlannedLoad } from '@/engine/dispatch/plan';
 
 export interface SizeOption {
@@ -43,8 +43,8 @@ export function sizeLadder(load: PlannedLoad, settings: DispatchSettings): SizeO
   switch (load.mode) {
     case 'fleet':
       return [
-        ...(settings.fleet.carrierMaxM3 > 0 || load.equipment === 'Carrier'
-          ? [part('Carrier', settings.fleet.carrierMaxM3, load, `Up to ${settings.fleet.carrierMaxM3} m³ by carrier`)]
+        ...(settings.fleet.carrierMaxM3 > 0 || load.equipment === PART_LOAD
+          ? [part(PART_LOAD, settings.fleet.carrierMaxM3, load, `Up to ${settings.fleet.carrierMaxM3} m³ as pallet freight`)]
           : []),
         ...bySize(settings.fleet.trucks).map((e) => rung(e, load)),
       ];
@@ -69,8 +69,8 @@ export function recommendation(load: PlannedLoad, settings: DispatchSettings): s
   switch (load.equipment) {
     case 'Pickup':
       return 'Customer collects';
-    case 'Carrier':
-      return 'Send by carrier — too small for a truck run';
+    case PART_LOAD:
+      return 'Book a part load (pallet freight) — too small for a whole truck';
     case 'LTL':
       return 'Book a part load (LTL) with the linehaul carrier';
     case 'LCL':

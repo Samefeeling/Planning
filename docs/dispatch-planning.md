@@ -66,18 +66,22 @@ Load the file with **Load waybill**. Set `VITE_WAYBILL_CSV_URL` or
 
 | Zone | Route | Equipment |
 | --- | --- | --- |
-| NSW zones in a fleet run class | **NSW fleet** — own trucks deliver to the customer. Consolidated per `Description` + `Ship Via` (`NSW-Metro-South` / `ANMS`, `NSW-Metro-North` / `ANMN`, …), nearby customers first; Settings can let neighbouring zones of a run class share a truck | Rigid 8-pallet, Rigid 12-pallet, Semi 22-pallet |
+| NSW zones in a run class | **NSW delivery** — a contractor's truck, booked for the run, delivers to the customer. Consolidated per `Description` + `Ship Via` (`NSW-Metro-South` / `ANMS`, `NSW-Metro-North` / `ANMN`, …), nearby customers first; Settings can let neighbouring zones of a run class share a truck | Rigid 8-pallet, Rigid 12-pallet, Semi 22-pallet, or a part load (pallet freight) |
 | Other states (`QLD`, `VIC`, `SA`, `WA`, `TAS`, `NT`) | **Interstate linehaul** — to the state's hub city, where the local carrier does the last mile. Consolidated per `Description` + `Ship Via` (`QLD- Metro` / `AQMC`, `QLD- Reg-North` / `AQRN`, …): different carriers or regions never share a departure | FTL semi, or LTL part load |
 | `NZ`, `Export`, `Hong Kong` | **Export containers** — consolidated per destination and `Ship Via` (`Export-ROW` per city, since its cities are different ports) | 20' GP, 40' GP, 40' HC, or LCL |
 | `NSW-Customer Pickup` | **Customer pickup** — dock schedule only | — |
 
 A zone that matches none of these is flagged *unrouted*; add it in Settings.
 
+There is no own fleet: every load is booked with a contractor. Settings →
+**Contractors** names the transport company for each `Ship Via` code; the
+name shows on the load cards, the booking sheet and its CSV.
+
 ## How loads are built
 
 1. **Window.** Each order must leave on the last dispatch day of its route on
    or before its `Need By`, and may leave up to *Pull forward* working days sooner
-   (3 for the fleet and linehaul, 10 for containers by default). This is the
+   (3 for NSW delivery and linehaul, 10 for containers by default). This is the
    warehouse limit: shipping early means finishing and staging early, so
    tighten it in peak season.
 2. **Only due orders open a load.** An order with time left never causes a
@@ -85,13 +89,14 @@ A zone that matches none of these is flagged *unrouted*; add it in Settings.
 3. **Orders stay whole.** An order is split only when it is bigger than the
    largest vehicle: full loads plus a remainder.
 4. **Top-up.** Spare space is filled with open orders on the same route.
-   For the NSW fleet the nearest are taken first — same customer, then same
+   For NSW delivery the nearest are taken first — same customer, then same
    city, then distance — and every drop on a run must be within the run
    class's radius of every other drop (30 km metro, 120 km regional) and the
    drop limit (8 metro, 4 regional). Inside the firm window (2 working days)
    only orders whose goods are ready are pulled forward.
 5. **Right-size.** Each load takes the smallest vehicle or container that
-   holds it. A fleet run of 2 m³ or less is handed to a carrier. A linehaul or
+   holds it. An NSW run of 2 m³ or less is booked as a part load (pallet freight)
+   rather than a whole truck. A linehaul or
    container shipment at or below the part-load limit (25 m³ LTL, 15 m³ LCL)
    goes as a part load, unless open orders together reach a properly filled
    full load (80% FTL, 85% FCL).
@@ -99,7 +104,7 @@ A zone that matches none of these is flagged *unrouted*; add it in Settings.
    next size down (within 10%), says so on the card.
 
 Each day shows its loads' total volume against the marshalling area's daily
-capacity (150 m³ by default), and the fleet runs against trucks available.
+capacity (150 m³ by default), and the NSW truck runs against the contractor trucks set per day.
 
 ## Who it is for, and the page
 
@@ -117,7 +122,7 @@ Five tiles on every tab, each opening the view behind it:
 | **Shipped today** | value of the loads marked dispatched today; under it, what is still to go today |
 | **Shipped month to date** | value dispatched this month; under it, the month-end forecast (shipped + still planned this month) |
 | **SIFOT month to date** | Shipped In Full, On Time — orders due this month that left complete by their due date, against the target (95% by default: green at or above, amber within 10 points, red below) |
-| **Trucks today** | own-fleet trucks and linehaul trailers leaving today; how many have gone; carrier runs and LTL apart |
+| **Trucks today** | contractor trucks leaving today — NSW truck runs and linehaul FTL trailers; how many have gone; NSW part loads and LTL apart |
 | **Containers this week** | FCL containers leaving Monday–Sunday, by size; LCL apart |
 
 **Where the dollars come from.** The waybill lists open orders only — a
@@ -144,11 +149,12 @@ cannot tell a shipped order from a missing one.
   against the area's daily capacity.
 - **Alerts** — loads from earlier days not marked dispatched, the orders not
   ready (check with production before booking), loads with warnings, more
-  fleet runs than trucks.
+  NSW truck runs than the contractor trucks set per day.
 - **To book** and the route filter; **Load cards** or **Booking sheet**;
   **Edit loads**.
-- Loads by route. **Mark dispatched** is on every load leaving today or
-  earlier (own-fleet runs need no booking first); booked loads keep it too.
+- Loads by route. **Mark booked** once the contractor has the load;
+  **Mark dispatched** when it leaves. Mark dispatched is also on unbooked
+  loads leaving today or earlier, for a load booked by phone and not marked.
 
 ### Look-ahead
 
@@ -189,7 +195,7 @@ Every load card leads with its recommendation — for example
 `1 × 40' HC container — 68 m³ usable · Internal 12.03 × 2.35 × 2.69 m` —
 and shows the route's whole size ladder beneath it: each truck or container
 with how full this load would make it, the ones it does not fit marked
-*too small*, and the chosen one outlined. Part loads read *send by carrier*,
+*too small*, and the chosen one outlined. Part loads read *book a part load (pallet freight)*,
 *book LTL* or *book LCL*. The day header and the weekly table add up the
 same picks into a booking list (`2 × Semi 22-pallet · 1 × 40' HC · 3 × LTL`).
 Sizes, usable volumes and notes are edited on the Settings tab.
@@ -224,9 +230,9 @@ which MES keeps for warnings.
   further apart than the run radius, an order on a load that does not go its
   way, a day the hub or port does not depart, and orders leaving after their
   `Need By` are all warned on the card. **Reset to plan** drops the edits.
-- **Confirm load** books a proposal or an edited load: re-planning no longer
-  touches it. **Mark dispatched** records it left; **Release** hands its
-  orders back.
+- **Mark booked** records a proposal or an edited load as booked with the
+  contractor: re-planning no longer touches it. **Mark dispatched** records
+  it left; **Release** hands its orders back.
 - On an order: **Pin to day**, **Hold back** (with a reason), and **Volume m³**
   to enter or correct its cube.
 

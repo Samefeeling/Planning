@@ -31,6 +31,17 @@ export const shipToNames = (load: PlannedLoad): string[] => [
   ...new Set(load.drops.map((d) => d.order?.shipToName || d.order?.custId || d.orderId)),
 ];
 
+/**
+ * The contractor booked for a load, from its orders' Ship Via codes and the
+ * names set in Settings; blank when none is set.
+ */
+export const contractorOf = (load: PlannedLoad, contractors: Readonly<Record<string, string>>): string =>
+  [
+    ...new Set(
+      load.drops.map((d) => (contractors[d.order?.shipVia.trim() ?? ''] ?? '').trim()).filter(Boolean),
+    ),
+  ].join(' / ');
+
 /** `1 Hume Hwy, Liverpool NSW 2170` from whatever the export carries. */
 export const fullAddress = (o: { address: string; city: string; state: string; postcode: string }): string =>
   [o.address, [o.city, o.state, o.postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
@@ -47,6 +58,7 @@ export function bookingCsv(
   loads: readonly PlannedLoad[],
   deadline: DeadlineField,
   numbers?: ReadonlyMap<string, number>,
+  contractors: Readonly<Record<string, string>> = {},
 ): string {
   const header = [
     'Dispatch day',
@@ -55,6 +67,7 @@ export function bookingCsv(
     'Mode',
     'Route',
     'Book',
+    'Contractor',
     'Capacity m3',
     'Load m3',
     'Fill %',
@@ -89,6 +102,7 @@ export function bookingCsv(
         DISPATCH_MODE_LABEL[load.mode],
         load.label,
         load.equipment,
+        contractorOf(load, contractors),
         load.capacityM3 === null ? '' : String(load.capacityM3),
         round(load.volumeM3),
         load.fill === null ? '' : String(Math.round(load.fill * 100)),

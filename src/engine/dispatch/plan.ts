@@ -15,7 +15,7 @@
  * 3. **Due orders are packed whole.** An order is split only when it is
  *    bigger than the largest vehicle, into full loads plus a remainder.
  * 4. **Spare space is topped up** with orders from the same route whose
- *    window is open — nearest customers first for the NSW fleet, the
+ *    window is open — nearest customers first for NSW delivery, the
  *    earliest due date first otherwise. Inside the firm window only orders
  *    whose goods are already ready are pulled forward.
  * 5. **Each load is then right-sized** to the smallest vehicle or container
@@ -32,6 +32,7 @@
  */
 
 import {
+  PART_LOAD,
   dueDate,
   groupBase,
   routeFor,
@@ -166,7 +167,7 @@ export interface DayTotal {
   fleetRuns: number;
   /** Over the marshalling area's capacity. */
   overStaging: boolean;
-  /** More fleet runs than trucks available. */
+  /** More NSW truck runs than the contractor trucks set per day. */
   overFleet: boolean;
 }
 
@@ -240,7 +241,7 @@ function packFirstFit(pieces: Piece[], capacity: number): Bin[] {
   return bins;
 }
 
-// ---- NSW fleet geography --------------------------------------------------
+// ---- NSW delivery geography --------------------------------------------------
 
 const sameCity = (a: Candidate, b: Candidate) => a.city === b.city;
 
@@ -695,7 +696,7 @@ export function planDispatch(
           if (known && bin.volume <= settings.fleet.carrierMaxM3 + EPS) {
             // A truck run for a pallet or two costs more than the freight is
             // worth; hand it to a carrier.
-            emit(bin, 'Carrier', null, ['Too small for a truck run — send by carrier']);
+            emit(bin, PART_LOAD, null, ['Too small for a whole truck — book as a part load']);
             continue;
           }
           const truck = rightSize(equipment, bin.volume);
@@ -734,7 +735,7 @@ export function planDispatch(
     }
   }
 
-  // Within a day: own fleet first, then linehaul, containers and pickups —
+  // Within a day: NSW delivery first, then linehaul, containers and pickups —
   // the order the dock loads them in.
   const rank: Record<DispatchMode, number> = { fleet: 0, linehaul: 1, container: 2, pickup: 3 };
   loads.sort(
@@ -787,7 +788,7 @@ export function planDispatch(
   };
 }
 
-/** The fleet run class a load's group names, if it is a fleet load. */
+/** The NSW run class a load's group names, if it is an NSW delivery load. */
 const runClassOf = (group: string, settings: DispatchSettings) =>
   settings.fleet.runClasses.find((c) => groupBase(group) === `fleet:${c.id}`) ?? null;
 
@@ -891,10 +892,10 @@ export function fitEquipment(
       return { equipment: 'Pickup', capacityM3: null };
     case 'fleet': {
       if (settings.fleet.carrierMaxM3 > 0 && volume <= settings.fleet.carrierMaxM3 + EPS) {
-        return { equipment: 'Carrier', capacityM3: null };
+        return { equipment: PART_LOAD, capacityM3: null };
       }
       const trucks = byCapacity(settings.fleet.trucks);
-      if (trucks.length === 0) return { equipment: 'Carrier', capacityM3: null };
+      if (trucks.length === 0) return { equipment: PART_LOAD, capacityM3: null };
       const t = rightSize(trucks, volume);
       return { equipment: t.name, capacityM3: t.capacityM3 };
     }

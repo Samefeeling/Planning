@@ -183,8 +183,8 @@ export function confirm(firmLoads: readonly FirmLoad[], load: PlannedLoad, now: 
 }
 
 /**
- * Mark a load gone — a proposal, an edited or a booked load alike, since an
- * own-fleet run is often never "booked". Returns the frozen load's id, which
+ * Mark a load gone — a proposal, an edited or a booked load alike, since a
+ * load booked by phone is not always marked booked first. Returns the frozen load's id, which
  * the shipment record is filed under.
  */
 export function dispatchLoad(

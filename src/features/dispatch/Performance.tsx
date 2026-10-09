@@ -85,13 +85,13 @@ export function Performance({
                 <th>Week</th>
                 <th className="num">Shipped $</th>
                 <th className="num">Still planned $</th>
-                <th className="num" title="Own-fleet trucks and linehaul trailers, shipped and planned">
+                <th className="num" title="NSW truck runs and linehaul FTL trailers, shipped and planned">
                   Trucks
                 </th>
                 <th className="num" title="FCL containers, shipped and planned">
                   Containers
                 </th>
-                <th className="num" title="Carrier runs, LTL and LCL">
+                <th className="num" title="NSW part loads, LTL and LCL">
                   Part loads
                 </th>
                 <th className="num">Orders due</th>

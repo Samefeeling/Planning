@@ -167,8 +167,8 @@ export function DispatchPage() {
               <Stat
                 label="Trucks today"
                 value={String(kpis.trucks.count)}
-                sub={`${kpis.trucks.dispatched} gone${kpis.trucks.partLoads > 0 ? ` · ${kpis.trucks.partLoads} carrier / LTL` : ''}`}
-                title="Own-fleet trucks and linehaul trailers leaving today; carrier runs and LTL counted apart"
+                sub={`${kpis.trucks.dispatched} gone${kpis.trucks.partLoads > 0 ? ` · ${kpis.trucks.partLoads} part loads` : ''}`}
+                title="Contractor trucks leaving today: NSW truck runs and linehaul FTL trailers; NSW part loads and LTL counted apart"
                 onClick={() => openDay(today)}
               />
               <Stat
@@ -186,7 +186,7 @@ export function DispatchPage() {
           )}
 
           {tab === 'settings' ? (
-            <DispatchSettingsPanel />
+            <DispatchSettingsPanel orders={parsed && !parsed.error ? parsed.orders : []} />
           ) : !parsed || parsed.error || !plan ? (
             <div className="dispatch-empty">
               <h2>No waybill loaded</h2>

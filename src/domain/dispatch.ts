@@ -5,9 +5,11 @@
  * Three ways an order leaves the factory, decided by the waybill's
  * `Description` (the delivery zone):
  *
- * - **NSW fleet** — the factory's own trucks deliver to the customer. Orders
- *   for nearby customers in the same zone and Ship Via share a run; an order
- *   is only split when it is bigger than the biggest truck.
+ * - **NSW delivery** — a contractor's truck, booked for the run, delivers to
+ *   the customer (there is no own fleet: every load is booked). Orders for
+ *   nearby customers in the same zone and Ship Via share a run; an order is
+ *   only split when it is bigger than the biggest truck. A run of a pallet or
+ *   two is booked as a part load instead of a truck.
  * - **Interstate linehaul** — orders are consolidated per delivery zone and
  *   carrier (`Description` + `Ship Via`, e.g. `QLD- Metro` / `AQMC`) and
  *   trucked to the state's hub city; the local carrier there does the last
@@ -28,11 +30,18 @@ export type DayKey = string;
 export type DispatchMode = 'fleet' | 'linehaul' | 'container' | 'pickup';
 
 export const DISPATCH_MODE_LABEL: Record<DispatchMode, string> = {
-  fleet: 'NSW fleet',
+  fleet: 'NSW delivery',
   linehaul: 'Interstate linehaul',
   container: 'Export containers',
   pickup: 'Customer pickup',
 };
+
+/**
+ * What an NSW run too small for a whole truck is booked as: pallet freight
+ * with the contractor. Saved before contractors replaced the own-fleet
+ * model, such loads were called `Carrier`.
+ */
+export const PART_LOAD = 'Part load';
 
 /** One row of the waybill export, with source field values preserved. */
 export interface WaybillLine {
@@ -174,7 +183,7 @@ export interface Equipment {
 }
 
 /**
- * A family of NSW fleet runs. Only orders in the same class share a truck,
+ * A family of NSW delivery runs. Only orders in the same class share a truck,
  * and only when they are within `radiusKm` of every other drop on it.
  */
 export interface FleetRunClass {
@@ -205,9 +214,15 @@ export interface DispatchSettings {
      * and staged that much earlier.
      */
     earlyDays: number;
-    /** Trucks available per day; 0 means no limit is checked. */
+    /**
+     * Contractor trucks per day — what the contractors can supply or the dock
+     * can load; 0 means no limit is checked.
+     */
     maxRunsPerDay: number;
-    /** A run carrying no more than this goes by carrier instead; 0 disables. */
+    /**
+     * A run carrying no more than this is booked as a part load (pallet
+     * freight) rather than a whole truck; 0 disables.
+     */
     carrierMaxM3: number;
     /**
      * Keep each delivery zone and `Ship Via` (`NSW-Metro-South` / `ANMS`) on
@@ -261,6 +276,12 @@ export interface DispatchSettings {
   shipmentValue: 'goods' | 'goods-freight';
   /** SIFOT target, 0–1: green at or above it, amber within 10 points. */
   sifotTarget: number;
+  /**
+   * The contractor booked for each `Ship Via` code (`ANMS` → the transport
+   * company), shown on load cards and the booking sheet. Blank codes show
+   * the Ship Via alone.
+   */
+  contractors: Record<string, string>;
   /**
    * Firm (frozen) window in working days from today. Inside it, an order is
    * only pulled forward when its goods are already ready.
@@ -349,6 +370,7 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   deadline: 'needBy',
   shipmentValue: 'goods',
   sifotTarget: 0.95,
+  contractors: {},
   firmDays: 2,
   stagingCapacityM3: 150,
   holidays: [],
@@ -388,7 +410,7 @@ const startsWithToken = (zone: string, prefix: string): boolean => {
 /**
  * Route a zone, or null if unmapped. `group` is what may share a load:
  *
- * - NSW fleet: run class + zone + Ship Via (or the run class alone, when
+ * - NSW delivery: run class + zone + Ship Via (or the run class alone, when
  *   neighbouring zones may share a truck);
  * - linehaul: hub + zone + Ship Via — each carrier and region its own;
  * - containers: destination (per city for split zones) + Ship Via.
@@ -447,7 +469,7 @@ export interface FirmLoad {
   mode: DispatchMode;
   label: string;
   day: DayKey;
-  /** Equipment name, `Carrier`, `LTL`, `LCL` or `Pickup`. */
+  /** Equipment name, `Part load`, `LTL`, `LCL` or `Pickup`. */
   equipment: string;
   capacityM3: number | null;
   orderIds: string[];

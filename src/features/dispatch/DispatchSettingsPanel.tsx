@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import type { DispatchSettings, Equipment } from '@/domain/dispatch';
+import type { DispatchSettings, Equipment, ShipmentOrder } from '@/domain/dispatch';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { Button } from '@/ui';
 
@@ -87,6 +87,78 @@ function ListField({
   );
 }
 
+/**
+ * Who each Ship Via code is booked with. Lists the codes on the loaded
+ * waybill (customer pickup aside) and any already named; a name is saved
+ * when the field loses focus.
+ */
+function ContractorTable({
+  orders,
+  settings,
+  onChange,
+}: {
+  orders: readonly ShipmentOrder[];
+  settings: DispatchSettings;
+  onChange: (contractors: Record<string, string>) => void;
+}) {
+  const pickup = new Set(settings.pickupZones.map((z) => z.trim()));
+  const codes = new Map<string, { zones: Set<string>; orders: number }>();
+  for (const o of orders) {
+    const via = o.shipVia.trim();
+    if (!via || pickup.has(o.zone.trim())) continue;
+    const c = codes.get(via) ?? { zones: new Set<string>(), orders: 0 };
+    c.zones.add(o.zone.trim());
+    c.orders += 1;
+    codes.set(via, c);
+  }
+  for (const via of Object.keys(settings.contractors)) {
+    if (!codes.has(via)) codes.set(via, { zones: new Set(), orders: 0 });
+  }
+  const rows = [...codes.entries()].sort(([a, x], [b, y]) =>
+    [...x.zones].join().localeCompare([...y.zones].join()) || a.localeCompare(b),
+  );
+  if (rows.length === 0) {
+    return <p className="muted-note">Load a waybill to list its Ship Via codes here.</p>;
+  }
+  return (
+    <table className="settings-table">
+      <thead>
+        <tr>
+          <th>Ship Via</th>
+          <th>Description</th>
+          <th className="num">Open orders</th>
+          <th>Contractor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(([via, c]) => (
+          <tr key={via}>
+            <td className="mono">{via}</td>
+            <td>{[...c.zones].join(', ') || <span className="muted">not on this waybill</span>}</td>
+            <td className="num">{c.orders || '—'}</td>
+            <td>
+              <input
+                type="text"
+                defaultValue={settings.contractors[via] ?? ''}
+                placeholder="Transport company"
+                aria-label={`Contractor for ${via}`}
+                onBlur={(e) => {
+                  const name = e.target.value.trim();
+                  if (name === (settings.contractors[via] ?? '')) return;
+                  const next = { ...settings.contractors };
+                  if (name) next[via] = name;
+                  else delete next[via];
+                  onChange(next);
+                }}
+              />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function WeekdayPicker({ value, onChange }: { value: number[]; onChange: (v: number[]) => void }) {
   return (
     <span className="weekday-picker">
@@ -152,7 +224,7 @@ function EquipmentTable({
   );
 }
 
-export function DispatchSettingsPanel() {
+export function DispatchSettingsPanel({ orders = [] }: { orders?: readonly ShipmentOrder[] }) {
   const settings = useDispatchStore((s) => s.settings);
   const update = useDispatchStore((s) => s.updateSettings);
   const reset = useDispatchStore((s) => s.resetSettings);
@@ -196,7 +268,21 @@ export function DispatchSettingsPanel() {
       </section>
 
       <section>
-        <h3>NSW fleet — direct delivery</h3>
+        <h3>Contractors</h3>
+        <p className="muted-note">
+          There is no own fleet: every load — NSW runs, linehaul and containers — is booked with a
+          contractor. Name the company each Ship Via is booked with and it shows on the load cards, the
+          booking sheet and its CSV.
+        </p>
+        <ContractorTable
+          orders={orders}
+          settings={settings}
+          onChange={(contractors) => set((s) => ({ ...s, contractors }))}
+        />
+      </section>
+
+      <section>
+        <h3>NSW delivery — contractor trucks to the customer</h3>
         <div className="field-row">
           <NumberField
             label="Pull forward up to"
@@ -206,17 +292,18 @@ export function DispatchSettingsPanel() {
             onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, earlyDays: Math.round(n) } }))}
           />
           <NumberField
-            label="Trucks per day"
+            label="Contractor trucks per day"
             suffix="0 = no check"
             value={fleet.maxRunsPerDay}
+            hint="The most NSW truck runs the contractors can supply or the dock can load in a day"
             onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, maxRunsPerDay: Math.round(n) } }))}
           />
           <NumberField
-            label="Send by carrier up to"
+            label="Part load (pallet freight) up to"
             suffix="m³"
             step={0.5}
             value={fleet.carrierMaxM3}
-            hint="A run carrying no more than this is handed to a carrier instead; 0 turns it off"
+            hint="A run carrying no more than this is booked as pallet freight, not a whole truck; 0 turns it off"
             onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, carrierMaxM3: n } }))}
           />
         </div>
@@ -229,7 +316,7 @@ export function DispatchSettingsPanel() {
           Keep each zone and Ship Via on its own runs (off: nearby customers in neighbouring NSW zones share a
           truck)
         </label>
-        <h4>Trucks</h4>
+        <h4>Truck sizes to book</h4>
         <EquipmentTable
           items={fleet.trucks}
           onChange={(trucks) => set((s) => ({ ...s, fleet: { ...s.fleet, trucks } }))}
