@@ -242,6 +242,8 @@ export function toShipmentOrder(id: string, lines: WaybillLine[]): ShipmentOrder
     packedM3,
     volumeM3,
     value: lines.reduce((sum, l) => sum + l.releaseValue, 0),
+    goodsValue: goods.reduce((sum, l) => sum + l.releaseValue, 0),
+    freightValue: lines.filter((l) => !isGoodsLine(l)).reduce((sum, l) => sum + l.releaseValue, 0),
     lineCount: lines.length,
     goodsLines: goods.length,
     readyLines: ready,

@@ -40,3 +40,14 @@ export const stagingTone = (fraction: number): 'good' | 'mid' | 'bad' =>
 /** Vehicle fill is the other way round: a full truck is the good one. */
 export const fillTone = (fraction: number): 'good' | 'mid' | 'bad' =>
   fraction > 1 ? 'bad' : fraction >= 0.85 ? 'good' : fraction >= 0.6 ? 'mid' : 'bad';
+
+/** Dollars for a headline: `$1.24M`, `$356k`, `$8,420`. */
+export const dollars = (v: number): string => {
+  const a = Math.abs(v);
+  if (a >= 1e6) return `$${(v / 1e6).toFixed(a >= 1e7 ? 1 : 2)}M`;
+  if (a >= 1e5) return `$${Math.round(v / 1e3)}k`;
+  return `$${Math.round(v).toLocaleString('en-AU')}`;
+};
+
+/** Dollars in full, for tooltips and tables: `$1,243,560`. */
+export const dollarsFull = (v: number): string => `$${Math.round(v).toLocaleString('en-AU')}`;

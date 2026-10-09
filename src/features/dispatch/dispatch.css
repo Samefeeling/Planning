@@ -90,7 +90,9 @@
 }
 .dispatch .shift-btn {
   display: inline-flex;
+  flex: none;
   align-items: center;
+  white-space: nowrap;
   padding: 7px 14px;
   border: 1px solid var(--bd);
   border-radius: 8px;
@@ -225,6 +227,30 @@
   font-weight: 800;
   line-height: 1.1;
   white-space: nowrap;
+}
+.dispatch button.kpi-stat {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dispatch button.kpi-stat:hover {
+  border-color: var(--dk);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+.dispatch button.kpi-stat:focus-visible {
+  outline: 2px solid var(--dk);
+  outline-offset: 2px;
+}
+.dispatch .kpi-stat-sub {
+  overflow: hidden;
+  color: var(--mu);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dispatch .kpi-stats.headline .kpi-stat-value {
+  font-size: clamp(20px, 2.6vw, 32px);
 }
 .dispatch .kpi-stat.is-green { border-top-color: var(--gn); }
 .dispatch .kpi-stat.is-green .kpi-stat-value { color: #15803d; }
@@ -605,28 +631,214 @@
 .status-dot.tone-mid { background: var(--am); }
 .status-dot.tone-bad { background: var(--rd); }
 
-/* ---- the selected day --------------------------------------------------- */
-.day-detail {
-  scroll-margin-top: 64px;
-}
-.day-detail-head {
+/* ---- the day board ------------------------------------------------------ */
+.dayboard-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 24px;
+  flex-direction: column;
+  gap: 12px;
   padding: 12px 14px;
   background: #fff;
   border: 1px solid var(--bd);
   border-top: 4px solid var(--dk);
   border-radius: 12px;
 }
-.day-detail-head h2 {
-  margin: 0;
+.dayboard-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.dayboard-nav h2 {
+  min-width: 0;
+  margin: 0 4px;
   color: var(--tx);
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
 }
+.dispatch .nav-btn {
+  min-width: 38px;
+  padding: 2px 10px;
+  font-size: 20px;
+  line-height: 1;
+}
+.dispatch .nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.dayboard-date {
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  color: var(--tx);
+  font: inherit;
+  font-size: 14px;
+}
+.dayboard-sum {
+  margin-left: auto;
+  color: var(--mu);
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* Where the day stands: a status pipeline, then the two checks. */
+.dayboard-status {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.stage,
+.dayboard-check {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+}
+.stage {
+  position: relative;
+  border-right-width: 0;
+}
+.stage:first-child {
+  border-radius: 10px 0 0 10px;
+}
+.stage:last-child {
+  border-right-width: 1px;
+  border-radius: 0 10px 10px 0;
+}
+/* A chevron between stages: the order loads move through the day. */
+.stage:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -7px;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  background: var(--soft);
+  content: '';
+  transform: translateY(-50%) rotate(45deg);
+}
+.stage-gone {
+  background: #ecfdf5;
+}
+.stage-gone:not(:last-child)::after {
+  background: #ecfdf5;
+}
+.stage.empty .stage-count {
+  color: var(--mu);
+}
+.dayboard-check {
+  border-radius: 10px;
+}
+.dayboard-check.alert {
+  border-color: #fcd34d;
+  background: var(--am-bg);
+}
+.stage-label {
+  color: var(--mu);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.stage-count {
+  color: var(--tx);
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.stage-count.tone-good { color: #15803d; }
+.stage-count.tone-mid { color: #b45309; }
+.stage-count.tone-bad { color: #b91c1c; }
+.stage-sub {
+  overflow: hidden;
+  color: var(--mu);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dayboard-check .meter-track {
+  width: 100%;
+  margin: 2px 0;
+}
+.dayboard-alerts {
+  margin: 0;
+  padding: 8px 12px 8px 30px;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  background: var(--am-bg);
+  color: #78350f;
+  font-size: 14.5px;
+}
+.dayboard-alerts li + li {
+  margin-top: 2px;
+}
+.dispatch button.link.plain {
+  font-family: inherit;
+}
+.dayboard-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.dayboard-tools .day-book {
+  flex-basis: 100%;
+}
+.dayboard-tools > .shift-tabs,
+.dayboard-tools-end {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.dayboard-tools-end {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ---- look-ahead plan facts ----------------------------------------------- */
+.plan-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+}
+.plan-fact {
+  display: flex;
+  flex-direction: column;
+}
+.plan-fact-label {
+  color: var(--mu);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.plan-fact b {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.plan-fact b.tone-good { color: #15803d; }
+.plan-fact b.tone-mid { color: #b45309; }
+.plan-fact b.tone-bad { color: #b91c1c; }
+
 .day-facts {
   margin: 4px 0 0;
   color: var(--mu);
@@ -650,13 +862,6 @@
   letter-spacing: 0;
   text-transform: none;
   vertical-align: 4px;
-}
-.staging-meter {
-  display: grid;
-  grid-template-columns: auto 200px;
-  align-items: center;
-  gap: 2px 10px;
-  font-size: 14px;
 }
 .meter-label {
   color: var(--label);
@@ -686,13 +891,6 @@
 .fill-bar.tone-mid { background: var(--am); }
 .meter-fill.tone-bad,
 .fill-bar.tone-bad { background: var(--rd); }
-.meter-value {
-  grid-column: 1 / -1;
-  color: var(--mu);
-}
-.meter-value strong {
-  color: var(--tx);
-}
 
 .mode-group h3 {
   display: flex;
@@ -1367,10 +1565,10 @@ sup.src {
     padding: 0;
     box-shadow: none;
   }
-  /* Eight tiles in one row are unreadable on a phone; two rows of four. */
+  /* Five tiles in one row are unreadable on a phone; two columns. */
   .dispatch .kpi-stats {
     grid-auto-flow: row;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .dispatch .kpi-stat {
     padding: 6px 8px;
@@ -1384,9 +1582,21 @@ sup.src {
   .load-grid {
     grid-template-columns: 1fr;
   }
-  .staging-meter {
-    grid-template-columns: auto 1fr;
-    width: 100%;
+  .dayboard-status {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pipeline {
+    grid-column: 1 / -1;
+  }
+  .stage-count {
+    font-size: 20px;
+  }
+  .dayboard-sum {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .dayboard-tools-end {
+    margin-left: 0;
   }
   .title-row {
     flex-wrap: wrap;
@@ -1515,7 +1725,8 @@ sup.src {
   .dispatch .load-filters,
   .dispatch .kpi-chart,
   .dispatch .day-strip,
-  .dispatch .day-detail-head,
+  .dispatch .dayboard-head,
+  .dispatch .plan-facts,
   .order-drawer {
     display: none !important;
   }
@@ -1549,4 +1760,38 @@ sup.src {
   .sheet-table tbody {
     break-inside: avoid;
   }
+}
+
+/* ---- performance --------------------------------------------------------- */
+.performance {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.value-chart .seg.shipped,
+.swatch.shipped {
+  fill: #075985;
+  background: #075985;
+}
+.value-chart .seg.planned,
+.swatch.planned {
+  fill: #5ea9e0;
+  background: #5ea9e0;
+}
+.tt-key.shipped { border-top-color: #075985; }
+.tt-key.planned { border-top-color: #5ea9e0; }
+.value-chart .col {
+  cursor: default;
+}
+.sifot-split {
+  color: var(--mu);
+  font-size: 14.5px;
+}
+.sifot-split b {
+  font-size: 18px;
+}
+.dispatch .tone-good { color: #15803d; }
+.dispatch .tone-mid { color: #b45309; }
+.perf-table tr.selected td {
+  background: #e0f2fe;
 }

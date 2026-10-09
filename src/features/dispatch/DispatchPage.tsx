@@ -1,41 +1,53 @@
 /**
- * The dispatch planner: every open order on the waybill, routed, windowed and
- * consolidated into loads, with the exceptions that keep orders off a load.
+ * The dispatch planner, for the warehouse manager, the dispatch office and
+ * their manager.
  *
  * Laid out like the MES KPI page (`src/ui/kpi.ts`), which this page will sit
  * beside once the two projects merge: one white toolbar card with the views
- * as tabs, a single row of headline stat tiles, then the content. Only the
- * app's own top bar is fixed — the toolbar and the tiles scroll away with the
- * page, so the plan gets the whole screen once someone is reading it.
+ * as tabs, one row of headline tiles, then the content. Only the app's own
+ * top bar is fixed — the toolbar and the tiles scroll away with the page.
  *
- * Four tabs, one question each:
- * - **Load plan** — what leaves on which day, in what, and how full it is;
- * - **Orders** — every order on the waybill and where the plan put it;
- * - **Exceptions** — what someone has to act on before it can ship;
- * - **Settings** — the vehicles, windows and departure days the plan uses.
+ * The headline tiles are the figures the operation is run on, the same on
+ * every tab: dollars shipped today and month to date (with the month's
+ * forecast), SIFOT, trucks today and containers this week. Each opens the
+ * view behind it.
+ *
+ * The tabs follow the working day:
+ * - **Day board** — today's loads: what to book, what is booked, what has
+ *   gone, what is not ready; the booking sheet; hand edits;
+ * - **Look-ahead** — the coming days and weeks: volume against marshalling
+ *   space, vehicles to book ahead;
+ * - **Orders** and **Exceptions** — every order, and what blocks one;
+ * - **Performance** — the month: dollars by day, trucks, containers, SIFOT
+ *   and every miss;
+ * - **Settings** — vehicles, windows, departure days and targets.
  */
 
 import { useMemo, useState } from 'react';
-import { DEADLINE_LABEL, DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
-import { BLOCKING_FLAGS } from '@/engine/dispatch/plan';
 import { useDispatchStore } from '@/store/dispatchStore';
+import { dispatchKpis } from '@/engine/dispatch/shipments';
 import { formatDay, formatTime } from '@/lib/time';
 import { useDispatchPlan } from './useDispatchPlan';
 import { WaybillLoader } from './WaybillLoader';
-import { LoadPlan } from './LoadPlan';
+import { DayBoard } from './DayBoard';
+import { LookAhead } from './LookAhead';
 import { OrdersTable } from './OrdersTable';
 import { ExceptionsList, EXCEPTION_FLAGS } from './ExceptionsList';
+import { Performance, sifotTone } from './Performance';
 import { DispatchSettingsPanel } from './DispatchSettingsPanel';
 import { OrderDrawer } from './OrderDrawer';
-import { fillTone, m3, pct } from './format';
+import { dollars, dollarsFull, pct, shortDay } from './format';
+import { equipmentMix } from './summary';
 import './dispatch.css';
 
-type Tab = 'loads' | 'orders' | 'exceptions' | 'settings';
+type Tab = 'day' | 'ahead' | 'orders' | 'exceptions' | 'performance' | 'settings';
 
 const TAB_LABEL: Record<Tab, string> = {
-  loads: 'Load plan',
+  day: 'Day board',
+  ahead: 'Look-ahead',
   orders: 'Orders',
   exceptions: 'Exceptions',
+  performance: 'Performance',
   settings: 'Settings',
 };
 
@@ -50,44 +62,27 @@ export function DispatchPage() {
   const fileName = useDispatchStore((s) => s.fileName);
   const loadedAt = useDispatchStore((s) => s.loadedAt);
   const cubicsFileName = useDispatchStore((s) => s.cubicsFileName);
-  const [tab, setTab] = useState<Tab>('loads');
+  const settings = useDispatchStore((s) => s.settings);
+  const log = useDispatchStore((s) => s.shipments);
+  const [tab, setTab] = useState<Tab>('day');
+  const [day, setDay] = useState<string | null>(null);
   const [openOrder, setOpenOrder] = useState<string | null>(null);
+  const today = plan?.today ?? '';
+  const shownDay = day ?? today;
 
-  const stats = useMemo(() => {
-    if (!plan || !parsed) return null;
-    const active = plan.loads.filter((l) => l.firm !== 'dispatched');
-    const full = active.filter((l) => l.fill !== null);
-    const capacity = full.reduce((s, l) => s + (l.capacityM3 ?? 0), 0);
-    const filled = full.reduce((s, l) => s + l.volumeM3, 0);
-    const byMode = new Map<DispatchMode, number>();
-    for (const l of active) byMode.set(l.mode, (byMode.get(l.mode) ?? 0) + 1);
-    let exceptions = 0;
-    let blocked = 0;
-    let overdue = 0;
-    let pulled = 0;
-    let byCubics = 0;
-    let volume = 0;
-    for (const o of plan.orders.values()) {
-      if (o.flags.some((f) => EXCEPTION_FLAGS.includes(f))) exceptions++;
-      if (o.flags.some((f) => BLOCKING_FLAGS.includes(f))) blocked++;
-      if (o.flags.includes('overdue')) overdue++;
-      if (o.flags.includes('pulled-forward')) pulled++;
-      if (o.volumeSource === 'cubics') byCubics++;
-      volume += o.volumeM3;
-    }
-    return {
-      orders: parsed.orders.length,
-      volume,
-      byCubics,
-      loads: active.length,
-      byMode,
-      fill: capacity > 0 ? filled / capacity : null,
-      exceptions,
-      blocked,
-      overdue,
-      pulled,
-    };
-  }, [plan, parsed]);
+  const exceptions = useMemo(
+    () => (plan ? [...plan.orders.values()].filter((o) => o.flags.some((f) => EXCEPTION_FLAGS.includes(f))).length : 0),
+    [plan],
+  );
+  const kpis = useMemo(
+    () => (plan ? dispatchKpis(plan, log, model.orders, settings, plan.today) : null),
+    [plan, log, model.orders, settings],
+  );
+
+  const openDay = (d: string) => {
+    setDay(d);
+    setTab('day');
+  };
 
   return (
     <div className="dispatch">
@@ -105,9 +100,7 @@ export function DispatchPage() {
                   onClick={() => setTab(key)}
                 >
                   {TAB_LABEL[key]}
-                  {key === 'exceptions' && stats && stats.exceptions > 0 && (
-                    <span className="tab-count">{stats.exceptions}</span>
-                  )}
+                  {key === 'exceptions' && exceptions > 0 && <span className="tab-count">{exceptions}</span>}
                 </button>
               ))}
             </div>
@@ -137,38 +130,57 @@ export function DispatchPage() {
             </div>
           )}
 
-          {stats && (
-            <div className="kpi-stats">
-              <Stat label="Open orders" value={String(stats.orders)} title="Orders on the waybill" />
-              <Stat label="m³ to ship" value={Math.round(stats.volume).toLocaleString('en-AU')} title={m3(stats.volume)} />
+          {kpis && (
+            <div className="kpi-stats headline">
               <Stat
-                label="Loads planned"
-                value={String(stats.loads)}
-                title={[...stats.byMode].map(([mode, n]) => `${DISPATCH_MODE_LABEL[mode]} ${n}`).join(' · ')}
+                label="Shipped today"
+                value={dollars(kpis.today.shipped)}
+                sub={
+                  kpis.today.planned > 0
+                    ? `${dollars(kpis.today.planned)} still to go today`
+                    : kpis.today.loadsShipped > 0
+                      ? 'everything planned has gone'
+                      : 'nothing planned today'
+                }
+                title={`${dollarsFull(kpis.today.shipped)} on ${kpis.today.loadsShipped} load(s) marked dispatched today`}
+                onClick={() => openDay(today)}
               />
               <Stat
-                label="Average fill"
-                value={stats.fill === null ? '—' : pct(stats.fill)}
-                tone={stats.fill === null ? '' : TONE[fillTone(stats.fill)]}
-                title="Volume over capacity across trucks, trailers and containers: green from 85%, amber from 60%"
+                label="Shipped month to date"
+                value={dollars(kpis.month.shipped)}
+                sub={`forecast ${dollars(kpis.month.forecast)} by month end`}
+                title={`${dollarsFull(kpis.month.shipped)} shipped since ${shortDay(kpis.month.from)}, plus ${dollarsFull(kpis.month.stillPlanned)} planned for the rest of the month`}
+                onClick={() => setTab('performance')}
               />
               <Stat
-                label="Sized by cubics"
-                value={model.cubics ? String(stats.byCubics) : '—'}
-                title={model.cubics ? `${stats.byCubics} of ${stats.orders} orders; the rest use the freight line` : 'Load the cubics sheet'}
+                label="SIFOT month to date"
+                value={kpis.sifot.rate === null ? '—' : pct(kpis.sifot.rate)}
+                tone={kpis.sifot.rate === null ? '' : TONE[sifotTone(kpis.sifot.rate, settings.sifotTarget)]}
+                sub={
+                  kpis.sifot.rate === null
+                    ? 'counts from the first load dispatched'
+                    : `${kpis.sifot.hits} of ${kpis.sifot.due} orders · target ${pct(settings.sifotTarget)}`
+                }
+                title="Shipped In Full, On Time: orders due this month that left complete by their due date"
+                onClick={() => setTab('performance')}
               />
-              <Stat label="Pulled forward" value={String(stats.pulled)} title="Orders sent early to fill space on a load" />
               <Stat
-                label={`Past ${plan ? DEADLINE_LABEL[plan.deadline] : 'Need By'}`}
-                value={String(stats.overdue)}
-                tone={stats.overdue > 0 ? 'red' : 'green'}
-                title="Orders whose last ship day has already gone"
+                label="Trucks today"
+                value={String(kpis.trucks.count)}
+                sub={`${kpis.trucks.dispatched} gone${kpis.trucks.partLoads > 0 ? ` · ${kpis.trucks.partLoads} carrier / LTL` : ''}`}
+                title="Own-fleet trucks and linehaul trailers leaving today; carrier runs and LTL counted apart"
+                onClick={() => openDay(today)}
               />
               <Stat
-                label="Exceptions"
-                value={String(stats.exceptions)}
-                tone={stats.exceptions > 0 ? 'amber' : 'green'}
-                title={`${stats.blocked} blocked from every load`}
+                label="Containers this week"
+                value={String(kpis.containers.count)}
+                sub={
+                  [equipmentMix(kpis.containers.mix), kpis.containers.lcl > 0 ? `${kpis.containers.lcl} × LCL` : '']
+                    .filter(Boolean)
+                    .join(' · ') || `week from ${shortDay(kpis.containers.weekStart)}`
+                }
+                title="FCL containers leaving Monday to Sunday this week"
+                onClick={() => setTab('ahead')}
               />
             </div>
           )}
@@ -184,10 +196,14 @@ export function DispatchPage() {
                 lines, Status) to build the dispatch plan. Settings can be reviewed before loading.
               </p>
             </div>
-          ) : tab === 'loads' ? (
-            <LoadPlan plan={plan} onOpenOrder={setOpenOrder} />
+          ) : tab === 'day' ? (
+            <DayBoard plan={plan} day={shownDay} onDay={setDay} onOpenOrder={setOpenOrder} />
+          ) : tab === 'ahead' ? (
+            <LookAhead plan={plan} day={shownDay} cubicsLoaded={!!model.cubics} onOpenDay={openDay} />
           ) : tab === 'orders' ? (
             <OrdersTable model={model} onOpenOrder={setOpenOrder} />
+          ) : tab === 'performance' ? (
+            <Performance plan={plan} log={log} open={model.orders} />
           ) : (
             <ExceptionsList model={model} onOpenOrder={setOpenOrder} />
           )}
@@ -201,12 +217,30 @@ export function DispatchPage() {
   );
 }
 
-/** One headline tile, in the MES `kpi-stat` shape: a label and a value. */
-function Stat({ label, value, tone = '', title }: { label: string; value: string; tone?: Tone; title?: string }) {
+/**
+ * One headline tile, in the MES `kpi-stat` shape — a label and a value —
+ * with a line of context under it. It opens the view behind the figure.
+ */
+function Stat({
+  label,
+  value,
+  sub,
+  tone = '',
+  title,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tone?: Tone;
+  title?: string;
+  onClick: () => void;
+}) {
   return (
-    <div className={`kpi-stat${tone ? ` is-${tone}` : ''}`} title={title}>
+    <button type="button" className={`kpi-stat${tone ? ` is-${tone}` : ''}`} title={title} onClick={onClick}>
       <span className="kpi-stat-label">{label}</span>
       <b className="kpi-stat-value">{value}</b>
-    </div>
+      <span className="kpi-stat-sub">{sub}</span>
+    </button>
   );
 }

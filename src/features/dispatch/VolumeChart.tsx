@@ -21,7 +21,7 @@ const RADIUS = 3;
 const MAX_BAR = 24;
 
 /** Round up to 1, 2, 2.5 or 5 × a power of ten, and the tick step. */
-function niceScale(max: number): { top: number; step: number } {
+export function niceScale(max: number): { top: number; step: number } {
   if (max <= 0) return { top: 10, step: 2.5 };
   const raw = max / 4;
   const pow = 10 ** Math.floor(Math.log10(raw));
@@ -30,12 +30,12 @@ function niceScale(max: number): { top: number; step: number } {
 }
 
 /** A column segment whose top corners are rounded. */
-function roundedTop(x: number, y: number, w: number, h: number, r: number): string {
+export function roundedTop(x: number, y: number, w: number, h: number, r: number): string {
   const rr = Math.min(r, w / 2, h);
   return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`;
 }
 
-function useWidth<T extends HTMLElement>() {
+export function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(800);
   useLayoutEffect(() => {

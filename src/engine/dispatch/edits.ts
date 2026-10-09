@@ -181,3 +181,21 @@ export function confirm(firmLoads: readonly FirmLoad[], load: PlannedLoad, now: 
   f.confirmedAt = now;
   return list;
 }
+
+/**
+ * Mark a load gone — a proposal, an edited or a booked load alike, since an
+ * own-fleet run is often never "booked". Returns the frozen load's id, which
+ * the shipment record is filed under.
+ */
+export function dispatchLoad(
+  firmLoads: readonly FirmLoad[],
+  load: PlannedLoad,
+  now: string,
+): { firmLoads: FirmLoad[]; id: string } {
+  if (load.firm === 'dispatched') return { firmLoads: [...firmLoads], id: load.id };
+  const list = [...firmLoads];
+  const f = take(list, load, now);
+  f.status = 'dispatched';
+  f.dispatchedAt = now;
+  return { firmLoads: list, id: f.id };
+}

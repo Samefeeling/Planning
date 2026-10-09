@@ -29,7 +29,8 @@ import { useDispatchStore } from '@/store/dispatchStore';
 import { Badge } from '@/ui';
 import { fullAddress, shipToNames } from './booking';
 import { recommendation, sizeLadder } from './equipment';
-import { READINESS, fillTone, m3, pct, shortDay, weekdayOf } from './format';
+import { READINESS, dollars, dollarsFull, fillTone, m3, pct, shortDay, weekdayOf } from './format';
+import { loadValue } from '@/engine/dispatch/shipments';
 
 /** One-letter marker for where a volume came from; freight is the default. */
 export const SOURCE_MARK: Partial<Record<VolumeSource, string>> = {
@@ -73,6 +74,7 @@ export function LoadCard({
   const redateLoad = useDispatchStore((s) => s.redateLoad);
 
   const drops = new Set(load.drops.map((d) => d.orderId)).size;
+  const value = loadValue(load, settings.shipmentValue);
   const ladder = sizeLadder(load, settings);
   const names = shipToNames(load);
   const canEdit = load.firm !== 'dispatched' && load.mode !== 'pickup';
@@ -158,6 +160,9 @@ export function LoadCard({
               {load.weightComplete ? '' : '+'}
             </span>
           )}
+          <span title={`${dollarsFull(value)} — ${settings.shipmentValue === 'goods' ? 'goods value' : 'goods and freight'}, ReleaseVal`}>
+            <b>{dollars(value)}</b>
+          </span>
         </div>
       </div>
 
@@ -348,9 +353,19 @@ export function LoadCard({
             Reset to plan
           </button>
         )}
+        {(load.firm === null || load.firm === 'edited') && load.day <= today && (
+          <button
+            type="button"
+            className="kpi-btn primary"
+            onClick={() => markDispatched(load)}
+            title="It has left: log the shipment (own-fleet runs need no booking first)"
+          >
+            Mark dispatched
+          </button>
+        )}
         {load.firm === 'confirmed' && (
           <>
-            <button type="button" className="kpi-btn primary" onClick={() => markDispatched(load.id)}>
+            <button type="button" className="kpi-btn primary" onClick={() => markDispatched(load)}>
               Mark dispatched
             </button>
             <button

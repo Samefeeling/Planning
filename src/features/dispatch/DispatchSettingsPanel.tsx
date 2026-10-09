@@ -446,6 +446,38 @@ export function DispatchSettingsPanel() {
       </section>
 
       <section>
+        <h3>Shipments and SIFOT</h3>
+        <div className="field-row">
+          <label className="field">
+            <span>Shipment dollars count</span>
+            <select
+              value={settings.shipmentValue}
+              onChange={(e) =>
+                set((s) => ({ ...s, shipmentValue: e.target.value as DispatchSettings['shipmentValue'] }))
+              }
+            >
+              <option value="goods">Goods only (ReleaseVal of goods lines)</option>
+              <option value="goods-freight">Goods and freight charged</option>
+            </select>
+          </label>
+          <NumberField
+            label="SIFOT target"
+            suffix="%"
+            value={Math.round(settings.sifotTarget * 100)}
+            hint="Green at or above it, amber within 10 points, red below"
+            onChange={(n) => set((s) => ({ ...s, sifotTarget: Math.min(1, Math.max(0, n / 100)) }))}
+          />
+        </div>
+        <p className="muted-note">
+          The waybill only lists open orders, so shipped dollars and SIFOT come from loads marked
+          dispatched on the Day board. ReleaseVal is the value still open on each line; a split order's
+          value is shared by m³. SIFOT counts orders due in the period: shipped complete by the due date
+          is a hit; late, not in full (goods not ready when it left) and still open after its due date
+          are misses. Counting starts at the first dispatched load.
+        </p>
+      </section>
+
+      <section>
         <h3>Customer pickup</h3>
         <div className="field-row">
           <ListField

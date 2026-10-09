@@ -18,7 +18,8 @@ import {
   type Equipment,
 } from '@/domain/dispatch';
 import type { PlannedLoad } from '@/engine/dispatch/plan';
-import { confirm, moveOrder, redateLoad, resizeLoad } from '@/engine/dispatch/edits';
+import { confirm, dispatchLoad, moveOrder, redateLoad, resizeLoad } from '@/engine/dispatch/edits';
+import { SHIPMENT_RETENTION_DAYS, shipmentRecord, type ShipmentRecord } from '@/engine/dispatch/shipments';
 import { addCalendarDays } from '@/engine/dispatch/calendar';
 import { toDayKey } from '@/lib/time';
 
@@ -35,6 +36,8 @@ interface DispatchState {
   cubicsLoadedAt: string | null;
   settings: DispatchSettings;
   decisions: DispatchDecisions;
+  /** What has left, for shipped dollars and SIFOT; kept apart from the waybill. */
+  shipments: ShipmentRecord[];
 
   loadWaybill: (text: string, fileName: string) => void;
   clearWaybill: () => void;
@@ -52,8 +55,12 @@ interface DispatchState {
   moveOrder: (orderId: string, from: PlannedLoad, to: PlannedLoad | null | 'replan') => void;
   resizeLoad: (load: PlannedLoad, equipment: string, capacityM3: number | null) => void;
   redateLoad: (load: PlannedLoad, day: DayKey) => void;
-  markDispatched: (loadId: string) => void;
-  /** Hand a frozen load's orders back to the optimiser. */
+  /** The load has left: freeze it as dispatched and log the shipment. */
+  markDispatched: (load: PlannedLoad) => void;
+  /**
+   * Hand a frozen load's orders back to the optimiser; on a dispatched load
+   * this undoes the dispatch and removes its shipment record.
+   */
   releaseLoad: (loadId: string) => void;
   updateSettings: (change: (current: DispatchSettings) => DispatchSettings) => void;
   resetSettings: () => void;
@@ -83,6 +90,7 @@ export const useDispatchStore = create<DispatchState>()(
       cubicsLoadedAt: null,
       settings: DEFAULT_DISPATCH_SETTINGS,
       decisions: EMPTY_DECISIONS,
+      shipments: [],
 
       loadWaybill: (csvText, fileName) =>
         set((s) => {
@@ -157,23 +165,26 @@ export const useDispatchStore = create<DispatchState>()(
             firmLoads: redateLoad(s.decisions.firmLoads, load, day, new Date().toISOString()),
           },
         })),
-      markDispatched: (loadId) =>
-        set((s) => ({
-          decisions: {
-            ...s.decisions,
-            firmLoads: s.decisions.firmLoads.map((l) =>
-              l.id === loadId
-                ? { ...l, status: 'dispatched' as const, dispatchedAt: new Date().toISOString() }
-                : l,
-            ),
-          },
-        })),
+      markDispatched: (load) =>
+        set((s) => {
+          if (load.firm === 'dispatched') return s;
+          const now = new Date().toISOString();
+          const today = toDayKey(new Date());
+          const { firmLoads, id } = dispatchLoad(s.decisions.firmLoads, load, now);
+          const record = { ...shipmentRecord(load, s.settings.deadline, today, now), loadId: id };
+          const cutoff = addCalendarDays(today, -SHIPMENT_RETENTION_DAYS);
+          return {
+            decisions: { ...s.decisions, firmLoads },
+            shipments: [...s.shipments.filter((r) => r.loadId !== id && r.day >= cutoff), record],
+          };
+        }),
       releaseLoad: (loadId) =>
         set((s) => ({
           decisions: {
             ...s.decisions,
             firmLoads: s.decisions.firmLoads.filter((l) => l.id !== loadId),
           },
+          shipments: s.shipments.filter((r) => r.loadId !== loadId),
         })),
 
       updateSettings: (change) => set((s) => ({ settings: change(s.settings) })),

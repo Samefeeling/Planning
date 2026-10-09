@@ -1,27 +1,25 @@
 /**
- * What leaves when, read top-down:
+ * The look-ahead: what is coming, for planning warehouse space and booking
+ * vehicles ahead. Read top-down:
  *
- * 1. **Summary** — volume per day or per week, stacked by route, against the
+ * 1. **Plan facts** — open orders, m³, loads, fill and the orders the plan
+ *    could not meet, for the whole waybill.
+ * 2. **Volume to ship** — per day or per week, stacked by route, against the
  *    marshalling capacity; the weekly view adds a table of vehicles, part
- *    loads, fill and late orders per week. Clicking a column picks the day
- *    (or week) shown below.
- * 2. **Day strip** — every dispatch day in the window with its volume and
- *    loads, so the week can be stepped through.
- * 3. **The day** — its loads by route, one card each, or as the booking
- *    sheet the dock rings carriers from (CSV and print). **Edit loads**
- *    opens every card of the day for hand changes.
+ *    loads, fill and late orders per week.
+ * 3. **Day strip** — every dispatch day in the window.
+ *
+ * Clicking a day (column, chip or week row) opens it on the Day board.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { DEADLINE_LABEL, DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
-import type { DispatchPlan, PlannedLoad } from '@/engine/dispatch/plan';
+import type { DispatchPlan } from '@/engine/dispatch/plan';
 import { addWorkingDays } from '@/engine/dispatch/calendar';
 import { useDispatchStore } from '@/store/dispatchStore';
-import { LoadCard } from './LoadCard';
-import { BookingSheet } from './BookingSheet';
 import { VolumeChart } from './VolumeChart';
 import { MODES, equipmentMix, isoWeek, summarise, weekStart, type Bucket } from './summary';
-import { dayLabel, m3, pct, shortDay, stagingTone, weekdayOf } from './format';
+import { fillTone, pct, shortDay, stagingTone, weekdayOf } from './format';
 
 type Range = 'week' | 'fortnight' | 'month' | 'all';
 
@@ -34,23 +32,26 @@ const RANGE_LABEL: Record<Range, string> = {
 
 const RANGE_DAYS: Record<Exclude<Range, 'all'>, number> = { week: 4, fortnight: 9, month: 19 };
 
-const kg = (v: number) => `${Math.round(v).toLocaleString('en-AU')} kg`;
 
-export function LoadPlan({
+export function LookAhead({
   plan,
-  onOpenOrder,
+  day,
+  cubicsLoaded,
+  onOpenDay,
 }: {
   plan: DispatchPlan;
-  onOpenOrder: (id: string) => void;
+  /** The day open on the Day board, highlighted here. */
+  day: string;
+  cubicsLoaded: boolean;
+  onOpenDay: (day: string) => void;
 }) {
   const settings = useDispatchStore((s) => s.settings);
   const [mode, setMode] = useState<DispatchMode | 'all'>('all');
   const [range, setRange] = useState<Range>('month');
   const [by, setBy] = useState<'day' | 'week'>('day');
   const [showDispatched, setShowDispatched] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [view, setView] = useState<'cards' | 'sheet'>('cards');
-  const [editing, setEditing] = useState(false);
+  const selectedDay = day;
+  const setSelectedDay = onOpenDay;
   const dueLabel = DEADLINE_LABEL[plan.deadline];
 
   const holidays = useMemo(() => new Set(settings.holidays), [settings.holidays]);
@@ -70,18 +71,30 @@ export function LoadPlan({
   const days = useMemo(() => summarise(visible, 'day', plan.deadline), [visible, plan.deadline]);
   const weeks = useMemo(() => summarise(visible, 'week', plan.deadline), [visible, plan.deadline]);
 
-  // Loads an order may be moved onto: anything not gone, from today on.
-  const targets = useMemo(
-    () => plan.loads.filter((l) => l.firm !== 'dispatched' && l.mode !== 'pickup' && l.day >= plan.today),
-    [plan.loads, plan.today],
-  );
-
-  // Keep a day picked: the one chosen if it is still in the window, else the
-  // first day with something leaving.
-  useEffect(() => {
-    if (selectedDay && days.some((d) => d.key === selectedDay)) return;
-    setSelectedDay(days[0]?.key ?? null);
-  }, [days, selectedDay]);
+  const facts = useMemo(() => {
+    const active = plan.loads.filter((l) => l.firm !== 'dispatched');
+    const full = active.filter((l) => l.fill !== null);
+    const capacity = full.reduce((s, l) => s + (l.capacityM3 ?? 0), 0);
+    let volume = 0;
+    let overdue = 0;
+    let pulled = 0;
+    let byCubics = 0;
+    for (const o of plan.orders.values()) {
+      volume += o.volumeM3;
+      if (o.flags.includes('overdue')) overdue++;
+      if (o.flags.includes('pulled-forward')) pulled++;
+      if (o.volumeSource === 'cubics' || o.volumeSource === 'packed') byCubics++;
+    }
+    return {
+      orders: plan.orders.size,
+      volume,
+      loads: active.length,
+      fill: capacity > 0 ? full.reduce((s, l) => s + l.volumeM3, 0) / capacity : null,
+      overdue,
+      pulled,
+      byCubics,
+    };
+  }, [plan]);
 
   const counts = new Map<DispatchMode, number>();
   for (const l of plan.loads) {
@@ -96,19 +109,33 @@ export function LoadPlan({
   };
 
   const selectedWeek = selectedDay ? weekStart(selectedDay) : null;
-  const dayLoads = visible.filter((l) => l.day === selectedDay);
-  // Numbered across every route of the day, so L3 on a card is L3 on the
-  // booking sheet whatever route filter is on.
-  const numbers = new Map(
-    plan.loads
-      .filter((l) => l.day === selectedDay && (showDispatched || l.firm !== 'dispatched'))
-      .map((l, i) => [l.id, i + 1] as const),
-  );
-  const dayBucket = days.find((d) => d.key === selectedDay) ?? null;
-  const dayTotal = plan.days.find((d) => d.day === selectedDay);
 
   return (
     <div className="load-plan">
+      <div className="plan-facts" aria-label="Plan facts">
+        <Fact label="Open orders" value={String(facts.orders)} />
+        <Fact label="m³ to ship" value={Math.round(facts.volume).toLocaleString('en-AU')} />
+        <Fact label="Loads planned" value={String(facts.loads)} />
+        <Fact
+          label="Average fill"
+          value={facts.fill === null ? '—' : pct(facts.fill)}
+          tone={facts.fill === null ? undefined : fillTone(facts.fill)}
+          title="Volume over capacity across trucks, trailers and containers: good from 85%"
+        />
+        <Fact label="Pulled forward" value={String(facts.pulled)} title="Orders sent early to fill space on a load" />
+        <Fact
+          label="Sized by pick list or cubics"
+          value={cubicsLoaded || facts.byCubics > 0 ? String(facts.byCubics) : '—'}
+          title="Orders sized from the packed cube or the cubics sheet; the rest use the freight line"
+        />
+        <Fact
+          label={`Past ${dueLabel}`}
+          value={String(facts.overdue)}
+          tone={facts.overdue > 0 ? 'bad' : undefined}
+          title="Open orders whose last ship day has gone"
+        />
+      </div>
+
       <div className="load-filters">
         <div className="shift-tabs" role="group" aria-label="Route">
           <button type="button" className={`shift-btn${mode === 'all' ? ' a' : ''}`} onClick={() => setMode('all')}>
@@ -141,6 +168,7 @@ export function LoadPlan({
       <section className="kpi-chart" aria-label="Dispatch summary">
         <header className="summary-head">
           <h4>Volume to ship, m³ by route</h4>
+          <span className="muted-note">Click a day to open it on the Day board</span>
           <div className="shift-tabs" role="group" aria-label="Group by">
             <button type="button" className={`shift-btn${by === 'day' ? ' a' : ''}`} onClick={() => setBy('day')}>
               By day
@@ -195,151 +223,6 @@ export function LoadPlan({
         </nav>
       )}
 
-      {selectedDay && dayBucket && (
-        <section className="day-detail">
-          <header className="day-detail-head">
-            <div>
-              <h2>
-                {dayLabel(selectedDay)}
-                {selectedDay === plan.today && <span className="today-tag">Today</span>}
-              </h2>
-              <p className="day-facts">
-                {dayBucket.orders} orders · {m3(dayBucket.total)}
-                {dayBucket.weightKg > 0 && ` · ${kg(dayBucket.weightKg)}`}
-                {' · '}
-                {dayBucket.vehicles} vehicle{dayBucket.vehicles === 1 ? '' : 's'}
-                {dayBucket.partLoads > 0 && ` + ${dayBucket.partLoads} part load${dayBucket.partLoads === 1 ? '' : 's'}`}
-                {dayBucket.fill !== null && ` · fill ${pct(dayBucket.fill)}`}
-                {dayBucket.late > 0 && (
-                  <strong className="tone-bad">
-                    {' '}
-                    · {dayBucket.late} after {dueLabel}
-                  </strong>
-                )}
-              </p>
-            </div>
-            {dayTotal && settings.stagingCapacityM3 > 0 && (
-              <StagingMeter volume={dayTotal.volumeM3} capacity={settings.stagingCapacityM3} />
-            )}
-            {Object.keys(dayBucket.equipment).length > 0 && (
-              <p className="day-book">
-                <span className="reco-label">To book</span> {equipmentMix(dayBucket.equipment)}
-              </p>
-            )}
-            <div className="day-tools">
-              <div className="shift-tabs" role="group" aria-label="Show the day as">
-                <button
-                  type="button"
-                  className={`shift-btn${view === 'cards' ? ' a' : ''}`}
-                  onClick={() => setView('cards')}
-                >
-                  Load cards
-                </button>
-                <button
-                  type="button"
-                  className={`shift-btn${view === 'sheet' ? ' a' : ''}`}
-                  onClick={() => {
-                    setView('sheet');
-                    setEditing(false);
-                  }}
-                >
-                  Booking sheet
-                </button>
-              </div>
-              {view === 'cards' && (
-                <button
-                  type="button"
-                  className={`kpi-btn${editing ? ' primary' : ''}`}
-                  aria-pressed={editing}
-                  onClick={() => setEditing(!editing)}
-                  title="Move orders between loads, pick sizes and days by hand"
-                >
-                  {editing ? 'Done editing' : 'Edit loads'}
-                </button>
-              )}
-            </div>
-            {dayTotal?.overFleet && (
-              <p className="tone-bad">
-                {dayTotal.fleetRuns} fleet runs — more than the {settings.fleet.maxRunsPerDay} trucks available
-              </p>
-            )}
-          </header>
-
-          {view === 'sheet' ? (
-            <BookingSheet
-              day={selectedDay}
-              loads={dayLoads}
-              numbers={numbers}
-              deadline={plan.deadline}
-              onOpenOrder={onOpenOrder}
-            />
-          ) : (
-            MODES.map((m) => {
-              const group = dayLoads.filter((l) => l.mode === m);
-              if (group.length === 0) return null;
-              return (
-                <ModeGroup key={m} mode={m} loads={group}>
-                  {group.map((load) => (
-                    <LoadCard
-                      key={load.id}
-                      load={load}
-                      number={numbers.get(load.id) ?? 0}
-                      targets={targets}
-                      today={plan.today}
-                      deadline={plan.deadline}
-                      editing={editing}
-                      onOpenOrder={onOpenOrder}
-                    />
-                  ))}
-                </ModeGroup>
-              );
-            })
-          )}
-        </section>
-      )}
-    </div>
-  );
-}
-
-function ModeGroup({
-  mode,
-  loads,
-  children,
-}: {
-  mode: DispatchMode;
-  loads: PlannedLoad[];
-  children: ReactNode;
-}) {
-  const volume = loads.reduce((s, l) => s + l.volumeM3, 0);
-  return (
-    <div className="mode-group">
-      <h3>
-        <span className={`dot series-${mode}`} aria-hidden />
-        {DISPATCH_MODE_LABEL[mode]}
-        <span className="mode-sum">
-          {loads.length} load{loads.length === 1 ? '' : 's'} · {m3(volume)}
-        </span>
-      </h3>
-      <div className="load-grid">{children}</div>
-    </div>
-  );
-}
-
-function StagingMeter({ volume, capacity }: { volume: number; capacity: number }) {
-  const fraction = volume / capacity;
-  return (
-    <div className="staging-meter" title="Volume leaving this day against the marshalling area">
-      <span className="meter-label">Marshalling, all routes</span>
-      <span className="meter-track">
-        <span
-          className={`meter-fill tone-${stagingTone(fraction)}`}
-          style={{ width: `${Math.min(100, fraction * 100)}%` }}
-        />
-      </span>
-      <span className="meter-value">
-        <strong>{pct(fraction)}</strong> · {m3(volume)} of {m3(capacity)}
-        {fraction > 1 && <span className="tone-bad"> — over</span>}
-      </span>
     </div>
   );
 }
@@ -408,6 +291,25 @@ function WeekTable({
         </tbody>
       </table>
       <p className="muted-note">m³ per route, loads in brackets. Click a week to open its first day.</p>
+    </div>
+  );
+}
+
+function Fact({
+  label,
+  value,
+  tone,
+  title,
+}: {
+  label: string;
+  value: string;
+  tone?: 'good' | 'mid' | 'bad';
+  title?: string;
+}) {
+  return (
+    <div className="plan-fact" title={title}>
+      <span className="plan-fact-label">{label}</span>
+      <b className={tone ? `tone-${tone}` : undefined}>{value}</b>
     </div>
   );
 }

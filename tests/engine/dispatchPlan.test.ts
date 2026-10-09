@@ -58,6 +58,8 @@ const make = (id: string, patch: Partial<ShipmentOrder>): ShipmentOrder => ({
   packedM3: null,
   volumeM3: 1,
   value: 0,
+  goodsValue: 0,
+  freightValue: 0,
   lineCount: 1,
   goodsLines: 1,
   readyLines: 1,

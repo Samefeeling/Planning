@@ -223,8 +223,10 @@ warehouse window before their `Need By`, and loads can be re-arranged by hand
 (move orders, pick sizes and days) and confirmed. Orders are sized from the
 packed cube on the pick list (`2C`), else the cubics sheet (stack-aware, per
 part) when it covers them, else the waybill's freight line; a daily and weekly
-volume chart leads the page, and each day prints or downloads as a booking
-sheet for the carriers.
+volume chart leads the look-ahead, and each day prints or downloads as a
+booking sheet for the carriers. Headline tiles show dollars shipped today and
+month to date, SIFOT, trucks today and containers this week, from loads
+marked dispatched; a Performance tab breaks the month down.
 See `docs/dispatch-planning.md`.
 
 ## Quick start

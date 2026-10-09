@@ -114,6 +114,8 @@ export interface PlannedDrop {
   weightKg: number | null;
   /** Set when the order is split across loads. */
   piece: { index: number; of: number } | null;
+  /** The part of the order this drop carries, 0–1: 1 unless split. */
+  share: number;
   /** Working days ahead of the order's latest dispatch day. */
   daysEarly: number;
 }
@@ -450,6 +452,7 @@ export function planDispatch(
         volumeSource: v.source,
         weightKg: share === undefined ? v.weightKg : pieceWeight(v.weightKg, share, v.volume),
         piece: null,
+        share: share === undefined || v.volume <= 0 ? 1 : Math.min(1, share / v.volume),
         daysEarly: 0,
       };
     });
@@ -617,6 +620,7 @@ export function planDispatch(
           volumeSource: p.c.plan.volumeSource,
           weightKg: pieceWeight(p.c.plan.weightKg, p.volume, p.c.volume),
           piece: p.piece,
+          share: p.c.plan.volumeM3 > 0 ? Math.min(1, p.volume / p.c.plan.volumeM3) : 1,
           daysEarly: p.daysEarly,
         }));
         if (bin.pieces.some((p) => !p.c.plan.volumeKnown)) {

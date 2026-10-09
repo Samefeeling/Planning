@@ -101,19 +101,69 @@ A zone that matches none of these is flagged *unrouted*; add it in Settings.
 Each day shows its loads' total volume against the marshalling area's daily
 capacity (150 m³ by default), and the fleet runs against trucks available.
 
-## Reading the plan
+## Who it is for, and the page
 
-The Load plan tab reads top-down:
+Three readers: the **warehouse manager** (space, labour, what is not ready),
+the **dispatch office** (what to book, what has gone) and **their manager**
+(dollars out the door, service level, vehicles). The page is laid out in
+that order of the working day.
 
-1. **Volume to ship** — a stacked column per day (or per ISO week), split by
-   route, against the marshalling capacity line. Hover for the breakdown;
-   click a column to open that day. The weekly view adds a table: orders,
-   m³ per route with load counts, vehicles, part loads, fill, orders pulled
-   forward and orders leaving after their due date.
-2. **Day strip** — every dispatch day in the window with its volume, loads
-   and a marshalling status dot.
-3. **The day** — totals, the marshalling meter, and the loads grouped by
-   route, as **Load cards** or as the **Booking sheet**.
+### Headline figures
+
+Five tiles on every tab, each opening the view behind it:
+
+| Tile | What it counts |
+| --- | --- |
+| **Shipped today** | value of the loads marked dispatched today; under it, what is still to go today |
+| **Shipped month to date** | value dispatched this month; under it, the month-end forecast (shipped + still planned this month) |
+| **SIFOT month to date** | Shipped In Full, On Time — orders due this month that left complete by their due date, against the target (95% by default: green at or above, amber within 10 points, red below) |
+| **Trucks today** | own-fleet trucks and linehaul trailers leaving today; how many have gone; carrier runs and LTL apart |
+| **Containers this week** | FCL containers leaving Monday–Sunday, by size; LCL apart |
+
+**Where the dollars come from.** The waybill lists open orders only — a
+shipped order drops out of it — so shipped dollars and SIFOT come from the
+*shipment log*: every load marked dispatched records what left, its value,
+its due date and whether its goods were ready. `ReleaseVal` is the value still
+open on each line (it falls as lines part-ship). By default the figures count
+goods only; Settings can add the freight charged. A split order's value is
+shared by m³. **Undo dispatch** removes the record.
+
+**SIFOT rule.** Measured on orders *due* in the period (the strict form that
+counts backlog): shipped complete on or before the due date with every goods
+line ready is a hit; shipped late, shipped with goods not ready (a part
+shipment), or still open after the due date are misses. Open orders are only
+counted from the first load marked dispatched, since before that the app
+cannot tell a shipped order from a missing one.
+
+### Day board (opens on today)
+
+- **Day head** — previous/next dispatch day, Today, a date picker, and the
+  day's loads, m³ and value.
+- **Where the day stands** — loads *To book → Booked → Dispatched*, each with
+  m³ and value; **Goods not ready** on the loads still to go; **Marshalling**
+  against the area's daily capacity.
+- **Alerts** — loads from earlier days not marked dispatched, the orders not
+  ready (check with production before booking), loads with warnings, more
+  fleet runs than trucks.
+- **To book** and the route filter; **Load cards** or **Booking sheet**;
+  **Edit loads**.
+- Loads by route. **Mark dispatched** is on every load leaving today or
+  earlier (own-fleet runs need no booking first); booked loads keep it too.
+
+### Look-ahead
+
+Plan facts for the whole waybill (open orders, m³, loads, average fill,
+orders pulled forward, orders sized by pick list or cubics, orders past their
+due date), then the volume chart by day or week against the marshalling line,
+the weekly table and the day strip. Clicking a day opens it on the Day board.
+
+### Performance
+
+The month: dollars shipped per working day with what is still planned on
+top, a week-by-week table (shipped and planned dollars, trucks, containers,
+part loads, orders due, SIFOT), and every SIFOT miss with its reason.
+
+### Load cards
 
 Each card's title row names the route and the ship-to customers on it
 (`Sydney metro  Acme Fitout · Beta School +2`); loads are numbered per day

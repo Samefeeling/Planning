@@ -110,8 +110,15 @@ export interface ShipmentOrder {
    * such as `FRTNSW`). Null when the order carries no freight volume.
    */
   volumeM3: number | null;
-  /** Sum of `ReleaseVal` over the order's lines. */
+  /**
+   * Sum of `ReleaseVal` over the order's lines: the value still to ship
+   * (Epicor carries the open release value, not the original order value).
+   */
   value: number;
+  /** `ReleaseVal` of the goods lines (everything but `Other`). */
+  goodsValue: number;
+  /** `ReleaseVal` of the freight and service lines (`Other`). */
+  freightValue: number;
   lineCount: number;
   goodsLines: number;
   readyLines: number;
@@ -248,6 +255,13 @@ export interface DispatchSettings {
    */
   deadline: DeadlineField;
   /**
+   * What shipment dollars count: the goods only (`ReleaseVal` of goods
+   * lines), or goods plus the freight charged on the order.
+   */
+  shipmentValue: 'goods' | 'goods-freight';
+  /** SIFOT target, 0–1: green at or above it, amber within 10 points. */
+  sifotTarget: number;
+  /**
    * Firm (frozen) window in working days from today. Inside it, an order is
    * only pulled forward when its goods are already ready.
    */
@@ -333,6 +347,8 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   pickupZones: ['NSW-Customer Pickup'],
   preferVolume: 'cubics',
   deadline: 'needBy',
+  shipmentValue: 'goods',
+  sifotTarget: 0.95,
   firmDays: 2,
   stagingCapacityM3: 150,
   holidays: [],
