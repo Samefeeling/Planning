@@ -215,11 +215,6 @@ export interface DispatchSettings {
      */
     earlyDays: number;
     /**
-     * Contractor trucks per day — what the contractors can supply or the dock
-     * can load; 0 means no limit is checked.
-     */
-    maxRunsPerDay: number;
-    /**
      * A run carrying no more than this is booked as a part load (pallet
      * freight) rather than a whole truck; 0 disables.
      */
@@ -287,7 +282,24 @@ export interface DispatchSettings {
    * only pulled forward when its goods are already ready.
    */
   firmDays: number;
-  /** Volume the dispatch marshalling area can hold for one day's loads. */
+  /**
+   * Whole trucks the dock loads out in a day — NSW truck runs and linehaul
+   * FTL trailers; part loads aside. 0 means no limit.
+   */
+  trucksPerDay: number;
+  /** FCL containers stuffed in a day; LCL aside. 0 means no limit. */
+  containersPerDay: number;
+  /**
+   * Bring loads forward, within their pull-forward window, off a day that is
+   * over its truck or container limit or its marshalling capacity.
+   */
+  levelToLimits: boolean;
+  /**
+   * Size the marshalling area from the daily limits (see
+   * `stagingCapacity`) instead of the figure below.
+   */
+  stagingAuto: boolean;
+  /** Volume the marshalling area holds for one day's loads, when not derived. */
   stagingCapacityM3: number;
   /** Non-working days as `YYYY-MM-DD`, on top of weekends. */
   holidays: DayKey[];
@@ -334,7 +346,6 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
       },
     ],
     earlyDays: 3,
-    maxRunsPerDay: 0,
     carrierMaxM3: 2,
     keepShipViaApart: true,
   },
@@ -372,9 +383,31 @@ export const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   sifotTarget: 0.95,
   contractors: {},
   firmDays: 2,
+  trucksPerDay: 3,
+  containersPerDay: 2,
+  levelToLimits: true,
+  stagingAuto: true,
   stagingCapacityM3: 150,
   holidays: [],
 };
+
+/**
+ * The marshalling area's daily capacity, m³. Derived by default from what the
+ * dock can load out in a day: the truck limit at the largest truck or
+ * trailer, plus the container limit at the largest container — 3 × 75 m³ +
+ * 2 × 68 m³ = 361 m³ with the default sizes. Falls back to the set figure when
+ * derivation is off or a limit is 0.
+ */
+export function stagingCapacity(s: DispatchSettings): number {
+  if (!s.stagingAuto || s.trucksPerDay <= 0 || s.containersPerDay <= 0) return s.stagingCapacityM3;
+  return s.trucksPerDay * largestTruck(s) + s.containersPerDay * largestContainer(s);
+}
+
+export const largestTruck = (s: DispatchSettings): number =>
+  Math.max(0, s.linehaul.trailer.capacityM3, ...s.fleet.trucks.map((e) => e.capacityM3));
+
+export const largestContainer = (s: DispatchSettings): number =>
+  Math.max(0, ...s.container.containers.map((e) => e.capacityM3));
 
 export type DeadlineField = 'needBy' | 'shipBy';
 

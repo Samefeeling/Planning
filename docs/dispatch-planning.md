@@ -103,8 +103,20 @@ name shows on the load cards, the booking sheet and its CSV.
 6. **Volume advice.** A full load under its fill target, or only just over the
    next size down (within 10%), says so on the card.
 
-Each day shows its loads' total volume against the marshalling area's daily
-capacity (150 m³ by default), and the NSW truck runs against the contractor trucks set per day.
+7. **Daily limits.** The dock loads out about **3 trucks** (NSW truck runs
+   and linehaul FTL) and **2 containers** (FCL) a day, from past dispatches;
+   part loads are not counted. A day over a limit, or over the marshalling
+   capacity, has proposed loads brought forward to the latest earlier day the
+   route departs that still has room — only inside every order's pull-forward
+   window, never before today, into the firm window only with all goods
+   ready, and never a load carrying a pinned order. Nothing is moved later;
+   what cannot move leaves the day flagged over its limit. The card of a
+   moved load says where it came from.
+
+The **marshalling capacity** is derived from the same limits: what the dock
+can load out in a day, at the largest sizes — 3 × 75 m³ (semi or FTL
+trailer) + 2 × 68 m³ (40' HC) = **361 m³**. It follows the limits and the
+sizes on the Settings tab; turn derivation off there to enter a figure.
 
 ## Who it is for, and the page
 
@@ -145,11 +157,13 @@ cannot tell a shipped order from a missing one.
 - **Day head** — previous/next dispatch day, Today, a date picker, and the
   day's loads, m³ and value.
 - **Where the day stands** — loads *To book → Booked → Dispatched*, each with
-  m³ and value; **Goods not ready** on the loads still to go; **Marshalling**
-  against the area's daily capacity.
+  m³ and value; **Goods not ready** on the loads still to go; **Load-out**
+  — trucks and containers against the daily limits; **Marshalling** against
+  the area's daily capacity.
 - **Alerts** — loads from earlier days not marked dispatched, the orders not
-  ready (check with production before booking), loads with warnings, more
-  NSW truck runs than the contractor trucks set per day.
+  ready (check with production before booking), loads with warnings, a day
+  still over its limits (book extra or move a load by hand), and loads
+  brought forward to this day.
 - **To book** and the route filter; **Load cards** or **Booking sheet**;
   **Edit loads**.
 - Loads by route. **Mark booked** once the contractor has the load;
@@ -161,7 +175,13 @@ cannot tell a shipped order from a missing one.
 Plan facts for the whole waybill (open orders, m³, loads, average fill,
 orders pulled forward, orders sized by pick list or cubics, orders past their
 due date), then the volume chart by day or week against the marshalling line,
-the weekly table and the day strip. Clicking a day opens it on the Day board.
+the weekly table and the day strip, each day with its trucks and containers
+(over a limit in red). Clicking a day — column, chip or week row — selects it
+and shows its **day overview** below, without leaving the look-ahead: loads,
+trucks and containers against the limits, part loads, marshalling, value,
+goods not ready, what to book, and each load with its route, size,
+contractor, ship-to, m³, fill, due date, status and notes. **Open on Day
+board** takes the day there to work.
 
 ### Performance
 

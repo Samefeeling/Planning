@@ -2,7 +2,15 @@
 
 import type { DayKey, Readiness } from '@/domain/dispatch';
 import type { BadgeVariant } from '@/ui';
+import type { DayLimit } from '@/engine/dispatch/plan';
 import { formatDay, formatShortDay, fromDayKey } from '@/lib/time';
+
+/** A daily limit as it reads in a sentence. */
+export const LIMIT_LABEL: Record<DayLimit, string> = {
+  trucks: 'truck limit',
+  containers: 'container limit',
+  marshalling: 'marshalling capacity',
+};
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 

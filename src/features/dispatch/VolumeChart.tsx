@@ -110,7 +110,7 @@ export function VolumeChart({
         {showCapacity && (
           <li>
             <span className="swatch-line" aria-hidden />
-            Marshalling capacity {m3(capacityM3)} a day
+            Marshalling capacity {Math.round(capacityM3)} m³ a day
           </li>
         )}
       </ul>

@@ -30,7 +30,7 @@ import { useDispatchStore } from '@/store/dispatchStore';
 import { Badge } from '@/ui';
 import { contractorOf, fullAddress, shipToNames } from './booking';
 import { recommendation, sizeLadder } from './equipment';
-import { READINESS, dollars, dollarsFull, fillTone, m3, pct, shortDay, weekdayOf } from './format';
+import { LIMIT_LABEL, READINESS, dollars, dollarsFull, fillTone, m3, pct, shortDay, weekdayOf } from './format';
 import { loadValue } from '@/engine/dispatch/shipments';
 
 /** One-letter marker for where a volume came from; freight is the default. */
@@ -169,6 +169,12 @@ export function LoadCard({
             <b>{dollars(value)}</b>
           </span>
         </div>
+        {load.levelled && (
+          <p className="load-levelled">
+            Brought forward from {weekdayOf(load.levelled.from)} {shortDay(load.levelled.from)} — that day is over
+            its {LIMIT_LABEL[load.levelled.reason]}. The goods must be ready by this day.
+          </p>
+        )}
       </div>
 
       {ladder.length > 1 && (

@@ -7,19 +7,30 @@
  * 2. **Volume to ship** — per day or per week, stacked by route, against the
  *    marshalling capacity; the weekly view adds a table of vehicles, part
  *    loads, fill and late orders per week.
- * 3. **Day strip** — every dispatch day in the window.
+ * 3. **Day strip** — every dispatch day in the window, with its trucks and
+ *    containers against the daily limits.
+ * 4. **Day overview** — the selected day's loads, load-out and marshalling.
  *
- * Clicking a day (column, chip or week row) opens it on the Day board.
+ * Clicking a day (column, chip or week row) selects it here, so day after day
+ * can be looked over; **Open on Day board** takes it there to work.
  */
 
 import { useMemo, useState } from 'react';
-import { DEADLINE_LABEL, DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
+import {
+  DEADLINE_LABEL,
+  DISPATCH_MODE_LABEL,
+  dueDate,
+  stagingCapacity,
+  type DispatchMode,
+} from '@/domain/dispatch';
 import type { DispatchPlan } from '@/engine/dispatch/plan';
+import { loadValue } from '@/engine/dispatch/shipments';
 import { addWorkingDays } from '@/engine/dispatch/calendar';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { VolumeChart } from './VolumeChart';
 import { MODES, equipmentMix, isoWeek, summarise, weekStart, type Bucket } from './summary';
-import { fillTone, pct, shortDay, stagingTone, weekdayOf } from './format';
+import { contractorOf, loadStatus, shipToNames } from './booking';
+import { LIMIT_LABEL, dayLabel, dollars, fillTone, m3, pct, shortDay, stagingTone, weekdayOf } from './format';
 
 type Range = 'week' | 'fortnight' | 'month' | 'all';
 
@@ -37,12 +48,16 @@ export function LookAhead({
   plan,
   day,
   cubicsLoaded,
+  onSelectDay,
   onOpenDay,
 }: {
   plan: DispatchPlan;
-  /** The day open on the Day board, highlighted here. */
+  /** The selected day, shared with the Day board. */
   day: string;
   cubicsLoaded: boolean;
+  /** Select a day here, staying on the look-ahead. */
+  onSelectDay: (day: string) => void;
+  /** Open a day on the Day board. */
   onOpenDay: (day: string) => void;
 }) {
   const settings = useDispatchStore((s) => s.settings);
@@ -51,7 +66,9 @@ export function LookAhead({
   const [by, setBy] = useState<'day' | 'week'>('day');
   const [showDispatched, setShowDispatched] = useState(false);
   const selectedDay = day;
-  const setSelectedDay = onOpenDay;
+  const setSelectedDay = onSelectDay;
+  const staging = stagingCapacity(settings);
+  const totals = useMemo(() => new Map(plan.days.map((t) => [t.day, t] as const)), [plan.days]);
   const dueLabel = DEADLINE_LABEL[plan.deadline];
 
   const holidays = useMemo(() => new Set(settings.holidays), [settings.holidays]);
@@ -168,7 +185,7 @@ export function LookAhead({
       <section className="kpi-chart" aria-label="Dispatch summary">
         <header className="summary-head">
           <h4>Volume to ship, m³ by route</h4>
-          <span className="muted-note">Click a day to open it on the Day board</span>
+          <span className="muted-note">Click a day to see it below</span>
           <div className="shift-tabs" role="group" aria-label="Group by">
             <button type="button" className={`shift-btn${by === 'day' ? ' a' : ''}`} onClick={() => setBy('day')}>
               By day
@@ -181,7 +198,7 @@ export function LookAhead({
         <VolumeChart
           buckets={by === 'day' ? days : weeks}
           by={by}
-          capacityM3={settings.stagingCapacityM3}
+          capacityM3={staging}
           selected={by === 'day' ? selectedDay : selectedWeek}
           today={plan.today}
           onSelect={by === 'day' ? setSelectedDay : selectWeek}
@@ -195,8 +212,9 @@ export function LookAhead({
         <nav className="day-strip" aria-label="Dispatch days">
           {days.map((d, i) => {
             const newWeek = i === 0 || weekStart(d.key) !== weekStart(days[i - 1].key);
-            const staging = settings.stagingCapacityM3;
             const tone = staging > 0 ? stagingTone(d.total / staging) : 'good';
+            const t = totals.get(d.key);
+            const over = !!t && (t.overTrucks || t.overContainers);
             return (
               <div key={d.key} className="day-chip-wrap">
                 {newWeek && <span className="week-mark">Wk {isoWeek(d.key)}</span>}
@@ -213,8 +231,8 @@ export function LookAhead({
                     <span className={`status-dot tone-${tone}`} aria-hidden />
                     {Math.round(d.total)} m³
                   </span>
-                  <span className="chip-loads">
-                    {MODES.reduce((s, m) => s + d.loads[m], 0)} loads
+                  <span className={`chip-loads${over ? ' tone-bad' : ''}`}>
+                    {t ? `${t.trucks} trk · ${t.containers} cont` : `${MODES.reduce((s, m) => s + d.loads[m], 0)} loads`}
                   </span>
                 </button>
               </div>
@@ -223,7 +241,136 @@ export function LookAhead({
         </nav>
       )}
 
+      <DayOverview plan={plan} day={selectedDay} onOpenDay={onOpenDay} />
     </div>
+  );
+}
+
+/** One day looked over from the look-ahead: what leaves, and whether the dock can take it. */
+function DayOverview({ plan, day, onOpenDay }: { plan: DispatchPlan; day: string; onOpenDay: (day: string) => void }) {
+  const settings = useDispatchStore((s) => s.settings);
+  const loads = plan.loads.filter((l) => l.day === day);
+  const total = plan.days.find((t) => t.day === day);
+  const staging = stagingCapacity(settings);
+  const pending = loads.filter((l) => l.firm !== 'dispatched');
+  const volume = pending.reduce((s, l) => s + l.volumeM3, 0);
+  const value = loads.reduce((s, l) => s + loadValue(l, settings.shipmentValue), 0);
+  const parts = loads.filter((l) => l.mode !== 'pickup' && l.capacityM3 === null).length;
+  const notReady = new Set(
+    pending.flatMap((l) =>
+      l.drops
+        .filter((d) => d.order && (d.order.readiness === 'not-ready' || d.order.readiness === 'partial'))
+        .map((d) => d.orderId),
+    ),
+  ).size;
+  const mix: Record<string, number> = {};
+  for (const l of pending) if (l.mode !== 'pickup') mix[l.equipment] = (mix[l.equipment] ?? 0) + 1;
+
+  return (
+    <section className="kpi-chart day-overview" aria-label={`Overview of ${dayLabel(day)}`}>
+      <header className="summary-head">
+        <h4>
+          {dayLabel(day)}
+          {day === plan.today && <span className="today-tag">Today</span>}
+        </h4>
+        <button type="button" className="kpi-btn primary" onClick={() => onOpenDay(day)}>
+          Open on Day board
+        </button>
+      </header>
+      {loads.length === 0 ? (
+        <p className="muted-note">Nothing leaves on this day.</p>
+      ) : (
+        <>
+          <div className="plan-facts overview-facts">
+            <Fact label="Loads" value={String(loads.length)} />
+            <Fact
+              label="Trucks"
+              value={`${total?.trucks ?? 0}${settings.trucksPerDay > 0 ? ` / ${settings.trucksPerDay}` : ''}`}
+              tone={total?.overTrucks ? 'bad' : undefined}
+              title="Whole trucks against the daily limit: NSW truck runs and linehaul FTL"
+            />
+            <Fact
+              label="Containers"
+              value={`${total?.containers ?? 0}${settings.containersPerDay > 0 ? ` / ${settings.containersPerDay}` : ''}`}
+              tone={total?.overContainers ? 'bad' : undefined}
+              title="FCL containers against the daily limit"
+            />
+            <Fact label="Part loads" value={String(parts)} title="NSW pallet freight, LTL and LCL" />
+            <Fact
+              label="Marshalling"
+              value={staging > 0 ? pct(volume / staging) : m3(volume)}
+              tone={staging > 0 ? stagingTone(volume / staging) : undefined}
+              title={staging > 0 ? `${m3(volume)} of ${m3(staging)}` : undefined}
+            />
+            <Fact label="Value" value={dollars(value)} />
+            <Fact label="Goods not ready" value={String(notReady)} tone={notReady > 0 ? 'bad' : undefined} />
+          </div>
+          {Object.keys(mix).length > 0 && (
+            <p className="day-book">
+              <span className="reco-label">To book</span> {equipmentMix(mix)}
+            </p>
+          )}
+          <div className="table-scroll">
+            <table className="summary-table overview-table">
+              <thead>
+                <tr>
+                  <th>Load</th>
+                  <th>Route</th>
+                  <th>Book</th>
+                  <th>Ship to</th>
+                  <th className="num">m³</th>
+                  <th className="num">Fill</th>
+                  <th>{DEADLINE_LABEL[plan.deadline]}</th>
+                  <th>Status</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loads.map((l, i) => {
+                  const names = shipToNames(l);
+                  const dues = l.drops.map((d) => (d.order ? dueDate(d.order, plan.deadline) : null)).filter(Boolean) as string[];
+                  const due = dues.sort()[0] ?? null;
+                  const contractor = contractorOf(l, settings.contractors);
+                  return (
+                    <tr key={l.id}>
+                      <td>
+                        <b>L{i + 1}</b>
+                      </td>
+                      <td>
+                        <span className={`dot series-${l.mode}`} aria-hidden />
+                        {l.label}
+                      </td>
+                      <td>
+                        {l.equipment}
+                        {contractor && <span className="ship-sub">{contractor}</span>}
+                      </td>
+                      <td title={names.join('\n')}>
+                        {names.slice(0, 2).join(' · ')}
+                        {names.length > 2 && <span className="muted"> +{names.length - 2}</span>}
+                      </td>
+                      <td className="num">{l.volumeM3.toFixed(1)}</td>
+                      <td className="num">{l.fill === null ? '—' : pct(l.fill)}</td>
+                      <td className={due && due < day ? 'tone-bad' : undefined}>{shortDay(due)}</td>
+                      <td>{loadStatus(l)}</td>
+                      <td className="overview-note">
+                        {l.levelled &&
+                          `From ${weekdayOf(l.levelled.from)} ${shortDay(l.levelled.from)} (${LIMIT_LABEL[l.levelled.reason]})`}
+                        {l.levelled && l.warnings.length > 0 && ' · '}
+                        {l.warnings.length > 0 && (
+                          <span className="tone-bad" title={l.warnings.join('\n')}>
+                            {l.warnings.length} warning{l.warnings.length === 1 ? '' : 's'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -290,7 +437,7 @@ function WeekTable({
           ))}
         </tbody>
       </table>
-      <p className="muted-note">m³ per route, loads in brackets. Click a week to open its first day.</p>
+      <p className="muted-note">m³ per route, loads in brackets. Click a week to see its first day.</p>
     </div>
   );
 }

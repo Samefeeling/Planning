@@ -16,7 +16,7 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { DISPATCH_MODE_LABEL, type DispatchMode } from '@/domain/dispatch';
+import { DISPATCH_MODE_LABEL, stagingCapacity, type DispatchMode } from '@/domain/dispatch';
 import type { DispatchPlan, PlannedLoad } from '@/engine/dispatch/plan';
 import { loadValue } from '@/engine/dispatch/shipments';
 import { useDispatchStore } from '@/store/dispatchStore';
@@ -90,7 +90,8 @@ export function DayBoard({
   const mix: Record<string, number> = {};
   for (const l of pending) if (l.mode !== 'pickup') mix[l.equipment] = (mix[l.equipment] ?? 0) + 1;
   const total = plan.days.find((d) => d.day === day);
-  const staging = settings.stagingCapacityM3;
+  const staging = stagingCapacity(settings);
+  const levelled = all.filter((l) => l.levelled).length;
   const warned = pending.filter((l) => l.warnings.length > 0).length;
 
   const counts = new Map<DispatchMode, number>();
@@ -165,6 +166,25 @@ export function DayBoard({
             </span>
           </div>
 
+          {(settings.trucksPerDay > 0 || settings.containersPerDay > 0) && (
+            <div className={`dayboard-check${total?.overTrucks || total?.overContainers ? ' alert' : ''}`}>
+              <span className="stage-label">Load-out</span>
+              <b className="stage-count">
+                <span className={total?.overTrucks ? 'tone-bad' : undefined}>
+                  {total?.trucks ?? 0}
+                  {settings.trucksPerDay > 0 && <small>/{settings.trucksPerDay}</small>}
+                </span>{' '}
+                <small>trucks</small> ·{' '}
+                <span className={total?.overContainers ? 'tone-bad' : undefined}>
+                  {total?.containers ?? 0}
+                  {settings.containersPerDay > 0 && <small>/{settings.containersPerDay}</small>}
+                </span>{' '}
+                <small>containers</small>
+              </b>
+              <span className="stage-sub">against the daily limits, part loads aside</span>
+            </div>
+          )}
+
           {staging > 0 && total && (
             <div className="dayboard-check">
               <span className="stage-label">Marshalling</span>
@@ -184,7 +204,13 @@ export function DayBoard({
           )}
         </div>
 
-        {(behind.length > 0 || warned > 0 || total?.overFleet || notReady.length > 0) && (
+        {(behind.length > 0 ||
+          warned > 0 ||
+          total?.overTrucks ||
+          total?.overContainers ||
+          total?.overStaging ||
+          levelled > 0 ||
+          notReady.length > 0) && (
           <ul className="dayboard-alerts">
             {behind.length > 0 && (
               <li>
@@ -220,10 +246,24 @@ export function DayBoard({
                 <b>{warned}</b> load{warned === 1 ? ' has' : 's have'} warnings — see the cards.
               </li>
             )}
-            {total?.overFleet && (
+            {(total?.overTrucks || total?.overContainers || total?.overStaging) && (
               <li>
-                {total.fleetRuns} NSW runs — more than the {settings.fleet.maxRunsPerDay} contractor trucks set per
-                day.
+                Over the daily limit:{' '}
+                {[
+                  total.overTrucks && `${total.trucks} trucks (limit ${settings.trucksPerDay})`,
+                  total.overContainers && `${total.containers} containers (limit ${settings.containersPerDay})`,
+                  total.overStaging && `${m3(total.volumeM3)} to stage (marshalling ${m3(staging)})`,
+                ]
+                  .filter(Boolean)
+                  .join(', ')}{' '}
+                — nothing more could be brought forward inside the orders' windows. Book extra, or move a load by
+                hand.
+              </li>
+            )}
+            {levelled > 0 && (
+              <li>
+                <b>{levelled}</b> load{levelled === 1 ? ' was' : 's were'} brought forward to this day from a day
+                over its limit — see the cards.
               </li>
             )}
           </ul>

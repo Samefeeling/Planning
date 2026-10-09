@@ -199,7 +199,13 @@ export function DispatchPage() {
           ) : tab === 'day' ? (
             <DayBoard plan={plan} day={shownDay} onDay={setDay} onOpenOrder={setOpenOrder} />
           ) : tab === 'ahead' ? (
-            <LookAhead plan={plan} day={shownDay} cubicsLoaded={!!model.cubics} onOpenDay={openDay} />
+            <LookAhead
+              plan={plan}
+              day={shownDay}
+              cubicsLoaded={!!model.cubics}
+              onSelectDay={setDay}
+              onOpenDay={openDay}
+            />
           ) : tab === 'orders' ? (
             <OrdersTable model={model} onOpenOrder={setOpenOrder} />
           ) : tab === 'performance' ? (

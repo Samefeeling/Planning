@@ -4,7 +4,14 @@
  */
 
 import { useState } from 'react';
-import type { DispatchSettings, Equipment, ShipmentOrder } from '@/domain/dispatch';
+import {
+  largestContainer,
+  largestTruck,
+  stagingCapacity,
+  type DispatchSettings,
+  type Equipment,
+  type ShipmentOrder,
+} from '@/domain/dispatch';
 import { useDispatchStore } from '@/store/dispatchStore';
 import { Button } from '@/ui';
 
@@ -233,6 +240,8 @@ export function DispatchSettingsPanel({ orders = [] }: { orders?: readonly Shipm
 
   const set = (change: (s: DispatchSettings) => DispatchSettings) => update(change);
   const { fleet, linehaul, container } = settings;
+  const staging = stagingCapacity(settings);
+  const derived = settings.trucksPerDay > 0 && settings.containersPerDay > 0;
 
   return (
     <div className="dispatch-settings" key={generation}>
@@ -252,18 +261,63 @@ export function DispatchSettingsPanel({ orders = [] }: { orders?: readonly Shipm
             hint="Inside it, only orders whose goods are ready are pulled forward"
             onChange={(n) => set((s) => ({ ...s, firmDays: Math.round(n) }))}
           />
-          <NumberField
-            label="Marshalling capacity"
-            suffix="m³ per day"
-            value={settings.stagingCapacityM3}
-            hint="Volume the dispatch area can stage for one day's loads; 0 turns the check off"
-            onChange={(n) => set((s) => ({ ...s, stagingCapacityM3: n }))}
-          />
           <ListField
             label="Holidays (YYYY-MM-DD, comma separated)"
             value={settings.holidays}
             onChange={(v) => set((s) => ({ ...s, holidays: v.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) }))}
           />
+        </div>
+        <h4>Daily load-out</h4>
+        <div className="field-row">
+          <NumberField
+            label="Trucks per day"
+            suffix="0 = no limit"
+            value={settings.trucksPerDay}
+            hint="Whole trucks the dock loads out in a day: NSW truck runs and linehaul FTL; part loads aside"
+            onChange={(n) => set((s) => ({ ...s, trucksPerDay: Math.round(n) }))}
+          />
+          <NumberField
+            label="Containers per day"
+            suffix="0 = no limit"
+            value={settings.containersPerDay}
+            hint="FCL containers stuffed in a day; LCL aside"
+            onChange={(n) => set((s) => ({ ...s, containersPerDay: Math.round(n) }))}
+          />
+          {settings.stagingAuto && derived ? (
+            <div className="field">
+              <span>Marshalling capacity</span>
+              <span className="field-derived">
+                <b>{Math.round(staging)} m³</b> per day = {settings.trucksPerDay} × {largestTruck(settings)} m³ +{' '}
+                {settings.containersPerDay} × {largestContainer(settings)} m³
+              </span>
+            </div>
+          ) : (
+            <NumberField
+              label="Marshalling capacity"
+              suffix="m³ per day"
+              value={settings.stagingCapacityM3}
+              hint="Volume the dispatch area can stage for one day's loads; 0 turns the check off"
+              onChange={(n) => set((s) => ({ ...s, stagingCapacityM3: n }))}
+            />
+          )}
+        </div>
+        <div className="check-stack">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.stagingAuto}
+              onChange={(e) => set((s) => ({ ...s, stagingAuto: e.target.checked }))}
+            />
+            Size the marshalling area from the daily limits (largest truck and container, full)
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.levelToLimits}
+              onChange={(e) => set((s) => ({ ...s, levelToLimits: e.target.checked }))}
+            />
+            Bring loads forward off a day over its limits, inside each order's pull-forward window
+          </label>
         </div>
       </section>
 
@@ -290,13 +344,6 @@ export function DispatchSettingsPanel({ orders = [] }: { orders?: readonly Shipm
             value={fleet.earlyDays}
             hint="How early an order may go to fill a truck. Tighten in peak season, when the warehouse is full."
             onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, earlyDays: Math.round(n) } }))}
-          />
-          <NumberField
-            label="Contractor trucks per day"
-            suffix="0 = no check"
-            value={fleet.maxRunsPerDay}
-            hint="The most NSW truck runs the contractors can supply or the dock can load in a day"
-            onChange={(n) => set((s) => ({ ...s, fleet: { ...s.fleet, maxRunsPerDay: Math.round(n) } }))}
           />
           <NumberField
             label="Part load (pallet freight) up to"

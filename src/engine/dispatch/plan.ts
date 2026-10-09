@@ -34,6 +34,7 @@
 import {
   PART_LOAD,
   dueDate,
+  stagingCapacity,
   groupBase,
   routeFor,
   type DayKey,
@@ -127,7 +128,7 @@ export interface PlannedLoad {
   mode: DispatchMode;
   label: string;
   day: DayKey;
-  /** Vehicle or container name, or `Carrier`, `LTL`, `LCL`, `Pickup`. */
+  /** Vehicle or container name, or `Part load`, `LTL`, `LCL`, `Pickup`. */
   equipment: string;
   capacityM3: number | null;
   drops: PlannedDrop[];
@@ -140,7 +141,15 @@ export interface PlannedLoad {
   /** Status when the planner has confirmed it; null for a proposal. */
   firm: FirmLoad['status'] | null;
   warnings: string[];
+  /**
+   * Brought forward from `from` because that day was over its truck or
+   * container limit or its marshalling capacity.
+   */
+  levelled?: { from: DayKey; reason: DayLimit };
 }
+
+/** The daily limit a day can be over. */
+export type DayLimit = 'trucks' | 'containers' | 'marshalling';
 
 export interface OrderPlan {
   orderId: string;
@@ -162,13 +171,19 @@ export interface OrderPlan {
 
 export interface DayTotal {
   day: DayKey;
+  /** Volume still to go out (dispatched loads aside). */
   volumeM3: number;
   loads: number;
-  fleetRuns: number;
+  /** Whole trucks: NSW truck runs and linehaul FTL, dispatched ones included. */
+  trucks: number;
+  /** FCL containers, dispatched ones included. */
+  containers: number;
   /** Over the marshalling area's capacity. */
   overStaging: boolean;
-  /** More NSW truck runs than the contractor trucks set per day. */
-  overFleet: boolean;
+  /** More trucks than the dock loads out in a day. */
+  overTrucks: boolean;
+  /** More containers than are stuffed in a day. */
+  overContainers: boolean;
 }
 
 export interface DispatchPlan {
@@ -424,6 +439,8 @@ export function planDispatch(
   const byId = new Map(orders.map((o) => [o.id, o]));
   const loads: PlannedLoad[] = [];
   const plans = new Map<string, OrderPlan>();
+  // The dispatch days each optimised load's route may leave on.
+  const allowed = new Map<string, DayKey[]>();
 
   const volumeOf = (o: ShipmentOrder): ResolvedVolume =>
     resolveVolume(o, decisions.volumeOverrides[o.id], settings.preferVolume);
@@ -612,6 +629,7 @@ export function planDispatch(
 
       const emit = (bin: Bin, equipment: string, capacity: number | null, advice: string[] = []) => {
         const id = `${group}|${day}|${++counter}`;
+        allowed.set(id, days);
         const warnings: string[] = [...advice];
         const drops: PlannedDrop[] = bin.pieces.map((p) => ({
           orderId: p.c.order.id,
@@ -735,6 +753,8 @@ export function planDispatch(
     }
   }
 
+  if (settings.levelToLimits) level(loads, plans, allowed, decisions, settings, today, firmEnd, holidays);
+
   // Within a day: NSW delivery first, then linehaul, containers and pickups —
   // the order the dock loads them in.
   const rank: Record<DispatchMode, number> = { fleet: 0, linehaul: 1, container: 2, pickup: 3 };
@@ -765,18 +785,31 @@ export function planDispatch(
 
   const totals = new Map<DayKey, DayTotal>();
   for (const load of loads) {
-    if (load.firm === 'dispatched') continue;
-    const t =
-      totals.get(load.day) ??
-      { day: load.day, volumeM3: 0, loads: 0, fleetRuns: 0, overStaging: false, overFleet: false };
-    t.volumeM3 += load.volumeM3;
-    t.loads += 1;
-    if (load.mode === 'fleet') t.fleetRuns += 1;
+    const t: DayTotal = totals.get(load.day) ?? {
+      day: load.day,
+      volumeM3: 0,
+      loads: 0,
+      trucks: 0,
+      containers: 0,
+      overStaging: false,
+      overTrucks: false,
+      overContainers: false,
+    };
+    const kind = limitKind(load);
+    if (kind === 'trucks') t.trucks += 1;
+    if (kind === 'containers') t.containers += 1;
+    if (load.firm !== 'dispatched') {
+      t.volumeM3 += load.volumeM3;
+      t.loads += 1;
+    }
     totals.set(load.day, t);
   }
-  for (const t of totals.values()) {
-    t.overStaging = settings.stagingCapacityM3 > 0 && t.volumeM3 > settings.stagingCapacityM3 + EPS;
-    t.overFleet = settings.fleet.maxRunsPerDay > 0 && t.fleetRuns > settings.fleet.maxRunsPerDay;
+  const staging = stagingCapacity(settings);
+  for (const [day, t] of totals) {
+    if (t.loads === 0) totals.delete(day);
+    t.overStaging = staging > 0 && t.volumeM3 > staging + EPS;
+    t.overTrucks = settings.trucksPerDay > 0 && t.trucks > settings.trucksPerDay;
+    t.overContainers = settings.containersPerDay > 0 && t.containers > settings.containersPerDay;
   }
 
   return {
@@ -786,6 +819,104 @@ export function planDispatch(
     days: [...totals.values()].sort((a, b) => a.day.localeCompare(b.day)),
     deadline: settings.deadline,
   };
+}
+
+/** Which daily limit a load counts against: whole trucks, FCL containers, or none (part loads, pickups). */
+export function limitKind(load: { mode: DispatchMode; capacityM3: number | null }): 'trucks' | 'containers' | null {
+  if (load.capacityM3 === null || load.mode === 'pickup') return null;
+  return load.mode === 'container' ? 'containers' : 'trucks';
+}
+
+/**
+ * Bring proposed loads forward off days over their limits — trucks,
+ * containers, then marshalling volume — onto the latest earlier day the
+ * route departs that still has room. A load only moves inside every one of
+ * its orders' pull-forward windows, never before today, into the firm window
+ * only with all its goods ready, and never when it carries a pinned order.
+ * Nothing moves later: what cannot be brought forward stays, and the day is
+ * flagged over its limit.
+ */
+function level(
+  loads: PlannedLoad[],
+  plans: Map<string, OrderPlan>,
+  allowed: ReadonlyMap<string, DayKey[]>,
+  decisions: DispatchDecisions,
+  settings: DispatchSettings,
+  today: DayKey,
+  firmEnd: DayKey,
+  holidays: ReadonlySet<string>,
+): void {
+  const limit = { trucks: settings.trucksPerDay, containers: settings.containersPerDay };
+  const staging = stagingCapacity(settings);
+  const use = new Map<DayKey, { trucks: number; containers: number; volume: number }>();
+  const at = (day: DayKey) => {
+    let u = use.get(day);
+    if (!u) use.set(day, (u = { trucks: 0, containers: 0, volume: 0 }));
+    return u;
+  };
+  for (const l of loads) {
+    const kind = limitKind(l);
+    if (kind) at(l.day)[kind] += 1;
+    if (l.firm !== 'dispatched') at(l.day).volume += l.volumeM3;
+  }
+
+  const overBy = (day: DayKey): DayLimit | null => {
+    const u = at(day);
+    if (limit.trucks > 0 && u.trucks > limit.trucks) return 'trucks';
+    if (limit.containers > 0 && u.containers > limit.containers) return 'containers';
+    if (staging > 0 && u.volume > staging + EPS) return 'marshalling';
+    return null;
+  };
+  const roomFor = (day: DayKey, l: PlannedLoad): boolean => {
+    const u = at(day);
+    const kind = limitKind(l);
+    if (kind && limit[kind] > 0 && u[kind] + 1 > limit[kind]) return false;
+    return staging <= 0 || u.volume + l.volumeM3 <= staging + EPS;
+  };
+  const ready = (l: PlannedLoad) =>
+    l.drops.every((d) => !d.order || d.order.readiness === 'ready' || d.order.readiness === 'no-goods');
+
+  const days = [...use.keys()].sort();
+  for (const day of days) {
+    for (let reason = overBy(day); reason; reason = overBy(day)) {
+      let best: { load: PlannedLoad; to: DayKey } | null = null;
+      for (const l of loads) {
+        if (l.day !== day || l.firm !== null || l.mode === 'pickup') continue;
+        if (reason !== 'marshalling' && limitKind(l) !== reason) continue;
+        if (l.drops.some((d) => decisions.pins[d.orderId])) continue;
+        const earliest = l.drops.reduce((e, d) => {
+          const o = plans.get(d.orderId)?.earliest;
+          return o && o > e ? o : e;
+        }, today);
+        const canFirm = ready(l);
+        const to = (allowed.get(l.id) ?? [])
+          .filter((d) => d >= earliest && d < day && (d >= firmEnd || canFirm) && roomFor(d, l))
+          .pop();
+        if (to && (!best || to > best.to || (to === best.to && l.volumeM3 > best.load.volumeM3))) {
+          best = { load: l, to };
+        }
+      }
+      if (!best) break;
+      const { load, to } = best;
+      const kind = limitKind(load);
+      if (kind) {
+        at(day)[kind] -= 1;
+        at(to)[kind] += 1;
+      }
+      at(day).volume -= load.volumeM3;
+      at(to).volume += load.volumeM3;
+      const early = workingDaysBetween(to, day, holidays);
+      load.levelled = { from: day, reason };
+      load.day = to;
+      for (const d of load.drops) {
+        d.daysEarly += early;
+        const plan = plans.get(d.orderId);
+        if (!plan) continue;
+        if (!plan.day || to < plan.day) plan.day = to;
+        if (!plan.flags.includes('pulled-forward')) plan.flags.push('pulled-forward');
+      }
+    }
+  }
 }
 
 /** The NSW run class a load's group names, if it is an NSW delivery load. */

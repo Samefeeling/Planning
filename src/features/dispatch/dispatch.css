@@ -1795,3 +1795,47 @@ sup.src {
 .perf-table tr.selected td {
   background: #e0f2fe;
 }
+
+/* ---- daily limits and the look-ahead day overview -------------------------- */
+.stage-count small {
+  color: var(--mu);
+  font-size: 14px;
+  font-weight: 700;
+}
+.stage-count span.tone-bad,
+.chip-loads.tone-bad,
+.dispatch span.tone-bad {
+  color: #b91c1c;
+  font-weight: 700;
+}
+.load-levelled {
+  margin: 8px 0 0;
+  color: var(--tx);
+  font-size: 13.5px;
+}
+.field-derived {
+  padding: 6px 0;
+  font-size: 14px;
+}
+.day-overview {
+  margin-top: 14px;
+}
+.day-overview .summary-head .kpi-btn {
+  margin-left: auto;
+}
+.overview-facts {
+  margin-bottom: 10px;
+}
+.overview-table .dot {
+  margin-right: 6px;
+}
+.overview-note {
+  color: var(--mu);
+  font-size: 13px;
+}
+.check-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
