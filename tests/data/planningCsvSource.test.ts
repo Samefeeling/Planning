@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PlanningCsvSource } from '@/data/csv/PlanningCsvSource';
-import type { SharePointConfig } from '@/data/excel/sharepoint.client';
+import type { SharePointConfig } from '@/data/sharepoint/site';
 
 const CSV = [
   'JobHead_JobNum,JobHead_PartNum,JobHead_PartDescription,JobHead_Department,JobHead_ProdQty,Calculated_RemainingQty,JobHead_StartDate,JobHead_ReqDueDate,Calculated_LaborHrs,JobOper_ProdStandard',
@@ -118,7 +118,16 @@ describe('PlanningCsvSource', () => {
       'PMD',
       'UPL_CUT_SEW',
       'UPL_GLUING',
+      // The two lanes made of benches: each bench holds orders and so needs a
+      // work centre of its own, or every order on one would be tipped into
+      // the pool on the next refresh.
+      'UPL_GLUING_FOAM',
+      'UPL_GLUING_SEW',
+      'UPL_GLUING_STAPLE',
       'UPL_SOFTIE',
+      'UPL_SOFTIE_FOAM',
+      'UPL_SOFTIE_SEW',
+      'UPL_SOFTIE_STAPLE',
       'ASSY',
       'TABLE',
       'FACTORY_GENERAL',

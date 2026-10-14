@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { OrderRow } from '@/engine/assembly/board';
-import { WorkerId } from '@/domain/ids';
+import { incomingSupply, type PickShortage } from '@/engine/assembly/pickShortage';
+import { PartId, WorkerId } from '@/domain/ids';
 import { toDayKey } from '@/lib/time';
 import {
   PRODUCTIVE_HOURS_PER_PERSON,
@@ -18,11 +19,18 @@ import {
   retainLineRows,
   barTag,
   lineOfWorkerToday,
+  missingBarReason,
   shiftTimelineDays,
   sortLineRows,
   teamSummary,
+  onLeaveWorkerOrders,
+  strandedOrders,
   timelineDayOffset,
   withPredecessors,
+  releasedOrderNumbers,
+  unstaffedWindow,
+  lineDayLoads,
+  timelineDays,
 } from '@/features/assembly/boardView';
 
 const row = (
@@ -204,6 +212,105 @@ describe('assembly board view controls', () => {
     people[13].plannedLeave = ['2026-09-04'];
     expect(teamSummary(people, [active], today).label).toBe('13/13 All allocated');
     expect(teamSummary([], [active], today).label).toBe('0/0 No staff on site');
+  });
+
+  /*
+   * The morning the board used to stay quiet about: somebody rings in, and
+   * whatever they were half-way through is neither running nor on any list of
+   * work waiting for a crew — it still has a full set of names on it.
+   */
+  describe('the two rolls in the crew column', () => {
+    const TODAY = new Date('2026-09-04T00:00:00');
+    const KEY = '2026-09-04';
+    const person = (id: string, over: Partial<Worker> = {}): Worker => ({
+      id: WorkerId(id),
+      name: id,
+      skills: ['ASSY'],
+      onShift: true,
+      ...over,
+    });
+    const onToday = (ids: string[]) => ({
+      day: KEY,
+      date: new Date(`${KEY}T00:00:00`),
+      from: 0,
+      used: 1,
+      workerIds: ids,
+      hours: PRODUCTIVE_HOURS_PER_PERSON * ids.length,
+      perWorkerHours: PRODUCTIVE_HOURS_PER_PERSON,
+    });
+
+    it('takes somebody marked off out of the ratio and names them', () => {
+      const people = [person('Ann'), person('Bob'), person('Cal')];
+      const running = row('J1');
+      running.workers = [people[0]];
+      running.crewDays = [onToday(['Ann'])];
+
+      const team = teamSummary(people, [running], TODAY, { Bob: [KEY] });
+      expect(team.onLeave.map((w) => w.name)).toEqual(['Bob']);
+      // Bob is not "free": he is not here to be reached for.
+      expect(team.free.map((w) => w.name)).toEqual(['Cal']);
+      expect(team.label).toBe('1/2 Free 1: Cal');
+    });
+
+    it('counts annual leave and the roster\'s own flag as absent too', () => {
+      const people = [
+        person('Ann', { plannedLeave: [KEY] }),
+        person('Bob', { onShift: false }),
+        person('Cal'),
+      ];
+      expect(
+        teamSummary(people, [], TODAY, {}).onLeave.map((w) => w.name),
+      ).toEqual(['Ann', 'Bob']);
+    });
+
+    it('finds the begun orders nobody is left on', () => {
+      const away = person('Bob');
+      // Begun on the floor, and today has no crew day at all: the one the
+      // supervisor has to hand to somebody.
+      const stalled = row('J1');
+      stalled.workers = [away];
+      stalled.crewOnLeaveToday = [away];
+      stalled.actualStart = {
+        startedAt: '2026-09-03T07:10:00',
+        overrideReason: null,
+        operatorIds: ['Bob'],
+        operatorNames: ['Bob'],
+      };
+      // Same absence, but a second person is on it, so it is still running.
+      const covered = row('J2');
+      covered.workers = [away, person('Ann')];
+      covered.crewOnLeaveToday = [away];
+      covered.actualStart = stalled.actualStart;
+      covered.crewDays = [onToday(['Ann'])];
+      // Not started yet: it is waiting its turn, not stranded.
+      const waiting = row('J3');
+      waiting.workers = [away];
+      waiting.crewOnLeaveToday = [away];
+
+      expect(
+        strandedOrders([stalled, covered, waiting], TODAY).map((r) =>
+          String(r.job.id),
+        ),
+      ).toEqual(['J1']);
+    });
+
+    it('lists what each absentee left, the uncovered orders first', () => {
+      const away = person('Bob');
+      const covered = row('J2');
+      covered.workers = [away];
+      covered.crewOnLeaveToday = [away];
+      covered.crewDays = [onToday(['Ann'])];
+      const stalled = row('J1');
+      stalled.workers = [away];
+      stalled.crewOnLeaveToday = [away];
+      stalled.booked = [{ day: '2026-09-03', qty: 4, hours: 8 }] as OrderRow['booked'];
+
+      const left = onLeaveWorkerOrders([covered, stalled], TODAY);
+      expect(left.get('Bob')?.map((r) => String(r.job.id))).toEqual([
+        'J1',
+        'J2',
+      ]);
+    });
   });
 
   it('removes weekend width and drags by visible working-day columns', () => {
@@ -501,5 +608,287 @@ describe('due soon', () => {
     expect(isDueSoon(row('undated'), today, 2)).toBe(false);
     const done = { ...due('done', '2026-09-01T00:00:00'), completedToday: true } as OrderRow;
     expect(isDueSoon(done, today, 2)).toBe(false);
+  });
+});
+
+describe('why an order has no bar', () => {
+  const stopped = (over: Partial<OrderRow>): OrderRow =>
+    ({ ...row('ASM1'), ...over }) as OrderRow;
+  const short = (part: string, shortQty: number): PickShortage => ({
+    part: PartId(part),
+    description: part,
+    requiredQty: shortQty + 10,
+    onHand: 10,
+    heldEarlier: 0,
+    shortQty,
+    incoming: null,
+    purchased: true,
+  });
+
+  it('asks for people when people are all that is missing', () => {
+    const missing = missingBarReason(stopped({ workers: [] }));
+    expect(missing.label).toBe('no crew');
+    expect(missing.material).toBe(false);
+  });
+
+  it('asks for material instead, when the pick list cannot be covered', () => {
+    /*
+     * The one this was written for: nobody on the order *and* no foam in the
+     * racks. It used to read "no crew", so a crew is what it got — and the
+     * order still could not start.
+     */
+    const missing = missingBarReason(
+      stopped({ workers: [], shortPicks: [short('FOAM', 28)] }),
+    );
+    expect(missing.label).toBe('short material');
+    expect(missing.material).toBe(true);
+    // Naming one reason must not hide the other.
+    expect(missing.title).toContain('FOAM short 28');
+    expect(missing.title).toContain('No crew allocated either');
+  });
+
+  it('lists the short lines, and counts the rest past six', () => {
+    const lines = ['CLOTH', 'FOAM', 'A', 'B', 'C', 'D', 'E'].map((p, i) => short(p, 100 - i));
+    const missing = missingBarReason(
+      stopped({ workers: [{ id: WorkerId('W1') } as Worker], shortPicks: lines }),
+    );
+    expect(missing.title).toContain('7 lines of the pick list');
+    expect(missing.title).toContain('CLOTH short 100');
+    expect(missing.title).toContain('FOAM short 99');
+    expect(missing.title).not.toContain('E short');
+    expect(missing.title).toContain('and 1 more');
+    expect(missing.title).toContain('nothing on order');
+    expect(missing.title).not.toContain('No crew');
+  });
+
+  it('says when the purchase orders bring the material in', () => {
+    const frame = {
+      ...short('0765-CHARCO', 60),
+      incoming: incomingSupply(
+        [
+          { partNum: PartId('0765-CHARCO'), poNum: '504950', outstandingQty: 50, dueDate: new Date(2026, 10, 13), promiseDate: new Date(2026, 9, 16), buyer: null },
+          { partNum: PartId('0765-CHARCO'), poNum: '504867', outstandingQty: 50, dueDate: new Date(2026, 9, 28), promiseDate: new Date(2026, 8, 30), buyer: null },
+        ],
+        60,
+      ),
+    };
+    const missing = missingBarReason(stopped({ workers: [], shortPicks: [frame] }));
+    // 50 arrive 28/10, not enough; the second 50 arrive 13/11 and cover it.
+    expect(missing.title).toContain('0765-CHARCO short 60 (needs 70, 10 on hand) — 100 on order, available 13/11/2026 (PO 504950)');
+    expect(missing.title).toContain('All material available by 13/11/2026');
+  });
+
+  it('still gives the material story while it waits on another order', () => {
+    const missing = missingBarReason(
+      stopped({ workers: [], waitingOn: { onJobId: 'SFM1' } as OrderRow['waitingOn'], shortPicks: [short('FOAM', 28)] }),
+    );
+    expect(missing.label).toBe('waits on SFM1');
+    expect(missing.title).toContain('FOAM short 28');
+    expect(missing.title).toContain('nothing on order');
+  });
+
+  it('names the predecessor ahead of the shortage it is already clearing', () => {
+    const missing = missingBarReason(
+      stopped({
+        workers: [],
+        shortPicks: [short('COVER', 30)],
+        waitingOn: { onJobId: 'UPL1#20', part: 'COVER' },
+      } as unknown as Partial<OrderRow>),
+    );
+    // The row key is the board's; the supervisor reads the order number.
+    expect(missing.label).toBe('waits on UPL1');
+    expect(missing.material).toBe(false);
+  });
+
+  it('says so when the crew simply runs out before the work does', () => {
+    const missing = missingBarReason(
+      stopped({ workers: [{ id: WorkerId('W1') } as Worker], shortPicks: [] }),
+    );
+    expect(missing.label).toBe('not covered');
+  });
+});
+
+describe('Released Only', () => {
+  const order = (id: string, released: boolean | null, over: Partial<OrderRow> = {}): OrderRow => {
+    const r = row(id);
+    (r.job as { released: boolean | null }).released = released;
+    r.predecessors = [];
+    return Object.assign(r, over);
+  };
+
+  it('plans with released orders, and treats a blank flag as released', () => {
+    const keep = releasedOrderNumbers([order('A', true), order('B', false), order('C', null)]);
+    expect([...keep].sort()).toEqual(['A', 'C']);
+  });
+
+  it('keeps an unreleased order a released one waits for, and one already begun', () => {
+    const chair = order('CHAIR', true);
+    chair.predecessors = [{ jobId: chair.job.id, onJobId: 'FOAM', part: null }] as OrderRow['predecessors'];
+    const foam = order('FOAM', false);
+    const started = order('RUN', false, { actualStart: { startedAt: '2026-09-22T07:00:00' } } as Partial<OrderRow>);
+    const idle = order('IDLE', false);
+    expect([...releasedOrderNumbers([chair, foam, started, idle])].sort()).toEqual(['CHAIR', 'FOAM', 'RUN']);
+  });
+
+  it('answers in order numbers, so every operation of a routed order goes together', () => {
+    expect([...releasedOrderNumbers([order('SFM1#10', true), order('SFM1#20', true)])]).toEqual(['SFM1']);
+  });
+});
+
+describe('the box an order with nobody on it is drawn in', () => {
+  // 15 h of work: two people (preferredCrewSize), so exactly one shift of it.
+  const waiting = (due: string | null, plannedStart = '2026-09-14T07:00:00'): OrderRow => {
+    const r = row('W');
+    (r.job as { dueDate: Date | null }).dueDate = due ? new Date(due) : null;
+    Object.assign(r.job, { laborHrs: 15, remainingQty: 10, completedQty: 0 });
+    Object.assign(r, { plannedStart: new Date(plannedStart), line: { key: 'ASSY', schedulable: true } });
+    return r;
+  };
+
+  it('ends on the Due Date and reaches back to the last day the work can start', () => {
+    const w = unstaffedWindow(waiting('2026-09-18T00:00:00'))!;
+    expect(w.late).toBe(false);
+    expect(w.to).toEqual(new Date('2026-09-18T00:00:00'));
+    expect(toDayKey(w.from)).toBe('2026-09-17');
+  });
+
+  it('never starts before the order can, and says when it cannot make its Due Date', () => {
+    const tight = unstaffedWindow(waiting('2026-09-15T00:00:00', '2026-09-14T12:00:00'))!;
+    expect(tight.from).toEqual(new Date('2026-09-14T12:00:00'));
+    expect(tight.late).toBe(true);
+    const gone = unstaffedWindow(waiting('2026-09-10T00:00:00'))!;
+    expect(gone).toEqual({ from: new Date('2026-09-14T07:00:00'), to: new Date('2026-09-14T07:00:00'), late: true });
+  });
+
+  it('has nowhere to go without a Due Date', () => {
+    expect(unstaffedWindow(waiting(null))).toBeNull();
+  });
+
+  describe('with its start fixed', () => {
+    // 45 h at the two people Crew orders would give it: three whole days.
+    const fixed = (due: string, plannedStart: string): OrderRow => {
+      const r = waiting(due, plannedStart);
+      Object.assign(r.job, { laborHrs: 45 });
+      Object.assign(r, { startPinned: true });
+      return r;
+    };
+
+    it('is drawn from that day for as long as the work takes, not up against the Due Date', () => {
+      const w = unstaffedWindow(fixed('2026-09-30T00:00:00', '2026-09-14T07:00:00'))!;
+      expect(w.from).toEqual(new Date('2026-09-14T07:00:00'));
+      expect(toDayKey(w.to)).toBe('2026-09-17');
+      expect(w.late).toBe(false);
+    });
+
+    it('steps over the weekend, and says so when the run ends after the Due Date', () => {
+      // Thursday, Friday, Monday.
+      const w = unstaffedWindow(fixed('2026-09-21T00:00:00', '2026-09-17T07:00:00'))!;
+      expect(toDayKey(w.to)).toBe('2026-09-22');
+      // Due at the start of Monday: the run has to be over by Friday.
+      expect(w.late).toBe(true);
+      // Due with a time on Monday: work on Monday itself still makes it.
+      expect(unstaffedWindow(fixed('2026-09-21T16:00:00', '2026-09-17T07:00:00'))!.late).toBe(false);
+    });
+  });
+});
+
+describe('a folded line reads its load day by day', () => {
+  const day = (key: string) => new Date(`${key}T00:00:00`);
+  const crewed = (id: string, days: Record<string, { hours: number; workerIds: string[] }>): OrderRow => {
+    const r = row(id, { start: '2026-09-14T07:00:00', due: '2026-09-30T00:00:00' });
+    r.crewDays = Object.entries(days).map(([key, d]) => ({
+      day: key, date: day(key), from: 0, hours: d.hours, perWorkerHours: d.hours / d.workerIds.length, workerIds: d.workerIds,
+    })) as OrderRow['crewDays'];
+    return r;
+  };
+  const waiting = (id: string, due: string): OrderRow => {
+    const r = row(id);
+    (r.job as { dueDate: Date | null }).dueDate = new Date(due);
+    Object.assign(r.job, { laborHrs: 15, remainingQty: 10, completedQty: 0 });
+    Object.assign(r, { plannedStart: new Date('2026-09-14T07:00:00'), uncoveredHours: 15 });
+    return r;
+  };
+  const dates = ['2026-09-11', '2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17'].map(day);
+  const day0 = () => day('2026-09-14');
+
+  it('adds up the hours, people and positions its crew is planned on', () => {
+    const a = crewed('A', { '2026-09-14': { hours: 14.5, workerIds: ['1', '2'] }, '2026-09-15': { hours: 7.25, workerIds: ['1'] } });
+    const b = crewed('B', { '2026-09-14': { hours: 7.25, workerIds: ['3'] } });
+    const c = crewed('C', { '2026-09-14': { hours: 7.25, workerIds: ['4'] } });
+    const loads = lineDayLoads([a, b, c], 3, dates, day('2026-09-14'));
+    expect(loads[1]).toMatchObject({ hours: 29, people: 4, orders: ['A', 'B', 'C'], band: 'orange' });
+    expect(loads[2]).toMatchObject({ hours: 7.25, people: 1, orders: ['A'], band: 'green' });
+    expect(loads[3]).toMatchObject({ hours: 0, band: 'idle' });
+    expect(lineDayLoads([a, b, c], 2, dates, day('2026-09-14'))[1].band).toBe('red');
+  });
+
+  it('shows what was booked on a day already gone', () => {
+    const a = crewed('A', {});
+    a.booked = [{ day: '2026-09-11', qty: 4, hours: 6 }];
+    expect(lineDayLoads([a], 3, dates, day('2026-09-14'))[0]).toMatchObject({ past: true, hours: 6, orders: ['A'] });
+  });
+
+  it('lays the work nobody is on yet across the days before its Due Date', () => {
+    // 15 h at two people is one shift: it has to be worked on the 17th.
+    const loads = lineDayLoads([waiting('W', '2026-09-18T00:00:00')], 3, dates, day('2026-09-14'));
+    expect(loads.map((d) => d.unstaffedHours)).toEqual([0, 0, 0, 0, 15]);
+    expect(loads[4]).toMatchObject({ unstaffedOrders: ['W'], hours: 0 });
+  });
+
+  it('lays a fixed start out from its own day, whole days at a time', () => {
+    const w = waiting('W', '2026-09-30T00:00:00');
+    Object.assign(w.job, { laborHrs: 45 });
+    Object.assign(w, { startPinned: true, plannedStart: new Date('2026-09-15T07:00:00'), uncoveredHours: 45 });
+    const loads = lineDayLoads([w], 3, dates, day0());
+    expect(loads.map((d) => d.unstaffedHours)).toEqual([0, 0, 15, 15, 15]);
+  });
+
+  it('lists the orders behind a day, and they add up to its figures', () => {
+    const a = crewed('A', { '2026-09-17': { hours: 14.5, workerIds: ['1', '2'] } });
+    const [, , , , day] = lineDayLoads([a, waiting('W', '2026-09-18T00:00:00')], 3, dates, day0());
+    expect(day.entries.map((e) => [e.order, e.kind, e.hours, e.people])).toEqual([
+      ['W', 'waiting', 15, 0],
+      ['A', 'crewed', 14.5, 2],
+    ]);
+    expect(day.entries.reduce((n, e) => n + e.hours, 0)).toBe(day.hours + day.unstaffedHours);
+  });
+});
+
+describe('the timeline is not held to a fortnight', () => {
+  const board = (horizonDays: number, rows: OrderRow[] = []) => ({
+    horizonStart: new Date('2026-09-11T00:00:00'),
+    today: new Date('2026-09-14T00:00:00'),
+    horizonDays,
+    groups: [{ rows }],
+  });
+  const waitingDue = (due: string) => {
+    const r = row('W');
+    (r.job as { dueDate: Date | null }).dueDate = new Date(due);
+    Object.assign(r.job, { laborHrs: 15, remainingQty: 10, completedQty: 0 });
+    return r;
+  };
+
+  it('shows the weeks asked for past today, and never cuts a planned bar', () => {
+    expect(timelineDays(board(17), 4)).toBe(3 + 28);
+    expect(timelineDays(board(17), 2)).toBe(17);
+    expect(timelineDays(board(300), 2)).toBe(300);
+  });
+
+  it('reaches the Due Date of an order waiting for a crew, within reason', () => {
+    expect(timelineDays(board(17, [waitingDue('2026-11-30T00:00:00')]), 2)).toBe(81);
+    expect(timelineDays(board(17, [waitingDue('2027-12-01T00:00:00')]), 2)).toBe(3 + 182);
+  });
+});
+
+describe('a press row on the timeline', () => {
+  // Thursday 1 October 2026.
+  const origin = new Date(2026, 9, 1);
+  it('reads its day as 24 hours, where an assembly row reads the white shift', () => {
+    const evening = new Date(2026, 9, 2, 19, 0);
+    expect(timelineDayOffset(evening, origin, true, true)).toBeCloseTo(1 + 19 / 24);
+    expect(timelineDayOffset(new Date(2026, 9, 2, 0, 0), origin, true, true)).toBe(1);
+    expect(timelineDayOffset(new Date(2026, 9, 2, 12, 0), origin, true, true)).toBeCloseTo(1.5);
+    // The same evening on an assembly row is pinned to the end of the shift.
+    expect(timelineDayOffset(evening, origin, true)).toBe(2);
   });
 });

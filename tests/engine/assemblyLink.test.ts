@@ -17,6 +17,11 @@ describe('salesOrderOfJob', () => {
     expect(salesOrderOfJob('018140')).toEqual({ order: '18140', line: null, rel: null });
   });
 
+  it('reads a routed row, one operation of the job', () => {
+    expect(salesOrderOfJob('018140-1-1#20')).toEqual({ order: '18140', line: '1', rel: '1' });
+    expect(salesOrderOfJob('ASM8002#20')).toBeNull();
+  });
+
   it('maps a stock job to no order', () => {
     expect(salesOrderOfJob('SFM507615')).toBeNull();
     expect(salesOrderOfJob('ASM80010')).toBeNull();
@@ -31,14 +36,17 @@ describe('salesOrderOfJob', () => {
 const job = (id: string, patch: Partial<Job> = {}): Job =>
   ({ id, partNum: 'P', description: 'Chair', remainingQty: 10, dueDate: null, ...patch }) as Job;
 
+const ASSY = { name: 'ASSY 1', schedulable: true };
+const PMD = { name: 'PMD', schedulable: false };
+
 const row = (j: Job, expect: Date | null, patch: Partial<OrderRow> = {}): OrderRow =>
-  ({ job: j, start: expect ? new Date(2026, 9, 12) : null, expectDate: expect, completedAt: null, completedToday: false, ...patch }) as OrderRow;
+  ({ job: j, line: ASSY, start: expect ? new Date(2026, 9, 12) : null, expectDate: expect, completedAt: null, completedToday: false, ...patch }) as OrderRow;
 
 const view = (rows: OrderRow[], pool: Job[] = []): AssemblyGanttView =>
   ({
     groups: [
-      { line: { name: 'ASSY 1', schedulable: true }, rows },
-      { line: { name: 'PMD', schedulable: false }, rows: [row(job('018140-9-9'), new Date(2026, 11, 1))] },
+      { line: ASSY, rows },
+      { line: PMD, rows: [row(job('018140-9-9'), new Date(2026, 11, 1), { line: PMD } as Partial<OrderRow>)] },
     ],
     pool,
   }) as unknown as AssemblyGanttView;
@@ -65,6 +73,19 @@ describe('buildsByOrder', () => {
     ]);
     expect(builds.get('18200')!.jobs[0].state).toBe('no-crew');
     expect(builds.get('18300')!.jobs[0]).toMatchObject({ state: 'unplaced', lineName: null });
+  });
+
+  it('takes a bench row once, under the bench, though its lane rolls it up', () => {
+    const bench = { name: 'UPL-SSS Sew', schedulable: true };
+    const sewing = row(job('018400-1-1#10'), new Date(2026, 9, 20), { line: bench } as Partial<OrderRow>);
+    const rolled = buildsByOrder({
+      groups: [
+        { line: { name: 'UPL-SSS', schedulable: true }, rows: [sewing] },
+        { line: bench, rows: [sewing] },
+      ],
+      pool: [],
+    } as unknown as AssemblyGanttView);
+    expect(rolled.get('18400')!.jobs.map((j) => [j.jobId, j.lineName])).toEqual([['018400-1-1#10', 'UPL-SSS Sew']]);
   });
 
   it('leaves the PMD mirror out', () => {

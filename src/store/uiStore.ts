@@ -30,15 +30,49 @@ export interface OvertimeRequest {
 /**
  * Day column width, in pixels: how far it may be pushed, and where it opens.
  *
- * It opens fully zoomed in. A column is a shift and a drag lands on five
- * minutes of it, so how wide the column is *is* how finely the board can be
- * worked by hand — at 44 px a five-minute landing is half a pixel. Seeing
- * further ahead is one press away and is the thing a reader asks for
- * deliberately; being able to place the work in front of them is not.
+ * It opens as narrow as a column can be and still carry its date and its load
+ * column: the board is read for its shape across the weeks first. A column is
+ * a shift and a drag lands on five minutes of it, so at 44 px a five-minute
+ * landing is half a pixel — a day that is to be worked finely is widened on
+ * its own, by the edge of its heading.
  */
 export const MIN_DAY_WIDTH = 44;
-export const MAX_DAY_WIDTH = 160;
-export const DEFAULT_DAY_WIDTH = MAX_DAY_WIDTH;
+export const MAX_DAY_WIDTH = 200;
+export const DEFAULT_DAY_WIDTH = MIN_DAY_WIDTH;
+
+/**
+ * The steps − and + move through. Below the first there is one more step:
+ * the whole timeline a week to a column — see `weekView`.
+ */
+export const ZOOM_LEVELS = [44, 64, 88, 120, 160, 200] as const;
+
+/** One step out: a narrower day, or from the narrowest day to weeks. */
+export function zoomOut(state: { dayWidth: number; weekView: boolean }) {
+  if (state.weekView) return state;
+  const lower = [...ZOOM_LEVELS].reverse().find((w) => w < state.dayWidth);
+  return lower === undefined
+    ? { dayWidth: MIN_DAY_WIDTH, weekView: true }
+    : { dayWidth: lower, weekView: false };
+}
+
+/** One step in: from weeks to the narrowest day, or a wider day. */
+export function zoomIn(state: { dayWidth: number; weekView: boolean }) {
+  if (state.weekView) return { dayWidth: MIN_DAY_WIDTH, weekView: false };
+  const higher = ZOOM_LEVELS.find((w) => w > state.dayWidth);
+  return { dayWidth: higher ?? MAX_DAY_WIDTH, weekView: false };
+}
+
+/**
+ * How far one day column may be dragged on its own.
+ *
+ * The zoom above sets every column at once and stops at 160 because that is as
+ * wide as a whole horizon can afford to be. A single column is a different
+ * question: the day being planned this morning is worth three of the ones six
+ * weeks out, and giving it the room to be worked in costs the board nothing
+ * anywhere else. So its ceiling is well past the zoom's, and its floor is the
+ * same one — a column narrower than this is a column nothing can be dropped on.
+ */
+export const DAY_COLUMN_LIMITS = { min: MIN_DAY_WIDTH, max: 480 } as const;
 
 /**
  * The frozen columns down the left of the board, in the order it draws them,
@@ -63,12 +97,15 @@ export type ColumnKey = (typeof COLUMN_KEYS)[number];
 export type ColumnWidths = Record<ColumnKey, number>;
 
 export const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
-  order: 200,
-  qty: 58,
-  hours: 82,
-  start: 62,
-  due: 62,
-  expect: 62,
+  // Room for the order number, the whole description and a line's roster.
+  order: 500,
+  // Just the figure. Headings and dates that need more are clipped; the
+  // tooltip and a drag give the rest.
+  qty: 40,
+  hours: 40,
+  start: 40,
+  due: 40,
+  expect: 40,
   team: 172,
 };
 
@@ -78,24 +115,16 @@ export const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
  * has to find again — and the ceiling keeps one column from taking the grid.
  */
 export const COLUMN_LIMITS: Record<ColumnKey, { min: number; max: number }> = {
-  order: { min: 120, max: 520 },
-  qty: { min: 46, max: 200 },
-  hours: { min: 58, max: 220 },
-  start: { min: 48, max: 220 },
-  due: { min: 48, max: 220 },
-  expect: { min: 48, max: 220 },
+  // The Order column carries the description and the line rosters, so it is
+  // the one a plant genuinely wants to pull out wide. Its ceiling is high
+  // enough to read as "drag it as far as you like".
+  order: { min: 120, max: 1000 },
+  qty: { min: 32, max: 200 },
+  hours: { min: 32, max: 220 },
+  start: { min: 32, max: 220 },
+  due: { min: 32, max: 220 },
+  expect: { min: 32, max: 220 },
   team: { min: 96, max: 460 },
-};
-
-/** CSS custom property carrying each column's width to the stylesheet. */
-export const COLUMN_VAR: Record<ColumnKey, string> = {
-  order: '--order-w',
-  qty: '--qty-w',
-  hours: '--hours-w',
-  start: '--start-w',
-  due: '--due-w',
-  expect: '--expect-w',
-  team: '--team-w',
 };
 
 const clamp = (n: number, lo: number, hi: number): number =>
@@ -107,6 +136,16 @@ export type DateCol = (typeof DATE_COLS)[number];
 export type DateCols = Record<DateCol, boolean>;
 
 /**
+ * The fixed frozen columns a reader can hide, the same way the date columns
+ * hide. Order is not among them — it is the board — and the date columns keep
+ * their own switch (`dateCols`). A hidden one reclaims its width: the grid
+ * slides left over it, and it comes back from a chip in the header.
+ */
+export const HIDEABLE_COLS = ['qty', 'hours', 'team'] as const;
+export type HideableCol = (typeof HIDEABLE_COLS)[number];
+export type ColVis = Record<HideableCol, boolean>;
+
+/**
  * Lines the board opens folded away.
  *
  * TBP and PMD are both context: neither is planned here — PMD mirrors
@@ -115,6 +154,38 @@ export type DateCols = Record<DateCol, boolean>;
  * back from a chip in the header, so nothing is hidden without a way to see it.
  */
 export const LINES_HIDDEN_BY_DEFAULT: readonly LineKey[] = ['TBP', 'PMD'];
+
+/**
+ * Lines folded away on this screen, kept across reloads.
+ *
+ * A line folded with its × came back on every reload, so a screen that only
+ * ever looks at Assembly and Table had to be folded down again each morning.
+ * It is kept per screen, not in the plan: what one supervisor folds away is
+ * not taken off the floor display or anybody else's board. A screen with
+ * nothing stored opens with the defaults above.
+ */
+export const HIDDEN_LINES_KEY = 'assembly.hiddenLines.v1';
+
+export function storedHiddenLines(): LineKey[] {
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(HIDDEN_LINES_KEY);
+    if (raw != null) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((key): key is LineKey => typeof key === 'string');
+    }
+  } catch {
+    /* blocked or unreadable storage: the defaults */
+  }
+  return [...LINES_HIDDEN_BY_DEFAULT];
+}
+
+function keepHiddenLines(lines: readonly LineKey[]): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(HIDDEN_LINES_KEY, JSON.stringify(lines));
+  } catch {
+    /* a private window or full storage: folded for this visit only */
+  }
+}
 
 /**
  * How far ahead "due soon" reaches, in working days. Two, because that is the
@@ -135,6 +206,14 @@ export const DATE_COL_LABEL: Record<DateCol, string> = {
   start: 'Start',
   due: 'Due',
   expect: 'Expect',
+};
+
+/** Headings for the hideable fixed columns, shared by the board and the chip
+ *  that brings one back. */
+export const HIDEABLE_COL_LABEL: Record<HideableCol, string> = {
+  qty: 'Qty',
+  hours: 'Hours',
+  team: 'Team',
 };
 
 /** Where on screen an order was clicked, so its detail opens beside it. */
@@ -188,9 +267,23 @@ interface UiState {
    */
   marked: string[];
   /**
+   * The order number the Order heading's finder was last asked for, whose
+   * rows stay picked out until it is cleared — or null. `findCount` goes up
+   * on every find, so asking for the same order again scrolls to it again.
+   */
+  foundOrder: string | null;
+  findCount: number;
+  /**
+   * Load blocks picked with Ctrl held, for level loading, as `line|day` —
+   * see `loadPickKey`. A week's block is its days, so what is picked survives
+   * the timeline being zoomed or a week being folded open.
+   */
+  loadPicks: string[];
+  /**
    * Where the pointer was when it was picked. The detail opens there rather
    * than in a fixed column: the supervisor is already looking at that row, and
-   * the schedule keeps the whole width.
+   * the schedule keeps the whole width. Null centres it in the window: an order
+   * picked from a list has no row under the pointer to open beside.
    */
   selectedAt: ClickPoint | null;
   overtimeRequest: OvertimeRequest | null;
@@ -205,10 +298,23 @@ interface UiState {
    * buttons sit in the app header, above the board that answers to them.
    */
   dayWidth: number;
+  /**
+   * Day columns dragged off the zoom, keyed by local day (`YYYY-MM-DD`).
+   *
+   * A day with no entry is whatever the zoom says, which is how every one of
+   * them starts. Keyed by the day rather than by its position because the
+   * board re-derives its horizon — it rolls forward overnight, and weekends
+   * come and go from the axis — and a column widened for Thursday has to still
+   * be Thursday's afterwards.
+   */
+  dayWidths: Record<string, number>;
   /** Width of each frozen column, dragged by its right-hand edge. */
   colWidths: ColumnWidths;
   /** Which date columns are showing; hidden ones come back from the header. */
   dateCols: DateCols;
+  /** Which of the fixed Qty / Hours / Team columns are showing; a hidden one
+   *  reclaims its width and comes back from a chip in the header. */
+  cols: ColVis;
   /** Lines folded away; they come back from a chip in the header. */
   hiddenLines: LineKey[];
   /**
@@ -229,17 +335,40 @@ interface UiState {
    * that it is on.
    */
   dueSoon: boolean;
+  /**
+   * Plan with released orders only (JobHead_JobReleased), or with every order
+   * in the export. Released Only by default and on every load: it is the work
+   * that can actually be built. All is for looking ahead — what the lines
+   * would carry once the rest is released.
+   */
+  releasedOnly: boolean;
   /** Weekend timeline columns; hidden by default to keep the working week compact. */
   showWeekends: boolean;
+  /**
+   * The timeline a week to a column — the step past the narrowest day on the
+   * zoom. Each week then carries its week's load.
+   */
+  weekView: boolean;
+  /**
+   * Single weeks folded (true) or opened (false) from their own heading, by
+   * the Monday's day key, over what the zoom says. A zoom press clears them.
+   */
+  weekFold: Record<string, boolean>;
   /** Sort the displayed rows without changing the scheduler's line sequence. */
   orderSort: OrderSort;
 
   setView: (view: AppView) => void;
-  /** Show an order's detail; `at` moves the panel, omitting it leaves it. */
-  select: (jobId: string | null, at?: ClickPoint) => void;
+  /**
+   * Show an order's detail; `at` moves the panel, null centres it, omitting
+   * it leaves it where it is.
+   */
+  select: (jobId: string | null, at?: ClickPoint | null) => void;
   /** Add or remove one order from the set being moved together. */
   toggleMark: (jobId: string) => void;
   clearMarks: () => void;
+  /** Pick these load-block days, or — when every one is already picked — let them go. */
+  toggleLoadPicks: (keys: string[]) => void;
+  clearLoadPicks: () => void;
   setCrewPicker: (jobId: string | null) => void;
   setWorkerLoad: (workerId: string | null) => void;
   /**
@@ -253,8 +382,14 @@ interface UiState {
    */
   dismissTop: () => boolean;
   setDayWidth: (px: number) => void;
+  /** Drag one day column off the zoom. */
+  setDayColumnWidth: (day: string, px: number) => void;
+  /** One day column back under the zoom. */
+  clearDayColumnWidth: (day: string) => void;
   setColumnWidth: (key: ColumnKey, px: number) => void;
   toggleDateCol: (key: DateCol) => void;
+  /** Hide or show one of the fixed Qty / Hours / Team columns. */
+  toggleCol: (key: HideableCol) => void;
   toggleLine: (key: LineKey) => void;
   /**
    * Every line, every column and every order back on screen.
@@ -271,9 +406,17 @@ interface UiState {
    * "show me everything".
    */
   showEverything: () => void;
+  /** Pick out an order's rows and ask the board to scroll to them. */
+  findOrder: (order: string) => void;
+  clearFound: () => void;
   toggleDueSoon: () => void;
+  setReleasedOnly: (releasedOnly: boolean) => void;
   setOrderDay: (day: string | null) => void;
   toggleWeekends: () => void;
+  /** − and +: see `zoomOut` / `zoomIn`. Every day column goes back to one width. */
+  zoom: (direction: 'in' | 'out') => void;
+  /** Fold or open one week from its heading. */
+  setWeekFold: (week: string, folded: boolean) => void;
   changeOrderSort: (key: OrderSortKey) => void;
   resetOrderSort: () => void;
   askOvertime: (request: OvertimeRequest) => void;
@@ -287,6 +430,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   view: readView(),
   selectedJobId: null,
   marked: [],
+  foundOrder: null,
+  findCount: 0,
+  loadPicks: [],
   selectedAt: null,
   overtimeRequest: null,
   clashRequest: null,
@@ -294,13 +440,19 @@ export const useUiStore = create<UiState>((set, get) => ({
   workerLoadId: null,
   lastRefresh: null,
   dayWidth: DEFAULT_DAY_WIDTH,
+  dayWidths: {},
   colWidths: { ...DEFAULT_COLUMN_WIDTHS },
   dateCols: { start: true, due: true, expect: true },
-  hiddenLines: [...LINES_HIDDEN_BY_DEFAULT],
+  cols: { qty: true, hours: true, team: true },
+  hiddenLines: storedHiddenLines(),
   orderDay: null,
   dueSoon: false,
+  releasedOnly: true,
   showWeekends: false,
-  orderSort: { key: 'start', direction: 'asc' },
+  weekView: false,
+  weekFold: {},
+  // Nearest Due Date at the top of each line: what has to ship next.
+  orderSort: { key: 'due', direction: 'asc' },
 
   setView: (view) => {
     try {
@@ -315,7 +467,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   select: (selectedJobId, at) =>
     set((state) => ({
       selectedJobId,
-      selectedAt: at ?? state.selectedAt,
+      selectedAt: at === undefined ? state.selectedAt : at,
       crewPickerJobId: null,
       workerLoadId: null,
     })),
@@ -326,6 +478,14 @@ export const useUiStore = create<UiState>((set, get) => ({
         : [...state.marked, jobId],
     })),
   clearMarks: () => set({ marked: [] }),
+  toggleLoadPicks: (keys) =>
+    set((state) => {
+      const held = new Set(state.loadPicks);
+      if (keys.every((key) => held.has(key))) for (const key of keys) held.delete(key);
+      else for (const key of keys) held.add(key);
+      return { loadPicks: [...held] };
+    }),
+  clearLoadPicks: () => set({ loadPicks: [] }),
   // The two popups that sit over the board are mutually exclusive, the way
   // opening an order's detail already closes the picker.
   setCrewPicker: (crewPickerJobId) =>
@@ -343,13 +503,34 @@ export const useUiStore = create<UiState>((set, get) => ({
       (state.crewPickerJobId && { crewPickerJobId: null }) ||
       (state.workerLoadId && { workerLoadId: null }) ||
       (state.selectedJobId && { selectedJobId: null }) ||
-      (state.marked.length > 0 && { marked: [] });
+      (state.marked.length > 0 && { marked: [] }) ||
+      (state.loadPicks.length > 0 && { loadPicks: [] }) ||
+      // The finder's pick last of all: it marks a row, it does not cover one.
+      (state.foundOrder !== null && { foundOrder: null });
     if (!top) return false;
     set(top);
     return true;
   },
+  /*
+   * Zooming is about the whole timeline, so it takes the whole timeline back:
+   * a press that left the columns somebody had dragged where they were would
+   * be a zoom that visibly does nothing to half the board.
+   */
   setDayWidth: (px) =>
-    set({ dayWidth: clamp(px, MIN_DAY_WIDTH, MAX_DAY_WIDTH) }),
+    set({ dayWidth: clamp(px, MIN_DAY_WIDTH, MAX_DAY_WIDTH), dayWidths: {} }),
+  setDayColumnWidth: (day, px) =>
+    set((state) => ({
+      dayWidths: {
+        ...state.dayWidths,
+        [day]: clamp(px, DAY_COLUMN_LIMITS.min, DAY_COLUMN_LIMITS.max),
+      },
+    })),
+  clearDayColumnWidth: (day) =>
+    set((state) => {
+      if (state.dayWidths[day] === undefined) return {};
+      const { [day]: _dropped, ...rest } = state.dayWidths;
+      return { dayWidths: rest };
+    }),
   setColumnWidth: (key, px) =>
     set((state) => ({
       colWidths: {
@@ -361,6 +542,10 @@ export const useUiStore = create<UiState>((set, get) => ({
     set((state) => ({
       dateCols: { ...state.dateCols, [key]: !state.dateCols[key] },
     })),
+  toggleCol: (key) =>
+    set((state) => ({
+      cols: { ...state.cols, [key]: !state.cols[key] },
+    })),
   toggleLine: (key) =>
     set((state) => ({
       hiddenLines: state.hiddenLines.includes(key)
@@ -370,13 +555,25 @@ export const useUiStore = create<UiState>((set, get) => ({
   showEverything: () =>
     set({
       dateCols: { start: true, due: true, expect: true },
+      cols: { qty: true, hours: true, team: true },
       hiddenLines: [],
       orderDay: null,
       dueSoon: false,
     }),
+  findOrder: (foundOrder) => set((state) => ({ foundOrder, findCount: state.findCount + 1 })),
+  clearFound: () => set({ foundOrder: null }),
   toggleDueSoon: () => set((state) => ({ dueSoon: !state.dueSoon })),
+  setReleasedOnly: (releasedOnly) => set({ releasedOnly }),
   setOrderDay: (orderDay) => set({ orderDay }),
   toggleWeekends: () => set((state) => ({ showWeekends: !state.showWeekends })),
+  zoom: (direction) =>
+    set((state) => ({
+      ...(direction === 'in' ? zoomIn(state) : zoomOut(state)),
+      dayWidths: {},
+      weekFold: {},
+    })),
+  setWeekFold: (week, folded) =>
+    set((state) => ({ weekFold: { ...state.weekFold, [week]: folded } })),
   changeOrderSort: (key) => set((state) => ({
     orderSort: {
       key,
@@ -384,10 +581,14 @@ export const useUiStore = create<UiState>((set, get) => ({
         ? 'desc' : 'asc',
     },
   })),
-  resetOrderSort: () => set({ orderSort: { key: 'start', direction: 'asc' } }),
+  resetOrderSort: () => set({ orderSort: { key: 'due', direction: 'asc' } }),
   askOvertime: (overtimeRequest) => set({ overtimeRequest }),
   clearOvertime: () => set({ overtimeRequest: null }),
   askClash: (clashRequest) => set({ clashRequest }),
   clearClash: () => set({ clashRequest: null }),
   setLastRefresh: (lastRefresh) => set({ lastRefresh }),
 }));
+
+useUiStore.subscribe((state, previous) => {
+  if (state.hiddenLines !== previous.hiddenLines) keepHiddenLines(state.hiddenLines);
+});

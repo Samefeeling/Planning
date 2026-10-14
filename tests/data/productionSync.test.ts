@@ -8,14 +8,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { clearSessionSchemaCache } from '@/data/sharepoint/session';
 import {
   PRODUCTION_COLUMNS as C,
   orderFactsFromBoard,
   syncProduction,
   type OrderFacts,
+  type ShiftFacts,
 } from '@/data/sharepoint/production.sync';
-import type { SharePointConfig } from '@/data/excel/sharepoint.client';
-import type { ProductionEntry } from '@/store/planStore';
+import type { SharePointConfig } from '@/data/sharepoint/site';
 import { MockSource } from '@/data/mock/MockSource';
 import { buildIndexes } from '@/engine/indexes';
 import { computeAssemblyGantt } from '@/engine/assembly/board';
@@ -27,7 +28,7 @@ const CFG: SharePointConfig = {
   token: 'test-token',
 };
 
-const shift = (over: Partial<ProductionEntry> = {}): ProductionEntry => ({
+const shift = (over: Partial<ShiftFacts> = {}): ShiftFacts => ({
   date: '2026-09-14',
   complete: 0,
   reject: 0,
@@ -37,6 +38,9 @@ const shift = (over: Partial<ProductionEntry> = {}): ProductionEntry => ({
   pauseReason: null,
   jobCompleted: false,
   notes: '',
+  // Most orders are worked at one place and received there; a booking that
+  // does not receive says so.
+  receives: true,
   ...over,
 });
 
@@ -56,12 +60,19 @@ const order = (over: Partial<OrderFacts> = {}): OrderFacts => ({
   ...over,
 });
 
-/** A stored row matching `order()` with an empty shift on the anchor day. */
+/**
+ * A stored row matching `order()` with an empty shift on the anchor day.
+ *
+ * `RecordKey` follows the day, the way the sync writes the two together: it is
+ * the column the list is keyed on, so a fixture that let them disagree would be
+ * a row SharePoint could never hold.
+ */
 const stored = (over: Record<string, unknown> = {}, id = '1') => ({
   id,
   fields: {
     [C.jobNum]: 'ASM8001',
     [C.date]: '2026-09-14',
+    [C.recordKey]: `ASM8001|${String(over[C.date] ?? '2026-09-14').slice(0, 10)}`,
     [C.line]: 'UPL_GLUING',
     [C.operators]: 'Gate',
     [C.operatorIds]: 'W02',
@@ -116,6 +127,9 @@ function stubGraph(
 
 const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET');
 
+const json = (body: unknown, status = 200): Response =>
+  new Response(JSON.stringify(body), { status });
+
 beforeEach(() => usePlanStore.setState({ initialized: false }));
 afterEach(() => vi.unstubAllGlobals());
 
@@ -133,7 +147,11 @@ describe('syncProduction', () => {
       fields: {
         [C.jobNum]: 'ASM8001',
         [C.date]: '2026-09-14',
+        // No booking opened this row, so it takes the key both sides can
+        // work out for themselves; the first entry for the day writes its own.
         [C.recordKey]: 'ASM8001|2026-09-14',
+        // An order nobody has booked against has consumed no labour yet.
+        [C.bookedHour]: 0,
         [C.line]: 'UPL_GLUING',
         [C.operators]: 'Gate',
         [C.operatorIds]: 'W02',
@@ -315,12 +333,113 @@ describe('syncProduction', () => {
     });
   });
 
-  it('refuses ambiguous duplicate rows for the same order and day', async () => {
-    const calls = stubGraph([stored({}, '1'), stored({}, '2')]);
+  it('names a duplicate row and keeps the older one current anyway', async () => {
+    // Two rows for one job-day. Abandoning the job over it used to leave the
+    // shift's real bookings unwritten for as long as the extra row survived —
+    // the duplicate stopped the record instead of the record being repaired.
+    const calls = stubGraph([
+      stored({ [C.expectDate]: '2026-09-30T00:00:00Z' }, '1'),
+      stored({ [C.expectDate]: '2026-09-30T00:00:00Z' }, '2'),
+    ]);
     const out = await syncProduction(CFG, 'ASSY_Production', [order()]);
 
-    expect(out.errors[0]).toContain('duplicate SharePoint rows');
-    expect(writes(calls)).toEqual([]);
+    expect(out.errors[0]).toContain('item 2');
+    expect(out.created).toBe(0);
+    // The oldest row for the day is canonical and goes on being kept current;
+    // the extra is left exactly as it is for somebody to delete.
+    const written = writes(calls);
+    expect(written).toHaveLength(1);
+    expect(written[0].url).toContain('/items/1/fields');
+    expect(written[0].body).toMatchObject({
+      [C.expectDate]: '2026-09-16T00:00:00.000Z',
+    });
+  });
+
+  it('finds its own row by RecordKey when the Date column answers another day', async () => {
+    // A SharePoint date column gives back what the site's timezone makes of
+    // what was written, which is not always the day the shift was booked on.
+    // Matching on the day alone therefore decided the row was missing and
+    // opened a second one — two rows, one job, one day, identical content.
+    const calls = stubGraph([
+      stored({ [C.date]: '2026-09-13T14:00:00Z', [C.recordKey]: 'ASM8001|2026-09-14' }),
+    ]);
+    const out = await syncProduction(CFG, 'ASSY_Production', [
+      order({ shifts: [shift({ date: '2026-09-14', complete: 12 })] }),
+    ]);
+
+    expect(out.created).toBe(0);
+    const written = writes(calls);
+    expect(written).toHaveLength(1);
+    expect(written[0].url).toContain('/items/1/fields');
+    // …and the row's day is put back to the one its key has always named.
+    expect(written[0].body).toMatchObject({
+      [C.date]: '2026-09-14',
+      [C.complete]: 12,
+    });
+  });
+
+  it('recognises the row by the key the booking carries, whatever the day says', async () => {
+    // The row was opened by this booking and has held its key ever since. The
+    // Date column reads back on another day — a SharePoint date answers in the
+    // site's timezone, not the shift's — and it no longer matters.
+    const calls = stubGraph([
+      stored({
+        [C.recordKey]: 'b6f1-2f9c',
+        [C.date]: '2026-09-13T14:00:00Z',
+      }),
+    ]);
+    const out = await syncProduction(CFG, 'ASSY_Production', [
+      order({
+        shifts: [
+          shift({ date: '2026-09-14', recordKey: 'b6f1-2f9c', complete: 12, bookedHours: 9.5 }),
+        ],
+      }),
+    ]);
+
+    expect(out.created).toBe(0);
+    const [write] = writes(calls);
+    expect(write.url).toContain('/items/1/fields');
+    // …and it is written again under the key every board works out for that
+    // order and day, so the list's unique index can refuse a second row.
+    expect(write.body).toMatchObject({
+      [C.recordKey]: 'ASM8001|2026-09-14',
+      [C.date]: '2026-09-14',
+      [C.bookedHour]: 9.5,
+    });
+  });
+
+  it('keys a row by order, operation and day, never by who booked it', async () => {
+    // Two boards booking one order on one day used to hold two random keys,
+    // so the unique index on RecordKey had nothing to refuse. The key is now
+    // the same whoever books it.
+    const calls = stubGraph([]);
+    await syncProduction(CFG, 'ASSY_Production', [
+      order({ shifts: [shift({ recordKey: 'fresh-key', complete: 3 })] }),
+    ]);
+    const routed = stubGraph([]);
+    await syncProduction(CFG, 'ASSY_Production', [
+      order({
+        operation: { seq: 20, step: 'sewing', index: 2, of: 3, last: true },
+        shifts: [shift({ recordKey: 'other-key', opSeq: 20, step: 'sewing' })],
+      }),
+    ]);
+
+    // A create sends the row as `{ fields }`.
+    expect(writes(calls)[0].body).toMatchObject({ fields: { [C.recordKey]: 'ASM8001|2026-09-14' } });
+    expect(writes(routed)[0].body).toMatchObject({ fields: { [C.recordKey]: 'ASM8001#20|2026-09-14' } });
+  });
+
+  it('opens one row for an order the board hands it twice', async () => {
+    const calls = stubGraph([]);
+    const out = await syncProduction(CFG, 'ASSY_Production', [
+      order({ shifts: [shift({ complete: 4 })] }),
+      order({ shifts: [shift({ complete: 4 })] }),
+    ]);
+
+    // The list is read once, so a second helping of the same order could not
+    // see the row the first had just opened.
+    expect(out.created).toBe(1);
+    expect(writes(calls)).toHaveLength(1);
   });
 
   it('never writes fallback demo employee ids', async () => {
@@ -367,7 +486,7 @@ describe('orderFactsFromBoard', () => {
     if (!loaded.ok) throw new Error(loaded.error);
     const dataset = loaded.value;
 
-    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs, undefined, dataset.jobLinks);
     const state = usePlanStore.getState();
     const board = computeAssemblyGantt({
       dataset,
@@ -389,7 +508,12 @@ describe('orderFactsFromBoard', () => {
     expect(facts.length).toBeGreaterThan(0);
     expect(facts.some((f) => mouldingIds.has(f.jobNum))).toBe(false);
     for (const f of facts) {
-      expect(['TBP', 'UPL-CUT', 'UPL-Gluing', 'UPL-SSS', 'Assembly Seats', 'Table', 'General']).toContain(f.line);
+      // The benches of the two routed lines are lines in their own right, and
+      // the record says which bench the order is standing at.
+      expect([
+        'TBP', 'UPL-CUT', 'UPL-Gluing', 'UPL-SSS', 'Assembly', 'Table',
+        'General', 'Foaming', 'Sewing', 'Stapling',
+      ]).toContain(f.line);
       expect(f.orderQty).toBeGreaterThanOrEqual(f.remainingQty);
       // Every order can open a row, even one with nobody on it yet.
       expect(f.anchorDay).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -412,7 +536,7 @@ describe('orderFactsFromBoard', () => {
     const job = dataset.jobs.find(
       (j) => j.department !== 'moulding' && j.laborHrs > 0,
     )!;
-    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
+    usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs, undefined, dataset.jobLinks);
     const state = usePlanStore.getState();
     const board = computeAssemblyGantt({
       dataset,
@@ -535,5 +659,353 @@ it('writes support labour hours without manufactured quantities', async () => {
   expect(write.body?.fields).toMatchObject({
     WorkType: 'Support', WorkDescription: 'Warehouse assistance', SupportDepartment: 'Warehouse',
     LaborHours: 6, PlannedHours: 7.5, Complete: 0, ShiftOutput: 0, OrderQty: 0, RemainingQty: 0,
+  });
+});
+
+/**
+ * The duplicate this list was actually collecting.
+ *
+ * Two boards on the same plan — a second tab, a second supervisor's screen, the
+ * terminal left open on the line — both read the list, both found no row for
+ * today, and both opened one. Closing an order is when it showed, because that
+ * is when a day's first row is usually written; an update never duplicated
+ * anything. The key is now asked for again immediately before the write.
+ */
+describe('a row another board opened first', () => {
+  const session: SharePointConfig = {
+    siteUrl: 'https://tenant.sharepoint.com/sites/factory',
+    filePath: '',
+    token: '',
+    authMode: 'session',
+  };
+
+  const schema = Object.values(C).map((name) => ({
+    Title: name,
+    InternalName: name,
+  }));
+
+  afterEach(() => clearSessionSchemaCache());
+
+  it('writes into it instead of opening a second', async () => {
+    vi.stubGlobal('window', {
+      location: { origin: 'https://tenant.sharepoint.com' },
+    });
+    const seen: { url: string; method: string }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      seen.push({ url, method });
+      if (url.includes('/fields?')) return json({ value: schema });
+      if (url.endsWith('/_api/contextinfo')) {
+        return json({ FormDigestValue: 'd', FormDigestTimeoutSeconds: 1800 });
+      }
+      // The snapshot this sync starts from: the order has no row yet.
+      if (url.includes('$top=200')) return json({ value: [] });
+      // The last look before writing — by which time the other board has
+      // opened the row.
+      if (url.includes('$filter=')) {
+        expect(decodeURIComponent(url)).toContain("RecordKey eq 'ASM8001|2026-09-14'");
+        return json({
+          value: [
+            {
+              Id: 5,
+              'odata.etag': '"3"',
+              [C.jobNum]: 'ASM8001',
+              [C.recordKey]: 'ASM8001|2026-09-14',
+              [C.date]: '2026-09-14',
+            },
+          ],
+        });
+      }
+      return json({ Id: 5 });
+    });
+
+    const out = await syncProduction(session, 'ASSY_Production', [
+      order({ shifts: [shift({ complete: 7 })] }),
+    ]);
+
+    expect(out.errors).toEqual([]);
+    expect(out.created).toBe(0);
+    expect(out.updated).toBe(1);
+    // One write, and it is a MERGE onto the row that already exists — not a
+    // POST to the item collection, which is what made the second row.
+    const written = seen.filter((call) => call.method === 'POST');
+    expect(written.map((call) => call.url)).toEqual([
+      'https://tenant.sharepoint.com/sites/factory/_api/contextinfo',
+      "https://tenant.sharepoint.com/sites/factory/_api/web/lists/getbytitle('ASSY_Production')/items(5)",
+    ]);
+  });
+
+  /*
+   * The duplicate the floor actually met.
+   *
+   * Two boards each booked the same order on the same day. A key is minted per
+   * booking, so the two held different ones, each asked the list for its own,
+   * each was told nothing was there — and each opened a row. Asking for the
+   * key was never going to catch this; the day has to be asked for too.
+   */
+  const dayCollision = async (
+    stored: Record<string, unknown>,
+    facts = order({
+      shifts: [shift({ recordKey: 'b0b0b0b0-mine', shiftOutput: 2 })],
+    }),
+  ) => {
+    vi.stubGlobal('window', {
+      location: { origin: 'https://tenant.sharepoint.com' },
+    });
+    const seen: { url: string; method: string }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      seen.push({ url, method });
+      if (url.includes('/fields?')) return json({ value: schema });
+      if (url.endsWith('/_api/contextinfo')) {
+        return json({ FormDigestValue: 'd', FormDigestTimeoutSeconds: 1800 });
+      }
+      if (url.includes('$top=200')) return json({ value: [] });
+      const asked = decodeURIComponent(url);
+      // Nobody else holds this booking's key — the other board minted its own.
+      if (asked.includes('RecordKey eq')) return json({ value: [] });
+      if (asked.includes(`${C.jobNum} eq 'ASM8001'`)) {
+        return json({ value: [{ Id: 5, 'odata.etag': '"3"', ...stored }] });
+      }
+      return json({ Id: 9 });
+    });
+    const out = await syncProduction(session, 'ASSY_Production', [facts]);
+    return { out, seen };
+  };
+
+  it('writes into the row the other board opened for that day', async () => {
+    const { out, seen } = await dayCollision({
+      [C.jobNum]: 'ASM8001',
+      [C.recordKey]: 'a1a1a1a1-theirs',
+      [C.date]: '2026-09-14',
+      [C.shiftOutput]: 7,
+    });
+
+    expect(out.created).toBe(0);
+    expect(out.updated).toBe(1);
+    // A MERGE onto the row that is there, and no POST to the item collection —
+    // which is the call that made the second row.
+    const written = seen.filter((call) => call.method === 'POST');
+    expect(
+      written.filter((call) => call.url.endsWith("('ASSY_Production')/items(5)")),
+    ).toHaveLength(1);
+    expect(written.filter((call) => call.url.endsWith('/items'))).toEqual([]);
+    // Replacing somebody's figures is said out loud; it is not an error the
+    // sync can fix, it is a fact the supervisor has to have.
+    expect(out.errors).toEqual([
+      'ASM8001 2026-09-14: this day was already booked on another board ' +
+        '(item 5) — this entry has replaced it rather than opening a second row.',
+    ]);
+  });
+
+  it('says nothing when the two bookings agree', async () => {
+    const { out } = await dayCollision({
+      [C.jobNum]: 'ASM8001',
+      [C.recordKey]: 'a1a1a1a1-theirs',
+      [C.date]: '2026-09-14',
+      [C.shiftOutput]: 2,
+      [C.complete]: 0,
+      [C.reject]: 0,
+      [C.rework]: 0,
+      [C.jobCompleted]: false,
+      [C.paused]: false,
+      [C.pauseReason]: '',
+      [C.notes]: '',
+    });
+    // The same shift, written twice — an order-level column may still differ,
+    // and nobody's figures are being replaced.
+    expect(out.errors).toEqual([]);
+  });
+
+  it('leaves another day of the same order alone', async () => {
+    const { out, seen } = await dayCollision({
+      [C.jobNum]: 'ASM8001',
+      [C.recordKey]: 'a1a1a1a1-theirs',
+      [C.date]: '2026-09-11',
+      [C.shiftOutput]: 7,
+    });
+
+    expect(out.created).toBe(1);
+    expect(out.errors).toEqual([]);
+    const posted = seen.filter(
+      (call) => call.method === 'POST' && call.url.endsWith('/items'),
+    );
+    expect(posted).toHaveLength(1);
+  });
+
+  it('keeps two benches of one order on their own rows', async () => {
+    /*
+     * Gluing foams and sews side by side, so one order has two live
+     * operations and two rows for the day. That is two records, not a
+     * duplicate — the operation is what tells them apart.
+     */
+    const { out } = await dayCollision(
+      {
+        [C.jobNum]: 'ASM8001',
+        [C.recordKey]: 'a1a1a1a1-theirs',
+        [C.date]: '2026-09-14',
+        [C.description]: 'Op 10 foaming',
+        [C.shiftOutput]: 7,
+      },
+      order({
+        operation: { seq: 20, step: 'sewing', index: 2, of: 3, last: true },
+        shifts: [
+          shift({
+            recordKey: 'b0b0b0b0-mine',
+            shiftOutput: 2,
+            opSeq: 20,
+            step: 'sewing',
+          }),
+        ],
+      }),
+    );
+
+    expect(out.created).toBe(1);
+    expect(out.errors).toEqual([]);
+  });
+
+  it('keeps two benches apart after the first has left the board', async () => {
+    /*
+     * Foaming (op 10) and sewing (op 20) both booked on the 14th. Foaming is
+     * finished and gone from the board, so only sewing's facts arrive. The
+     * operation used to count only while both benches were on the board: the
+     * two rows then read as a duplicate, and sewing's booking could be written
+     * into foaming's row.
+     */
+    const calls = stubGraph([
+      stored({ [C.recordKey]: 'aaaa-foam', [C.description]: 'Op 10 foaming', [C.shiftOutput]: 5 }),
+      stored({ [C.recordKey]: 'bbbb-sew', [C.description]: 'Op 20 sewing', [C.shiftOutput]: 1 }, '2'),
+    ]);
+    const out = await syncProduction(CFG, 'ASSY_Production', [
+      order({
+        operation: { seq: 20, step: 'sewing', index: 2, of: 3, last: true },
+        shifts: [shift({ recordKey: 'bbbb-sew', opSeq: 20, step: 'sewing', shiftOutput: 4 })],
+      }),
+    ]);
+
+    expect(out.errors).toEqual([]);
+    expect(out.created).toBe(0);
+    const shiftWrites = writes(calls).filter((w) => C.shiftOutput in (w.body as object));
+    expect(shiftWrites).toHaveLength(1);
+    expect(shiftWrites[0].url).toContain('/items/2/fields');
+    expect(shiftWrites[0].body).toMatchObject({ [C.shiftOutput]: 4, [C.recordKey]: 'ASM8001#20|2026-09-14' });
+  });
+
+  it('still names a real second row for one operation on one day', async () => {
+    const calls = stubGraph([
+      stored({ [C.recordKey]: 'aaaa', [C.description]: 'Op 10 foaming' }),
+      stored({ [C.recordKey]: 'bbbb', [C.description]: 'Op 10 foaming' }, '2'),
+    ]);
+    const out = await syncProduction(CFG, 'ASSY_Production', [
+      order({
+        operation: { seq: 10, step: 'foaming', index: 1, of: 3, last: false },
+        shifts: [shift({ opSeq: 10, step: 'foaming', shiftOutput: 4 })],
+      }),
+    ]);
+    expect(out.errors).toEqual([
+      'ASM8001 2026-09-14: duplicate row (item 2) — delete it in SharePoint; the older row is the one being kept current.',
+    ]);
+    expect(writes(calls).every((w) => !w.url.includes('/items/2/'))).toBe(true);
+  });
+});
+
+/**
+ * A bench the board made up out of an order it split across three.
+ *
+ * The one mistake this whole split could introduce is receiving the same nine
+ * chairs twice — once on the sewing bench and again on the stapling bench —
+ * so a derived row writes its hours and writes zero for every quantity on it.
+ */
+describe('a booking at an operation that does not receive', () => {
+  const bench = (over: Partial<OrderFacts> = {}) =>
+    order({
+      // The order's own number, on every operation of it.
+      jobNum: 'ASM8001',
+      line: 'UPL_GLUING_SEW',
+      stdHours: 30,
+      operation: { seq: 20, step: 'sewing', index: 2, of: 3, last: false },
+      shifts: [
+        shift({
+          shiftOutput: 9,
+          complete: 9,
+          reject: 1,
+          rework: 2,
+          laborHours: 7.5,
+          opSeq: 20,
+          step: 'sewing',
+          receives: false,
+        }),
+      ],
+      ...over,
+    });
+
+  const fieldsWritten = async () => {
+    const calls = stubGraph([]);
+    await syncProduction(CFG, 'ASSY_Production', [bench()]);
+    const body = writes(calls)[0].body as { fields: Record<string, unknown> };
+    return body.fields;
+  };
+
+  it('reports no quantity of any kind', async () => {
+    const fields = await fieldsWritten();
+    // The covers sewn are the covers the stapling bench will finish. Counting
+    // them here and again there is the one mistake a route can introduce.
+    expect(fields[C.shiftOutput]).toBe(0);
+    expect(fields[C.complete]).toBe(0);
+    expect(fields[C.reject]).toBe(0);
+    expect(fields[C.rework]).toBe(0);
+  });
+
+  it('still carries the order it belongs to, quantities and all', async () => {
+    const fields = await fieldsWritten();
+    // One order, one number, one set of figures — the operation is where the
+    // order is, not a second order.
+    expect(fields[C.jobNum]).toBe('ASM8001');
+    expect(fields[C.orderQty]).toBe(60);
+    expect(fields[C.remainingQty]).toBe(60);
+  });
+
+  it('writes the hours, which are the whole point of the row', async () => {
+    const fields = await fieldsWritten();
+    expect(fields[C.laborHours]).toBe(7.5);
+    // The order's standard content, not the bench's share of it.
+    expect(fields[C.plannedHours]).toBe(30);
+  });
+
+  it('marks itself as work in progress, and says which operation', async () => {
+    const fields = await fieldsWritten();
+    expect(fields[C.workType]).toBe('WIP');
+    expect(fields[C.description]).toBe('Op 20 sewing');
+  });
+
+  it('is an ordinary production row once the last operation reports', async () => {
+    const calls = stubGraph([]);
+    await syncProduction(CFG, 'ASSY_Production', [
+      bench({
+        operation: { seq: 30, step: 'stapling', index: 3, of: 3, last: true },
+        shifts: [
+          shift({
+            shiftOutput: 9,
+            complete: 9,
+            opSeq: 30,
+            step: 'stapling',
+            receives: true,
+          }),
+        ],
+      }),
+    ]);
+    const body = writes(calls)[0].body as { fields: Record<string, unknown> };
+    expect(body.fields[C.complete]).toBe(9);
+    expect(body.fields[C.workType]).toBeUndefined();
+  });
+
+  it('leaves the row carrying the job number counting its units', async () => {
+    const calls = stubGraph([]);
+    await syncProduction(CFG, 'ASSY_Production', [
+      order({ shifts: [shift({ shiftOutput: 9, complete: 9 })] }),
+    ]);
+    const body = writes(calls)[0].body as { fields: Record<string, unknown> };
+    expect(body.fields[C.complete]).toBe(9);
+    expect(body.fields[C.orderQty]).toBe(60);
   });
 });

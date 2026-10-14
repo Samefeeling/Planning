@@ -13,9 +13,10 @@
 import { PRODUCTIVE_HOURS_PER_PERSON, type Worker } from '@/domain/assembly';
 import type { JobId } from '@/domain/ids';
 import { remainingHours } from './duration';
-import { addCalendarDays, isWeekend, startOfDay } from './dates';
+import { addCalendarDays, isClosed, startOfDay } from './dates';
 import type { OrderRow } from './board';
 import { toDayKey } from '@/lib/time';
+import { onLeaveOnDay, type LeaveDays } from './attendance';
 
 /** Days a person's popup covers — "one week". */
 export const LOAD_WINDOW_DAYS = 7;
@@ -137,17 +138,22 @@ export function boardDayLoads(
   dayCount: number,
   /** Which column is today; the board opens a working day earlier. */
   today: Date = from,
+  /** Who was marked off on the board — see `attendance`. */
+  leave: LeaveDays = {},
 ): DayBoardLoad[] {
   const start = startOfDay(from);
   const todayKey = toDayKey(startOfDay(today));
+  const onLeave = onLeaveOnDay(workers, leave, startOfDay(today));
   const scheduled = rows.filter((r) => r.line.schedulable);
   const out: DayBoardLoad[] = [];
 
   for (let i = 0; i < dayCount; i++) {
     const date = addCalendarDays(start, i);
     const key = toDayKey(date);
+    // A shift nobody is going to work is not capacity. Counting it made the
+    // day read *emptier* the more people were off, which is backwards.
     const available = workers.filter(
-      (w) => (key !== todayKey || w.onShift) && !w.plannedLeave?.includes(key),
+      (w) => !onLeave(String(w.id), key),
     ).length;
     const capacity = available * PRODUCTIVE_HOURS_PER_PERSON;
     const past = key < todayKey;
@@ -171,7 +177,7 @@ export function boardDayLoads(
       isToday: key === todayKey,
       past,
       actual: past,
-      working: !isWeekend(date),
+      working: !isClosed(date),
       hours,
       capacity,
       pct,
@@ -186,6 +192,17 @@ export function boardDayLoads(
 export interface LineLoad {
   /** Standard hours still to run across the line's orders. */
   hours: number;
+  /**
+   * The part of `hours` that is not on the line yet.
+   *
+   * A bench on a routed line has work coming that it cannot be allocated
+   * people for — you cannot staple a cover nobody has sewn — and leaving it
+   * out made the last bench of a busy line read as the emptiest place in the
+   * factory. It is counted in the queue and named separately, so the figure
+   * the supervisor plans against and the figure they can put names on are
+   * both there.
+   */
+  incomingHours: number;
   /** Most people planned simultaneously on the line on any covered day. */
   crew: number;
   /** Average daily capacity across the shifts currently covered. */
@@ -230,10 +247,12 @@ export function workerLoad(
   rows: OrderRow[],
   from: Date,
   dayCount: number = LOAD_WINDOW_DAYS,
+  /** Days this person is not in beyond their own planned leave. */
+  markedOff?: (day: string) => boolean,
 ): WorkerLoad {
   const start = startOfDay(from);
   const id = String(worker.id);
-  const leave = new Set(worker.plannedLeave ?? []);
+  const planned = new Set(worker.plannedLeave ?? []);
   const mine = rows.filter(
     (r) => !r.completedToday && r.workers.some((w) => String(w.id) === id),
   );
@@ -244,7 +263,7 @@ export function workerLoad(
   for (let i = 0; i < dayCount; i++) {
     const date = addCalendarDays(start, i);
     const key = toDayKey(date);
-    const onLeave = leave.has(key);
+    const onLeave = planned.has(key) || Boolean(markedOff?.(key));
     const entries: LoadEntry[] = [];
 
     for (const row of mine) {
@@ -261,7 +280,7 @@ export function workerLoad(
 
     entries.sort((a, b) => b.hours - a.hours);
     const hours = entries.reduce((s, e) => s + e.hours, 0);
-    const working = !isWeekend(date);
+    const working = !isClosed(date);
     const capacity = onLeave || !working ? 0 : PRODUCTIVE_HOURS_PER_PERSON;
     days.push({
       key,
@@ -301,9 +320,15 @@ export function rosterLoad(
   rows: OrderRow[],
   from: Date,
   dayCount: number = LOAD_WINDOW_DAYS,
+  leave: LeaveDays = {},
+  today: Date = from,
 ): Map<string, WorkerLoad> {
+  const onLeave = onLeaveOnDay(workers, leave, today);
   return new Map(
-    workers.map((w) => [String(w.id), workerLoad(w, rows, from, dayCount)]),
+    workers.map((w) => [
+      String(w.id),
+      workerLoad(w, rows, from, dayCount, (day) => onLeave(String(w.id), day)),
+    ]),
   );
 }
 
@@ -374,8 +399,9 @@ export function loadPreview(
 }
 
 /** Work still queued on a line, and how long its crew needs to clear it. */
-export function lineLoad(rows: OrderRow[]): LineLoad {
-  const hours = rows.reduce((s, r) => s + remainingHours(r.job), 0);
+export function lineLoad(rows: OrderRow[], incomingHours = 0): LineLoad {
+  const incoming = Math.max(0, incomingHours);
+  const hours = rows.reduce((s, r) => s + remainingHours(r.job), 0) + incoming;
   const byDay = new Map<string, Set<string>>();
   for (const row of rows) {
     for (const day of row.crewDays) {
@@ -396,6 +422,7 @@ export function lineLoad(rows: OrderRow[]): LineLoad {
 
   return {
     hours,
+    incomingHours: incoming,
     crew,
     capacityPerDay,
     daysOfWork: capacityPerDay > 0 ? hours / capacityPerDay : null,

@@ -7,9 +7,9 @@
  * lines are scheduled here. The material export is what ties them together:
  * a chair cannot start before the press job making its shell is finished.
  *
- * On-hand inventory is optional and comes from `OnHandInventory.csv`, open
- * purchase orders from `PODetail.csv`. BOM and demand still belong to the
- * master workbook source.
+ * On-hand inventory is optional and comes from `OnHandInventory.csv`, and
+ * open purchase orders from `PODetail.csv` beside Planning1.csv. BOM and
+ * demand still belong to the master workbook source.
  */
 
 import type {
@@ -26,12 +26,12 @@ import type { Worker } from '@/domain/assembly';
 import {
   assemblyWorkCenters,
   makeMachine,
-} from '@/data/excel/parsers/machine.parser';
+} from '@/data/parsers/machine.parser';
 import { BaseDataSource } from '@/data/DataSource';
 import {
   readConfigFromEnv,
   type SharePointConfig,
-} from '@/data/excel/sharepoint.client';
+} from '@/data/sharepoint/site';
 import { fetchListItems } from '@/data/sharepoint/lists.client';
 import { parseOperators } from '@/data/sharepoint/operator.parser';
 import {
@@ -40,10 +40,17 @@ import {
   fetchOnHandInventoryCsv,
   fetchPoDetailCsv,
   fetchProductLinesJson,
+  fetchPressPlanningCsv,
   readCsvConfigFromEnv,
   type CsvSourceConfig,
 } from './csv.client';
 import { parsePlanningCsv } from './planning.parser';
+import { parsePressPlanningCsv } from './pressPlanning.parser';
+import {
+  PRODUCT_DIE_COLOR_LIST,
+  parseDieColors,
+  withDieColors,
+} from '@/data/sharepoint/dieColor.parser';
 import { parseJobMaterialCsv } from './materialReq.parser';
 import { parseOnHandInventoryCsv } from './onHandInventory.parser';
 import { parsePoDetailCsv } from './poDetail.parser';
@@ -62,7 +69,6 @@ export class PlanningCsvSource extends BaseDataSource {
   private jobsOnce: Promise<Job[]> | null = null;
   private linksOnce: Promise<JobMaterialLink[]> | null = null;
   private inventoryOnce: Promise<InventoryItem[]> | null = null;
-  private poOnce: Promise<PoLine[]> | null = null;
   private routerOnce: Promise<LineRouter> | null = null;
 
   constructor(
@@ -81,9 +87,10 @@ export class PlanningCsvSource extends BaseDataSource {
       // The router is needed to parse: ERP names only a department for most
       // assembly orders, and which line inside it comes from the BOM. Both
       // its inputs are memoised, so this costs no extra fetch.
-      const [res, router] = await Promise.all([
+      const [res, router, press] = await Promise.all([
         fetchPlanningCsv(this.csv, this.sp),
         this.lineRouter,
+        this.pressJobs(),
       ]);
       if (!res.ok) throw new Error(res.error);
       const { values, errors } = parsePlanningCsv(res.value, router);
@@ -91,7 +98,7 @@ export class PlanningCsvSource extends BaseDataSource {
       if (values.length === 0) {
         throw new Error(errors[0] ?? 'Planning1.csv held no orders');
       }
-      return values;
+      return mergePressPlan(values, press);
     })());
   }
 
@@ -120,12 +127,36 @@ export class PlanningCsvSource extends BaseDataSource {
     })());
   }
 
+  /**
+   * The press plan from the PMD dashboard's `Planning.csv`, each order told
+   * its die and colour from `PMD_ProductDieColor`. Neither being there stops
+   * the load: the PMD lane then shows what Planning1.csv carries, as before.
+   */
+  private async pressJobs(): Promise<Job[]> {
+    const res = await fetchPressPlanningCsv(this.csv, this.sp);
+    if (!res.ok) {
+      this.warnings.push(`${res.error} — the PMD lane shows Planning1.csv's press orders only.`);
+      return [];
+    }
+    if (res.value === null) return [];
+    const { values, errors } = parsePressPlanningCsv(res.value);
+    this.warnings.push(...errors);
+    if (values.length === 0) return [];
+    const dies = await fetchListItems(this.sp, PRODUCT_DIE_COLOR_LIST);
+    if (!dies.ok) {
+      this.warnings.push(
+        `${PRODUCT_DIE_COLOR_LIST} not read (${dies.error}) — every press changeover is taken as a die change.`,
+      );
+      return values;
+    }
+    return withDieColors(values, parseDieColors(dies.value));
+  }
+
   /** Drop the memoised CSVs so the next load re-fetches. */
   invalidate(): void {
     this.jobsOnce = null;
     this.linksOnce = null;
     this.inventoryOnce = null;
-    this.poOnce = null;
     this.routerOnce = null;
     this.warnings.length = 0;
   }
@@ -223,19 +254,41 @@ export class PlanningCsvSource extends BaseDataSource {
   async fetchBom(): Promise<BomLine[]> {
     return [];
   }
+  /** Open PO releases. Unreadable or absent is a warning, never a failed load. */
   async fetchPo(): Promise<PoLine[]> {
-    return (this.poOnce ??= fetchPoDetailCsv(this.csv, this.sp).then((res) => {
-      if (!res.ok) {
-        this.warnings.push(res.error);
-        return [];
-      }
-      if (res.value === null) return [];
-      const { values, errors } = parsePoDetailCsv(res.value);
-      this.warnings.push(...errors);
-      return values;
-    }));
+    const res = await fetchPoDetailCsv(this.csv, this.sp);
+    if (!res.ok) {
+      this.warnings.push(res.error);
+      return [];
+    }
+    if (res.value === null) return [];
+    const { values, errors } = parsePoDetailCsv(res.value);
+    this.warnings.push(...errors);
+    return values;
   }
   async fetchDemand(): Promise<DemandLine[]> {
     return [];
   }
+}
+
+/**
+ * The orders, with the press plan standing in for Planning1.csv's press rows.
+ *
+ * Planning1.csv carries the press orders assembly waits on, but not the press
+ * they run on; Planning.csv carries every press order with its machine. So a
+ * press order in both is taken from Planning.csv, and one only Planning.csv
+ * has is added — the PMD lane is the whole press plan, not just the part of it
+ * assembly is waiting for.
+ */
+export function mergePressPlan(orders: readonly Job[], press: readonly Job[]): Job[] {
+  if (press.length === 0) return [...orders];
+  const pressById = new Map(press.map((job) => [String(job.id), job]));
+  const merged = orders.map((job) => {
+    const p = job.department === 'moulding' ? pressById.get(String(job.id)) : undefined;
+    if (!p) return job;
+    pressById.delete(String(job.id));
+    return p;
+  });
+  const taken = new Set(orders.map((job) => String(job.id)));
+  return [...merged, ...[...pressById.values()].filter((job) => !taken.has(String(job.id)))];
 }

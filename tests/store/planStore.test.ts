@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobId } from '@/domain/ids';
 import { usePlanStore, type ProductionEntry } from '@/store/planStore';
 import type { CrewAssignment } from '@/domain/assembly';
@@ -81,6 +81,125 @@ describe('ASSY_Production bookings', () => {
     expect(state.orderCrewAssignments[String(job)]).toBeUndefined();
     expect(state.orderDoubleBooked[String(job)]).toBeUndefined();
     expect(state.production[String(job)][0].operatorIds).toEqual(['W01', 'W02']);
+  });
+
+  /*
+   * What the booking cost, and the row it owns.
+   *
+   * Both are the store's to decide — the panel only says when Save entry was
+   * pressed — so that the figure the KPI page divides by and the key the
+   * SharePoint row is written under can never be worked out two different ways
+   * in two different places.
+   */
+  it('times what a booking cost and gives it a row of its own', () => {
+    const job = JobId('ASSY-106');
+    const at = (hour: number, minute = 0): string =>
+      new Date(2026, 7, 31, hour, minute).toISOString();
+    usePlanStore.setState({
+      orderCrewAssignments: crewOf({ [String(job)]: ['W01', 'W02'] }),
+    });
+    usePlanStore.getState().startOrder(job, {
+      startedAt: at(9, 30),
+      overrideReason: null,
+      operatorIds: ['W01', 'W02'],
+      operatorNames: ['Lee', 'Gate'],
+    });
+
+    usePlanStore.getState().saveProductionEntry(
+      job,
+      { ...entry(5), savedAt: at(15), operatorIds: ['W01', 'W02'] },
+      { remainingQty: 20, completedQty: 0 },
+    );
+
+    const first = usePlanStore.getState().production[String(job)][0];
+    // 09:30 to 15:00 is five and a half hours, less the half hour at lunch:
+    // five hours each for the two of them.
+    expect(first.bookedHours).toBe(10);
+    expect(first.savedAt).toBe(at(15));
+    expect(first.recordKey).toBeTruthy();
+
+    // Booking again the same day runs the clock on and keeps the same row: a
+    // new key each save would leave the first row behind and open another.
+    usePlanStore.getState().saveProductionEntry(
+      job,
+      { ...entry(9), savedAt: at(15, 15), operatorIds: ['W01', 'W02'] },
+      { remainingQty: 20, completedQty: 0 },
+    );
+    const second = usePlanStore.getState().production[String(job)][0];
+    expect(second.bookedHours).toBe(10.5);
+    expect(second.recordKey).toBe(first.recordKey);
+  });
+
+  it('takes support work at the hours somebody entered, not off a clock', () => {
+    const job = JobId('FG-20260831-abc');
+    usePlanStore.getState().startOrder(job, {
+      startedAt: new Date(2026, 7, 31, 15, 0).toISOString(),
+      overrideReason: null,
+      operatorIds: ['W07'],
+      operatorNames: ['Alex'],
+    });
+    usePlanStore.getState().saveProductionEntry(
+      job,
+      {
+        ...entry(6),
+        laborHours: 6,
+        savedAt: new Date(2026, 7, 31, 15, 1).toISOString(),
+        operatorIds: ['W07'],
+      },
+      { remainingQty: 6, completedQty: 0 },
+    );
+    // A support order is confirmed and booked in the same press, so its clock
+    // would read a minute. The hours are the ones the supervisor typed.
+    expect(usePlanStore.getState().production[String(job)][0].bookedHours).toBe(6);
+  });
+
+  it('takes a completion back off an order closed in error', () => {
+    const job = JobId('ASSY-104');
+    usePlanStore.setState({ orderCrewAssignments: crewOf({ [String(job)]: ['W01', 'W04'] }) });
+    usePlanStore.getState().startOrder(job, {
+      startedAt: '2026-08-31T00:00:00.000Z',
+      overrideReason: null,
+      operatorIds: ['W01', 'W04'],
+      operatorNames: ['Lee', 'Sam'],
+    });
+    usePlanStore.getState().saveProductionEntry(
+      job,
+      {
+        ...entry(7),
+        paused: false,
+        pauseReason: null,
+        jobCompleted: true,
+        operatorIds: ['W01', 'W04'],
+        operatorNames: ['Lee', 'Sam'],
+        completedAt: '2026-08-31T05:30:00.000Z',
+      },
+      { remainingQty: 7, completedQty: 93 },
+    );
+    expect(usePlanStore.getState().orderCrewAssignments[String(job)]).toBeUndefined();
+
+    usePlanStore.getState().reopenOrder(job);
+
+    const state = usePlanStore.getState();
+    const booking = state.production[String(job)][0];
+    expect(booking.jobCompleted).toBe(false);
+    expect(booking.completedAt).toBeNull();
+    // What the shift booked is left exactly as it was — the correction is made
+    // in the entry form afterwards, and the usual figure is right.
+    expect(booking.complete).toBe(7);
+    expect(state.progress[String(job)]).toEqual([{ date: '2026-08-31', qty: 7 }]);
+    // Closing the order released the crew, so reopening it puts them back —
+    // as a written allocation, which is the only kind that can be added to.
+    expect(
+      state.orderCrewAssignments[String(job)].map((a) => a.workerId),
+    ).toEqual(['W01', 'W04']);
+  });
+
+  it('invents no history for an order that was never closed', () => {
+    const job = JobId('ASSY-105');
+    usePlanStore.setState({ production: { [String(job)]: [entry(4)] } });
+    const before = usePlanStore.getState().production;
+    usePlanStore.getState().reopenOrder(job);
+    expect(usePlanStore.getState().production).toBe(before);
   });
 
   it('keeps each person\u2019s own days on the one record of the crew', () => {
@@ -196,6 +315,54 @@ describe('operator production-line placement', () => {
   });
 });
 
+/*
+ * The seven-ten phone call. Two things have to be true of it: the schedule
+ * stops planning hours that will not be worked, and the order the person was
+ * half-way through is left exactly where it is.
+ */
+describe('marking somebody off for the day', () => {
+  // Days already past are dropped as leave is written, so the days below are
+  // read from a fixed Monday rather than from whenever the suite runs.
+  afterEach(() => vi.useRealTimers());
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 8, 14, 9, 0));
+    usePlanStore.setState({
+      workerOnLeave: {},
+      orderCrewAssignments: crewOf({ 'ASSY-1': ['Bill', 'Ann'] }),
+    });
+  });
+
+  it('records the day, and takes it back off again', () => {
+    usePlanStore.getState().setWorkerOnLeave('Bill', '2026-09-18', true);
+    expect(usePlanStore.getState().workerOnLeave).toEqual({
+      Bill: ['2026-09-18'],
+    });
+    usePlanStore.getState().setWorkerOnLeave('Bill', '2026-09-18', false);
+    expect(usePlanStore.getState().workerOnLeave).toEqual({});
+  });
+
+  it('never takes them off the order they were building', () => {
+    usePlanStore.getState().setWorkerOnLeave('Bill', '2026-09-18', true);
+    expect(
+      usePlanStore.getState().orderCrewAssignments['ASSY-1'].map(
+        (assignment) => assignment.workerId,
+      ),
+    ).toEqual(['Bill', 'Ann']);
+  });
+
+  it('holds several days, and several people, at once', () => {
+    const { setWorkerOnLeave } = usePlanStore.getState();
+    setWorkerOnLeave('Bill', '2026-09-18', true);
+    setWorkerOnLeave('Bill', '2026-09-19', true);
+    setWorkerOnLeave('Ann', '2026-09-18', true);
+    expect(usePlanStore.getState().workerOnLeave).toEqual({
+      Bill: ['2026-09-18', '2026-09-19'],
+      Ann: ['2026-09-18'],
+    });
+  });
+});
+
 describe('weekend overtime approvals', () => {
   const job = JobId('ASSY-202');
 
@@ -225,7 +392,7 @@ describe('weekend overtime approvals', () => {
  */
 describe('surviving a twice-daily export', () => {
   const centres = [
-    { id: 'UPL_GLUING', name: 'Upholstery', sortIndex: 1 },
+    { id: 'TBP', name: 'TBP', sortIndex: 1 },
     { id: 'ASSY', name: 'Assembly', sortIndex: 2 },
   ] as unknown as Parameters<
     ReturnType<typeof usePlanStore.getState>['reconcile']
@@ -242,7 +409,7 @@ describe('surviving a twice-daily export', () => {
       ReturnType<typeof usePlanStore.getState>['reconcile']
     >[1][number];
 
-  const planned = [job('A', 'UPL_GLUING'), job('B', 'UPL_GLUING'), job('C', 'ASSY')];
+  const planned = [job('A', 'TBP'), job('B', 'TBP'), job('C', 'ASSY')];
   const day = (iso: string) => new Date(`${iso}T09:00:00`);
 
   beforeEach(() => {
@@ -279,11 +446,11 @@ describe('surviving a twice-daily export', () => {
     expect(state().orderOvertime.B).toBe(true);
     // And in its own place on its own line, so the row does not come back at
     // the bottom of the pool when the export is fixed.
-    expect(state().containers.UPL_GLUING.map(String)).toEqual(['A', 'B']);
+    expect(state().containers.TBP.map(String)).toEqual(['A', 'B']);
 
     // The export is fixed that afternoon and nothing was lost.
     state().reconcile(centres, planned, day('2026-09-08'));
-    expect(state().containers.UPL_GLUING.map(String)).toEqual(['A', 'B']);
+    expect(state().containers.TBP.map(String)).toEqual(['A', 'B']);
     expect(state().orderStarts.B).toBe('2026-09-14');
   });
 
@@ -292,13 +459,13 @@ describe('surviving a twice-daily export', () => {
     const without = [planned[0], planned[2]];
     state().reconcile(centres, without, day('2026-09-21'));
     expect(state().orderStarts.B).toBe('2026-09-14');
-    expect(state().containers.UPL_GLUING.map(String)).toEqual(['A', 'B']);
+    expect(state().containers.TBP.map(String)).toEqual(['A', 'B']);
 
     // Fifteen days after it was last exported.
     state().reconcile(centres, without, day('2026-09-23'));
     expect('B' in state().orderStarts).toBe(false);
     expect('B' in state().orderCrewAssignments).toBe(false);
-    expect(state().containers.UPL_GLUING.map(String)).toEqual(['A']);
+    expect(state().containers.TBP.map(String)).toEqual(['A']);
     expect('B' in state().lastSeen).toBe(false);
   });
 
@@ -306,10 +473,10 @@ describe('surviving a twice-daily export', () => {
     const state = () => usePlanStore.getState();
     state().reconcile(
       centres,
-      [...planned, job('D', 'UPL_GLUING')],
+      [...planned, job('D', 'TBP')],
       day('2026-09-08'),
     );
-    expect(state().containers.UPL_GLUING.map(String)).toEqual(['A', 'B', 'D']);
+    expect(state().containers.TBP.map(String)).toEqual(['A', 'B', 'D']);
     expect(state().orderStarts.B).toBe('2026-09-14');
   });
 
@@ -319,5 +486,23 @@ describe('surviving a twice-daily export', () => {
     state().reconcile(centres, [planned[0]], day('2026-09-08'));
     expect(state().orderStarts.B).toBe('2026-09-14');
     expect(state().lastSeen.B).toBe('2026-09-08');
+  });
+});
+
+describe('setOrderStarts', () => {
+  beforeEach(() => {
+    usePlanStore.setState({ orderStarts: { KEEP: '2026-09-14T07:00:00.000Z', GONE: '2026-09-15T07:00:00.000Z' } });
+  });
+
+  it('pins and releases several orders in one write, leaving the rest alone', () => {
+    let writes = 0;
+    const off = usePlanStore.subscribe(() => { writes++; });
+    usePlanStore.getState().setOrderStarts({ NEW: '2026-09-16T07:00:00.000Z', GONE: null });
+    off();
+    expect(writes).toBe(1);
+    expect(usePlanStore.getState().orderStarts).toEqual({
+      KEEP: '2026-09-14T07:00:00.000Z',
+      NEW: '2026-09-16T07:00:00.000Z',
+    });
   });
 });

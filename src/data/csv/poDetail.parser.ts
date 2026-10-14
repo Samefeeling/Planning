@@ -1,125 +1,115 @@
 /**
- * Open purchase-order receipts from `PODetail.csv`, the Epicor PO export.
- * One row per release (or per line, when the BAQ does not join releases):
- * which part is coming, how many are still to be received, and when.
+ * Open purchase-order releases exported from Epicor as `PODetail.csv`.
  *
- * It feeds the same `PoLine` the master workbook's `po` sheet does, so a short
- * component on an order's pick list can say which PO covers it and from when.
- *
- * Columns are matched by header name, as in the other exports. What is still
- * to come is `Calculated_OutstandingQty` when the BAQ has it, else the
- * release (or line) quantity less what has been received. Closed lines and
- * releases, and rows with nothing outstanding, are skipped.
+ * One row per release still to arrive: the part (`PODetail_PartNum`), how many
+ * are outstanding (`Calculated_OutstandingQty`), the PO (`PORel_PONum`) and two
+ * dates — the date the release is due (`PORel_DueDate`) and the date the
+ * supplier promised (`PORel_PromiseDt`). The goods are counted on as
+ * available at the later of the two: a promise earlier than the due date is
+ * not a reason to plan on them sooner, and one later than it is the supplier
+ * saying they will be late.
  */
 
 import { PartId } from '@/domain/ids';
 import type { PoLine } from '@/domain/types';
-import { mapHeaders, parseCsv, type CsvRow } from '@/lib/csv';
-import type { ParseOutcome } from '@/data/excel/parsers/types';
+import { normalizeHeader, parseCsv } from '@/lib/csv';
 
-type Field =
-  | 'poNum'
-  | 'poLine'
-  | 'part'
-  | 'outstanding'
-  | 'orderQty'
-  | 'receivedQty'
-  | 'dueDate'
-  | 'promiseDate'
-  | 'buyer'
-  | 'open';
+const aliases = {
+  part: ['podetailpartnum', 'partnum'],
+  qty: ['outstandingqty', 'podetailoutstandingqty'],
+  due: ['porelduedate', 'duedate'],
+  promise: ['porelpromisedt', 'promisedt', 'promisedate'],
+  poNum: ['porelponum', 'podetailponum', 'ponum'],
+  vendor: ['vendorname', 'vendor'],
+  buyer: ['puragentname', 'buyer'],
+  description: ['podetaillinedesc', 'linedesc'],
+} as const;
 
-/** Accepted header spellings per field, most specific first. */
-const ALIASES: Record<Field, readonly string[]> = {
-  poNum: ['PODetail_PONUM', 'PORel_PONum', 'POHeader_PONum', 'PONum', 'PO'],
-  poLine: ['PODetail_POLine', 'PORel_POLine', 'POLine'],
-  part: ['PODetail_PartNum', 'PORel_PartNum', 'PartNum', 'Part'],
-  outstanding: ['OutstandingQty', 'Calculated_OutstandingQty', 'OpenQty', 'RemainingQty', 'BalanceQty'],
-  orderQty: ['PORel_RelQty', 'PORel_XRelQty', 'PODetail_OrderQty', 'PODetail_XOrderQty', 'RelQty', 'OrderQty'],
-  receivedQty: ['PORel_ReceivedQty', 'PODetail_ReceivedQty', 'ReceivedQty', 'OurReceivedQty'],
-  dueDate: ['PORel_DueDate', 'PODetail_DueDate', 'DueDate'],
-  promiseDate: ['PORel_PromiseDt', 'PODetail_PromiseDt', 'PromiseDt', 'PromiseDate'],
-  buyer: ['POHeader_BuyerID', 'BuyerID', 'Buyer'],
-  open: ['PORel_OpenRelease', 'PODetail_OpenLine', 'OpenRelease', 'OpenLine'],
+const column = (headers: string[], names: readonly string[]): number =>
+  names.map((name) => headers.indexOf(name)).find((index) => index >= 0) ?? -1;
+
+const numberValue = (raw: string | undefined): number | null => {
+  if (raw === undefined || raw.trim() === '') return null;
+  const value = Number(raw.replaceAll(',', '').trim());
+  return Number.isFinite(value) ? value : null;
 };
 
-const cell = (row: CsvRow, at: number | undefined): string =>
-  at === undefined ? '' : (row[at] ?? '').trim();
-
-const num = (v: string): number | null => {
+/**
+ * A date as this plant's exports write it: day first (`28/10/2026`,
+ * `2/10/2026`, optionally with a time after it), or ISO (`2026-10-28`,
+ * `2026-10-28T00:00:00`). Always local midnight of that day — `new Date` would
+ * read `2/10/2026` as the 10th of February, and a bare ISO date as UTC.
+ */
+export function exportDate(raw: string | undefined): Date | null {
+  const v = raw?.trim() ?? '';
   if (v === '') return null;
-  const n = Number(v.replace(/[, ]/g, ''));
-  return Number.isFinite(n) ? n : null;
-};
-
-/** Same reading as `planning.parser`: a bare `YYYY-MM-DD` is local midnight. */
-const date = (v: string): Date | null => {
-  if (v === '') return null;
-  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
-  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
-  const d = ymd
-    ? new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]))
-    : dmy
-      ? new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]))
-      : new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
-
-const CLOSED = new Set(['false', '0', 'no', 'n', 'closed']);
-
-/** Does this header row look like the PO export? */
-export function isPoDetailHeader(header: CsvRow): boolean {
-  const col = mapHeaders<Field>(header, ALIASES);
-  return (
-    col.poNum !== undefined &&
-    col.part !== undefined &&
-    (col.outstanding !== undefined || col.orderQty !== undefined)
-  );
+  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\b/.exec(v);
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+  const d = dmy
+    ? new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]))
+    : ymd
+      ? new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]))
+      : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  // 31/02 rolls into March; a date that does not exist is not a date.
+  const day = Number((dmy ?? ymd)![dmy ? 1 : 3]);
+  return d.getDate() === day ? d : null;
 }
 
-/** Parse the text of `PODetail.csv` into open PO receipts. */
-export function parsePoDetailCsv(text: string): ParseOutcome<PoLine> {
-  const rows = parseCsv(text);
+/** Comma unless the header row is plainly tab-separated (a paste from Excel). */
+const delimiterOf = (text: string): string => {
+  const first = text.slice(0, text.indexOf('\n') >>> 0);
+  return first.includes('\t') && !first.includes(',') ? '\t' : ',';
+};
+
+export function parsePoDetailCsv(text: string): {
+  values: PoLine[];
+  errors: string[];
+} {
+  const rows = parseCsv(text, delimiterOf(text));
   if (rows.length === 0) return { values: [], errors: ['PODetail.csv is empty'] };
-  const header = rows[0];
-  const col = mapHeaders<Field>(header, ALIASES);
-  if (col.part === undefined || (col.outstanding === undefined && col.orderQty === undefined)) {
+  const headers = rows[0].map(normalizeHeader);
+  const col = Object.fromEntries(
+    Object.entries(aliases).map(([key, names]) => [key, column(headers, names)]),
+  ) as Record<keyof typeof aliases, number>;
+  if (col.part < 0 || col.qty < 0 || (col.due < 0 && col.promise < 0)) {
     return {
       values: [],
       errors: [
-        'PODetail.csv needs a part column (PODetail_PartNum) and an outstanding or order quantity ' +
-          `(Calculated_OutstandingQty, PORel_RelQty). Headers found: ${header.join(', ')}`,
+        'PODetail.csv needs PODetail_PartNum, Calculated_OutstandingQty and ' +
+          'PORel_DueDate or PORel_PromiseDt columns',
       ],
     };
   }
 
-  const values: PoLine[] = [];
   const errors: string[] = [];
-  rows.slice(1).forEach((row, i) => {
-    const part = cell(row, col.part);
+  const values: PoLine[] = [];
+  rows.slice(1).forEach((row, index) => {
+    const part = row[col.part]?.trim();
     if (!part) return;
-    if (CLOSED.has(cell(row, col.open).toLowerCase())) return;
-    const outstanding =
-      col.outstanding !== undefined
-        ? num(cell(row, col.outstanding))
-        : (() => {
-            const ordered = num(cell(row, col.orderQty));
-            return ordered === null ? null : ordered - (num(cell(row, col.receivedQty)) ?? 0);
-          })();
-    if (outstanding === null) {
-      errors.push(`PODetail.csv row ${i + 2}: no quantity for ${part}`);
+    const qty = numberValue(row[col.qty]);
+    if (qty === null) {
+      errors.push(`PODetail.csv row ${index + 2}: invalid Calculated_OutstandingQty`);
       return;
     }
-    if (outstanding <= 0) return;
-    const po = cell(row, col.poNum);
-    const line = cell(row, col.poLine);
+    if (qty <= 0) return; // fully received: nothing is coming
+    const cell = (i: number) => (i >= 0 ? row[i]?.trim() || null : null);
+    const dueDate = exportDate(cell(col.due) ?? undefined);
+    const promiseDate = exportDate(cell(col.promise) ?? undefined);
+    if (cell(col.due) && !dueDate) {
+      errors.push(`PODetail.csv row ${index + 2}: unreadable PORel_DueDate "${cell(col.due)}"`);
+    }
+    if (cell(col.promise) && !promiseDate) {
+      errors.push(`PODetail.csv row ${index + 2}: unreadable PORel_PromiseDt "${cell(col.promise)}"`);
+    }
     values.push({
       partNum: PartId(part),
-      poNum: po ? (line ? `${po}/${line}` : po) : null,
-      outstandingQty: outstanding,
-      dueDate: date(cell(row, col.dueDate)),
-      promiseDate: date(cell(row, col.promiseDate)),
-      buyer: cell(row, col.buyer) || null,
+      poNum: cell(col.poNum),
+      outstandingQty: qty,
+      dueDate,
+      promiseDate,
+      buyer: cell(col.buyer),
+      vendor: cell(col.vendor),
     });
   });
   return { values, errors };

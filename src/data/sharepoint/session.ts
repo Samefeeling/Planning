@@ -1,8 +1,8 @@
 /** Cookie-authenticated REST transport for an app hosted on the SharePoint site. */
-import type { SharePointConfig } from '@/data/excel/sharepoint.client';
+import type { SharePointConfig } from '@/data/sharepoint/site';
 import type { ListItem, ListItemFields } from './lists.write';
 
-import { readableFields, writableFields, type ListField } from './fieldMap';
+import { readableFields, resolveField, writableFields, type ListField } from './fieldMap';
 
 const digests = new Map<string, { value: string; expires: number }>();
 export const literal = (value: string): string => encodeURIComponent(value.replace(/'/g, "''")).replace(/'/g, '%27');
@@ -12,7 +12,11 @@ export const restList = (cfg: SharePointConfig, list: string): string =>
 export function sessionFile(cfg: SharePointConfig, path: string): string {
   const site = new URL(cfg.siteUrl);
   const root = site.pathname.replace(/\/$/, '');
-  const relative = path.startsWith(`${root}/`) ? path : `${root}/${path.replace(/^\//, '')}`;
+  // A path that already names a site (`/sites/PMD/Shared Documents/…`) is
+  // server-relative as it stands — the PMD dashboard's files are given so.
+  const relative = path.startsWith(`${root}/`) || /^\/(sites|teams)\//i.test(path)
+    ? path
+    : `${root}/${path.replace(/^\//, '')}`;
   return `${cfg.siteUrl.replace(/\/$/, '')}/_api/web/GetFileByServerRelativePath(decodedurl='${literal(relative)}')/$value`;
 }
 
@@ -68,6 +72,66 @@ async function listFields(cfg: SharePointConfig, list: string): Promise<ListFiel
   return promise;
 }
 
+/**
+ * The rows whose `column` holds exactly `value`, asked of SharePoint itself.
+ *
+ * Used to confirm a row is really absent immediately before creating it. The
+ * whole-list snapshot a sync starts from is as old as the sync, and two boards
+ * open on the same plan — a second tab, a second supervisor, the KPI page and
+ * the board — both read "no row for today" and both created one. This is the
+ * last look, and the reason the key is asked for by name: it is the column the
+ * list is keyed on, and the only one no timezone can move.
+ */
+export async function sessionRowsWhere(
+  cfg: SharePointConfig,
+  list: string,
+  column: string,
+  value: string,
+): Promise<ListItem[]> {
+  return rowsFiltered(cfg, list, column, (name) => `${name} eq '${value.replace(/'/g, "''")}'`);
+}
+
+/** The rows whose `column` starts with `prefix`, newest first, up to fifty. */
+export async function sessionRowsStartingWith(
+  cfg: SharePointConfig,
+  list: string,
+  column: string,
+  prefix: string,
+): Promise<ListItem[]> {
+  return rowsFiltered(cfg, list, column, (name) => `startswith(${name},'${prefix.replace(/'/g, "''")}')`);
+}
+
+async function rowsFiltered(
+  cfg: SharePointConfig,
+  list: string,
+  column: string,
+  where: (internalName: string) => string,
+): Promise<ListItem[]> {
+  const schema = await listFields(cfg, list);
+  const field = resolveField(schema, column);
+  if (!field) throw new SharePointHttpError(400, `Missing SharePoint column: ${column}.`);
+  const filter = where(field.InternalName);
+  /*
+   * Newest first, because the page is capped.
+   *
+   * A key matches one row and the cap never bites. A job number matches every
+   * row that job has ever had — one a day, so a long order outgrows the page
+   * inside two months — and the row being asked about was written minutes ago
+   * by another board. In list order the page would hold the job's first fifty
+   * days and never the day in question.
+   */
+  const url =
+    `${restList(cfg, list)}/items?$top=50&$orderby=Id%20desc` +
+    `&$filter=${encodeURIComponent(filter)}`;
+  const res = await sessionRequest(cfg, url);
+  const body = await res.json();
+  return (body.value ?? []).map((row: Record<string, unknown>) => ({
+    id: String(row.Id),
+    fields: { ...readableFields(row, schema), id: String(row.Id) },
+    etag: (row['odata.etag'] ?? row['@odata.etag']) as string | undefined,
+  }));
+}
+
 export async function sessionRows(cfg: SharePointConfig, list: string): Promise<ListItem[]> {
   const schema = await listFields(cfg, list);
   let url = `${restList(cfg, list)}/items?$top=200`;
@@ -115,4 +179,13 @@ export async function sessionUpdate(cfg: SharePointConfig, list: string, id: str
   }
   if (!etag) throw new SharePointHttpError(409, 'SharePoint did not return a record version.');
   await sessionRequest(cfg, url, { method: 'POST', headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': etag }, body: JSON.stringify(mapped) });
+}
+
+/** Remove one row, whatever version it is at. */
+export async function sessionDelete(cfg: SharePointConfig, list: string, id: string): Promise<void> {
+  if (!/^\d+$/.test(id)) throw new SharePointHttpError(400, 'Invalid SharePoint item ID.');
+  await sessionRequest(cfg, `${restList(cfg, list)}/items(${id})`, {
+    method: 'POST',
+    headers: { 'X-HTTP-Method': 'DELETE', 'IF-MATCH': '*' },
+  });
 }

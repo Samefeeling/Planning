@@ -29,6 +29,7 @@ export type BuildState =
   | 'unplaced';
 
 export interface BuildJob {
+  /** The board row: the job, or one operation of it (`018140-1-1#20`). */
   jobId: string;
   /** Order line and release from the job number. */
   orderLine: string | null;
@@ -40,7 +41,7 @@ export interface BuildJob {
   remainingQty: number;
   /** Bar start, when it has one. */
   start: Date | null;
-  /** Bar end — the Expect Date. */
+  /** Expect Date: when the order's route is through, benches still to come included. */
   expect: Date | null;
   /** Epicor's required due date for the job. */
   due: Date | null;
@@ -74,7 +75,13 @@ const buildJob = (job: Job, row: OrderRow | null, lineName: string | null): Buil
   };
 };
 
-/** Every job on the board built for a sales order, filed under that order. */
+/**
+ * Every job on the board built for a sales order, filed under that order.
+ *
+ * A lane's header carries its benches' rows as well as the benches do, so a
+ * row is taken once, under the line it is actually on. PMD and its presses
+ * are not Assembly's to finish and are left out.
+ */
 export function buildsByOrder(view: AssemblyGanttView): Map<string, OrderBuild> {
   const out = new Map<string, OrderBuild>();
   const add = (job: BuildJob | null) => {
@@ -84,9 +91,14 @@ export function buildsByOrder(view: AssemblyGanttView): Map<string, OrderBuild> 
     build.jobs.push(job);
     out.set(order, build);
   };
+  const seen = new Set<string>();
   for (const group of view.groups) {
-    if (!group.line.schedulable) continue;
-    for (const row of group.rows) add(buildJob(row.job, row, group.line.name));
+    for (const row of group.rows) {
+      const id = String(row.job.id);
+      if (!row.line.schedulable || seen.has(id)) continue;
+      seen.add(id);
+      add(buildJob(row.job, row, row.line.name));
+    }
   }
   for (const job of view.pool) add(buildJob(job, null, null));
   for (const b of out.values()) b.jobs.sort((a, b2) => a.jobId.localeCompare(b2.jobId, undefined, { numeric: true }));

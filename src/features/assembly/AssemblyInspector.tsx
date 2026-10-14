@@ -9,18 +9,21 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AssemblyGanttView } from '@/engine/assembly/board';
-import type { PoLine } from '@/domain/types';
 import { findOrderRow } from '@/store/assemblySelectors';
 import { usePlanStore } from '@/store/planStore';
 import { useUiStore } from '@/store/uiStore';
 import { remainingQty } from '@/engine/assembly/duration';
 import { startEligibility } from '@/engine/assembly/release';
+import { incomingSupply } from '@/engine/assembly/pickShortage';
 import { nextWorkingMoment } from '@/engine/assembly/shift';
-import { formatDay, formatShortDay, formatTime } from '@/lib/time';
+import { formatDay, formatTime } from '@/lib/time';
 import { Badge, Button } from '@/ui';
 import type { PauseReason, ProductionEntry } from '@/store/planStore';
 import { signInAt, useSupervisorStore } from '@/store/supervisorStore';
 import { useDataStore } from '@/store/dataStore';
+import { jobNumOf } from '@/domain/routing';
+import { STEP_NAME } from '@/domain/assembly';
+import { activeCrewOf } from './bulkPlan';
 
 const NO_PRODUCTION: ProductionEntry[] = [];
 
@@ -59,38 +62,73 @@ const isoDay = (d: Date): string =>
     d.getDate(),
   ).padStart(2, '0')}`;
 
-/**
- * The next open receipt for a component: when, and how many, with every open
- * PO line for the part on hover. Blank when none is open.
- */
-function NextPo({ lines }: { lines: readonly PoLine[] | undefined }) {
-  const open = (lines ?? [])
-    .map((p) => ({ p, when: p.dueDate ?? p.promiseDate }))
-    .sort((a, b) => (a.when?.getTime() ?? Infinity) - (b.when?.getTime() ?? Infinity));
-  if (open.length === 0) {
-    return (
-      <span className="qty none" title="No open PO in PODetail.csv">
-        —
-      </span>
-    );
-  }
-  const next = open[0];
-  return (
-    <span
-      className="qty po"
-      title={open
-        .map(({ p, when }) => `PO ${p.poNum ?? '?'}: ${p.outstandingQty} due ${when ? formatDay(when) : 'undated'}`)
-        .join('\n')}
-    >
-      {next.when ? formatShortDay(next.when) : 'undated'} · {next.p.outstandingQty}
-      {open.length > 1 && <sup>+{open.length - 1}</sup>}
-    </span>
-  );
-}
-
 /** Fixed numeric date for the production popup, independent of browser locale. */
 export const popupDate = (date: Date | null): string =>
   date ? formatDay(date) : '—';
+
+/**
+ * What today's shift already booked on this order, for the warning that has to
+ * be read before it is replaced.
+ *
+ * One row per order per day is the shape of the record, so a second entry for
+ * a day is not a second entry: it is this one, written again. That is the
+ * right behaviour — a figure typed wrong at three o'clock is corrected at four
+ * — but it was silent, and a shift that thought it was adding to the day was
+ * quietly overwriting it. Two boards doing it at once is how the list ends up
+ * with two rows for one day, which the KPI page will not report at all.
+ *
+ * So the booking is read back and said out loud, in the figures somebody
+ * entered rather than as a caution about duplicates.
+ */
+export function rebookWarning(
+  entry: ProductionEntry,
+  at: (iso: string) => string,
+): string {
+  const said = [
+    `${entry.shiftOutput} output`,
+    `${entry.complete} complete`,
+    entry.reject > 0 ? `${entry.reject} reject` : '',
+    entry.rework > 0 ? `${entry.rework} rework` : '',
+    entry.paused ? 'paused' : '',
+    entry.jobCompleted ? 'job completed' : '',
+  ].filter(Boolean);
+  return (
+    `Today is already booked on this order — ${said.join(', ')}` +
+    (entry.savedAt ? `, saved ${at(entry.savedAt)}` : '') +
+    '. Saving replaces that entry rather than adding a second one. ' +
+    'Press Save again to replace it.'
+  );
+}
+
+/**
+ * What the Complete box should hold when the completion tick changes.
+ *
+ * "Job completed" with a Complete box left on nothing is the same claim made
+ * twice and contradicted once: the order is finished, and none of it was
+ * finished today. The shift meant the remainder, so ticking the box fills it
+ * with exactly that — every unit still owed on the order plus anything already
+ * booked today, which is what `maxComplete` is. It stays an ordinary editable
+ * figure; a run closed short is typed over.
+ *
+ * Only an empty box is filled, so a figure somebody entered is never
+ * overwritten, and taking the tick off again only takes back the panel's own
+ * number — `filled` is how it tells the two apart.
+ */
+export function completeOnTick(
+  checked: boolean,
+  form: { draft: string; maxComplete: number; booked: string; filled: boolean },
+): { draft: string; filled: boolean } {
+  const { draft, maxComplete, booked, filled } = form;
+  if (checked) {
+    return Number(draft || 0) === 0 && maxComplete > 0
+      ? { draft: String(maxComplete), filled: true }
+      : { draft, filled };
+  }
+  return {
+    draft: filled && draft === String(maxComplete) ? booked : draft,
+    filled: false,
+  };
+}
 
 export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const selectedJobId = useUiStore((s) => s.selectedJobId);
@@ -99,7 +137,6 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const row = findOrderRow(board, selectedJobId);
   const inventoryByPart = useDataStore((s) => s.indexes?.inventoryByPart);
   const poByPart = useDataStore((s) => s.indexes?.poByPart);
-  const withPo = (poByPart?.size ?? 0) > 0;
   const panel = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<Place | null>(null);
 
@@ -111,7 +148,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   // widens instead, and only a window too small for even the widest scrolls.
   useLayoutEffect(() => {
     const el = panel.current;
-    if (!el || !selectedAt) return setPlace(null);
+    if (!el || !selectedJobId) return setPlace(null);
 
     const roomW = window.innerWidth - PANEL_GAP * 2;
     const roomH = window.innerHeight - PANEL_GAP * 2;
@@ -138,8 +175,13 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     setPlace({
       width,
       height,
-      left: clamp(selectedAt.x + PANEL_GAP, PANEL_GAP, roomW + PANEL_GAP - width),
-      top: clamp(selectedAt.y - PANEL_GAP * 3, PANEL_GAP, roomH + PANEL_GAP - boxH),
+      // Beside the click; with no click to open beside, in the middle.
+      left: selectedAt
+        ? clamp(selectedAt.x + PANEL_GAP, PANEL_GAP, roomW + PANEL_GAP - width)
+        : Math.max(PANEL_GAP, (window.innerWidth - width) / 2),
+      top: selectedAt
+        ? clamp(selectedAt.y - PANEL_GAP * 3, PANEL_GAP, roomH + PANEL_GAP - boxH)
+        : Math.max(PANEL_GAP, (window.innerHeight - boxH) / 2),
     });
   }, [selectedAt, selectedJobId, row]);
 
@@ -164,6 +206,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   );
   const startOrder = usePlanStore((s) => s.startOrder);
   const saveProductionEntry = usePlanStore((s) => s.saveProductionEntry);
+  const reopenOrder = usePlanStore((s) => s.reopenOrder);
   const setOrderStart = usePlanStore((s) => s.setOrderStart);
   const orderStarts = usePlanStore((s) => s.orderStarts);
   const unlocked = useSupervisorStore((s) => s.unlocked);
@@ -180,11 +223,24 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
   const [jobCompleted, setJobCompleted] = useState(false);
   const [pauseReason, setPauseReason] = useState<PauseReason>('material-shortage');
   const [notes, setNotes] = useState('');
+  /**
+   * True while the Complete box is holding a figure this panel put there
+   * rather than one somebody typed. Only that figure is taken back when the
+   * completion tick comes off again — a number the shift entered is theirs.
+   */
+  const filledComplete = useRef(false);
   const [overrideReason, setOverrideReason] = useState('');
   const [startMessage, setStartMessage] = useState('');
   const [entryMessage, setEntryMessage] = useState('');
+  /**
+   * Set by the first press of Save on a day that is already booked, so the
+   * second press goes through. Cleared with the rest of the form.
+   */
+  const [replacing, setReplacing] = useState(false);
   const today = isoDay(new Date());
 
+  // The boxes hold what the day holds — including after a save, and after
+  // another board's entry arrives on a refresh.
   useEffect(() => {
     const existing = productionEntries.find((entry) => entry.date === today);
     setDraft(existing ? String(existing.complete) : '');
@@ -195,10 +251,24 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     setJobCompleted(Boolean(existing?.jobCompleted));
     setPauseReason(existing?.pauseReason ?? 'material-shortage');
     setNotes(existing?.notes ?? '');
+    filledComplete.current = false;
+  }, [productionEntries, today]);
+
+  /*
+   * What the panel last said, cleared when it stops being about this order.
+   *
+   * Not on the effect above, which runs again the moment a save lands: it wiped
+   * "Entry saved. 3.2 labour hours booked." in the same tick it was set, so the
+   * shift pressed Save and was told nothing at all. Pressing it again is the
+   * obvious thing to do then, and a second press on a second board is how this
+   * list came by two rows for one day.
+   */
+  useEffect(() => {
     setOverrideReason('');
     setStartMessage('');
     setEntryMessage('');
-  }, [selectedJobId, productionEntries, today]);
+    setReplacing(false);
+  }, [selectedJobId, today]);
 
   // Nothing picked: the panel is simply not there. It opens on a click and
   // closes again, rather than sitting in a column asking to be filled.
@@ -245,12 +315,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
    * the first: it used to refuse an order with three people on it because
    * none of their days had come round yet.
    */
-  const todayCrew = row.workers.filter((worker) =>
-    (row.crewDays.find((day) => day.day === today)?.workerIds ?? []).includes(
-      String(worker.id),
-    ),
-  );
-  const activeCrew = todayCrew.length > 0 ? todayCrew : row.workers;
+  const activeCrew = activeCrewOf(row, today);
   const picks = row.pickList ?? [];
 
   const eligibility = startEligibility(
@@ -285,6 +350,28 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
     setStartMessage('Production start confirmed.');
   };
 
+  const completeJob = (checked: boolean) => {
+    setJobCompleted(checked);
+    const next = completeOnTick(checked, {
+      draft,
+      maxComplete,
+      booked: existingToday ? String(existingToday.complete) : '',
+      filled: filledComplete.current,
+    });
+    setDraft(next.draft);
+    filledComplete.current = next.filled;
+  };
+
+  /** Undo a completion booked in error — the way back from a closed order. */
+  const reopen = () => {
+    if (!unlocked) {
+      setEntryMessage(`Sign in as ${gate} to reopen a completed order.`);
+      return;
+    }
+    reopenOrder(job.id);
+    setEntryMessage('Order reopened. Correct the entry and save it again.');
+  };
+
   const book = () => {
     if (closed) {
       setEntryMessage('Completed entries are locked.');
@@ -312,9 +399,18 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       setEntryMessage('Enter production, a pause, completion, or a note before saving.');
       return;
     }
-    const completedAt = jobCompleted ? new Date().toISOString() : null;
+    // Asked last, so an entry that was going to be refused anyway never asks
+    // to replace anything.
+    if (existingToday && !replacing) {
+      setReplacing(true);
+      setEntryMessage(rebookWarning(existingToday, (iso) => formatTime(new Date(iso))));
+      return;
+    }
+    const savedAt = new Date().toISOString();
+    const completedAt = jobCompleted ? savedAt : null;
     saveProductionEntry(job.id, {
       date: today,
+      savedAt,
       complete: qty,
       reject: Number(reject),
       rework: Number(rework),
@@ -330,7 +426,23 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
       remainingQty: row.sourceRemainingQty ?? row.job.remainingQty,
       completedQty: row.sourceCompletedQty ?? row.job.completedQty,
     });
-    setEntryMessage(jobCompleted ? 'Entry saved. Crew released.' : 'Entry saved.');
+    /*
+     * Say how many labour hours went with it. The figure is read back rather
+     * than worked out again here: the store decides it — from when the order
+     * started, when this was saved and who was on it — and a second opinion
+     * computed in the panel is a second answer waiting to disagree with the
+     * one the KPI page will report.
+     */
+    const booked = usePlanStore
+      .getState()
+      .production[String(job.id)]?.find((saved) => saved.date === today)
+      ?.bookedHours;
+    const hours = booked ? ` ${booked} labour hours booked.` : '';
+    setEntryMessage(
+      (jobCompleted ? 'Entry saved. Crew released.' : 'Entry saved.') + hours,
+    );
+    // Asked again next time: one acknowledgement covers one save, not the day.
+    setReplacing(false);
   };
 
   return (
@@ -371,7 +483,13 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
        */}
       <header className="inspector-title">
         <div className="inspector-ident">
-          <span className="inspector-job">{String(job.id)}</span>
+          <span className="inspector-job">{jobNumOf(String(job.id))}</span>
+          {job.operation && (
+            <span className="inspector-op">
+              Op {job.operation.seq} · {STEP_NAME[job.operation.step]} (
+              {job.operation.index} of {job.operation.of})
+            </span>
+          )}
           <span className="inspector-part">{String(job.partNum)}</span>
           {job.description && (
             <span className="inspector-desc" title={job.description}>
@@ -395,7 +513,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           </Badge>
           {row.waitingOn && (
             <Badge variant="neutral">
-              Waits on {String(row.waitingOn.onJobId)}
+              Waits on {jobNumOf(String(row.waitingOn.onJobId))}
             </Badge>
           )}
           {/*
@@ -544,12 +662,12 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
                       key={String(dep.onJobId)}
                       className={holding ? 'holding' : ''}
                     >
-                      <span className="dep-job">{String(dep.onJobId)}</span>
+                      <span className="dep-job">{jobNumOf(String(dep.onJobId))}</span>
                       <span
                         className="dep-part"
                         title={
                           dep.part
-                            ? `${String(dep.onJobId)} supplies ${String(dep.part)}`
+                            ? `${jobNumOf(String(dep.onJobId))} supplies ${String(dep.part)}`
                             : 'Named as this order’s part in the order export'
                         }
                       >
@@ -595,44 +713,112 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           {picks.length === 0 ? (
             <p className="hint">No materials found in JobMaterialReq.csv.</p>
           ) : (
-            <div className={`pick-list${withPo ? ' with-po' : ''}`}>
+            <div className="pick-list">
               <div className="pick-list-row pick-list-head" aria-hidden="true">
                 <span>Part</span>
                 <span>Required</span>
                 <span>On hand</span>
                 <span title="Calculated_Demand">Demand</span>
-                {withPo && <span title="The next open receipt from PODetail.csv">Next PO</span>}
+                <span title="Calculated_OutstandingQty on open purchase orders, from PODetail.csv">Purchased QTY</span>
+                <span title="The later of PORel_DueDate and PORel_PromiseDt — on a short line, when enough has arrived to cover it">AvailableDate</span>
               </div>
-              {picks.map((material, index) => (
-                <div className="pick-list-row" key={`${String(material.childPart)}-${index}`}>
-                  <span className="part" title={inventoryByPart?.get(material.childPart)?.description || String(material.childPart)}>
-                    {String(material.childPart)}
-                  </span>
-                  <span
-                    className={
-                      material.requiredQty === null ? 'qty none' : 'qty'
-                    }
+              {picks.map((material, index) => {
+                const stock = inventoryByPart?.get(material.childPart);
+                // The board's own reading: stock and POs handed out to the
+                // orders ahead of this one first, so this panel and the bar's
+                // hover can never tell two different stories.
+                const allocated = row.shortPicks?.find((s) => s.part === material.childPart);
+                const shortBy = allocated?.shortQty ?? 0;
+                const onHandTitle = !stock
+                  ? 'Part not found in the loaded OnHandInventory.csv'
+                  : allocated
+                    ? `Short ${shortBy} — ${stock.onHand} on hand` +
+                      (allocated.heldEarlier > 0
+                        ? `, ${allocated.heldEarlier} of it already for orders scheduled ahead of this one,`
+                        : '') +
+                      ` against the ${material.requiredQty} this order needs`
+                    : 'Calculated_OnHand from OnHandInventory.csv';
+                const incoming = allocated
+                  ? allocated.incoming
+                  : incomingSupply(poByPart?.get(material.childPart), 0);
+                const releasesTitle = incoming
+                  ? incoming.releases
+                      .map((r) =>
+                        `PO ${r.poNum ?? '?'}: ${r.qty} available ` +
+                        (r.availableDate ? formatDay(r.availableDate) : 'undated') +
+                        (r.vendor ? ` · ${r.vendor}` : ''),
+                      )
+                      .join('\n')
+                  : 'No open purchase order in PODetail.csv';
+                const heldNote = incoming && incoming.heldEarlier > 0
+                  ? `\n${incoming.heldEarlier} of the ${incoming.qty} on order already go to orders scheduled ahead of this one`
+                  : '';
+                const late =
+                  shortBy > 0 &&
+                  (!incoming?.coversShort ||
+                    !incoming.availableDate ||
+                    (row.job.dueDate !== null && incoming.availableDate > row.job.dueDate));
+                return (
+                  <div
+                    className="pick-list-row"
+                    key={`${String(material.childPart)}-${index}`}
                   >
-                    {material.requiredQty === null ? '—' : material.requiredQty}
-                  </span>
-                  <span
-                    className={
-                      inventoryByPart?.has(material.childPart) ? 'qty on-hand' : 'qty none'
-                    }
-                    title={
-                      inventoryByPart?.has(material.childPart)
-                        ? 'Calculated_OnHand from OnHandInventory.csv'
-                        : 'Part not found in the loaded OnHandInventory.csv'
-                    }
-                  >
-                    {inventoryByPart?.get(material.childPart)?.onHand ?? '—'}
-                  </span>
-                  <span className="qty" title="Calculated_Demand from OnHandInventory.csv">
-                    {inventoryByPart?.get(material.childPart)?.calculatedDemand ?? '—'}
-                  </span>
-                  {withPo && <NextPo lines={poByPart?.get(material.childPart)} />}
-                </div>
-              ))}
+                    <span
+                      className="part"
+                      title={stock?.description || String(material.childPart)}
+                    >
+                      {String(material.childPart)}
+                    </span>
+                    <span
+                      className={material.requiredQty === null ? 'qty none' : 'qty'}
+                    >
+                      {material.requiredQty === null ? '—' : material.requiredQty}
+                    </span>
+                    <span
+                      className={
+                        !stock
+                          ? 'qty none'
+                          : shortBy > 0
+                            ? 'qty on-hand short'
+                            : 'qty on-hand'
+                      }
+                      title={onHandTitle}
+                    >
+                      {stock?.onHand ?? '—'}
+                    </span>
+                    <span
+                      className="qty"
+                      title="Calculated_Demand from OnHandInventory.csv"
+                    >
+                      {stock?.calculatedDemand ?? '—'}
+                    </span>
+                    <span className={incoming ? 'qty' : 'qty none'} title={releasesTitle + heldNote}>
+                      {incoming?.qty ?? '—'}
+                    </span>
+                    <span
+                      className={
+                        !incoming ? 'qty none' : late ? 'qty short' : 'qty'
+                      }
+                      title={
+                        !incoming
+                          ? shortBy > 0
+                            ? `Short ${shortBy} and nothing on order in PODetail.csv`
+                            : releasesTitle
+                          : shortBy > 0 && !incoming.coversShort
+                          ? `What is left on order is less than the ${shortBy} short${heldNote}\n${releasesTitle}`
+                          : late && incoming?.availableDate
+                            ? `Arrives after this order's Due Date${heldNote}\n${releasesTitle}`
+                            : shortBy > 0
+                              ? `This order's ${shortBy} is covered by then${heldNote}\n${releasesTitle}`
+                              : releasesTitle
+                      }
+                    >
+                      {incoming?.availableDate ? formatDay(incoming.availableDate) : '—'}
+                      {shortBy > 0 && incoming && !incoming.coversShort ? ' ⚠' : ''}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
           <div className="production-start">
@@ -680,6 +866,30 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
             Production entry
             <span className="count">today</span>
           </h3>
+          {/*
+            What the last save booked, in labour hours — the figure Efficiency
+            is measured against, shown where it was earned rather than only on
+            the KPI page a week later. It is the crew's time on the order, not
+            an allowance: from Start production (07:00 on any day after) to the
+            moment the entry was saved, less breaks, times the crew.
+          */}
+          {/*
+            Said before the button is pressed, not only after. An entry that
+            has been booked once is corrected far more often than it is
+            duplicated, and the shift should know which of the two it is doing
+            while it is filling the boxes — they open already holding what was
+            saved.
+          */}
+          {existingToday && (
+            <p className="hint booked-hours booked-already">
+              Today is already booked
+              {existingToday.savedAt &&
+                ` · saved ${formatTime(new Date(existingToday.savedAt))}`}
+              {existingToday.bookedHours !== undefined &&
+                ` · ${existingToday.bookedHours} labour hours`}
+              {' '}· saving replaces it
+            </p>
+          )}
           <div className="production-grid">
             <label><span>Shift output</span><input type="number" min={0} value={shiftOutput} onChange={(event) => setShiftOutput(event.target.value)} /></label>
             <label><span>Reject</span><input type="number" min={0} value={reject} onChange={(event) => setReject(event.target.value)} /></label>
@@ -691,7 +901,7 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
               <input type="checkbox" checked={paused} onChange={(event) => setPaused(event.target.checked)} /> Pause
             </label>
             <label className="pause-toggle">
-              <input type="checkbox" checked={jobCompleted} onChange={(event) => setJobCompleted(event.target.checked)} /> Job completed
+              <input type="checkbox" checked={jobCompleted} onChange={(event) => completeJob(event.target.checked)} /> Job completed
             </label>
           </div>
           {paused && (
@@ -701,15 +911,32 @@ export function AssemblyInspector({ board }: { board: AssemblyGanttView }) {
           )}
           <textarea className="production-input" value={notes} placeholder="Notes (optional)" onChange={(event) => setNotes(event.target.value)} />
           {entryMessage && <p className="hint action-message" role="status">{entryMessage}</p>}
-          {/* The note that explains the form sits with the button that submits
-              it, so the section ends on its action rather than trailing off. */}
+          {/*
+            The note that explains the form sits with the button that submits
+            it, so the section ends on its action rather than trailing off.
+
+            On a closed order that action is the way back out, not a button that
+            does nothing. Closing is the one booking that cannot be corrected by
+            booking again — the entry form locks, the crew is released and
+            tomorrow the order is off the board — so the wrong job number closed
+            at the end of a shift used to be a job for whoever could edit the
+            SharePoint list. Reopening is the supervisor's, like the override on
+            the start gate: the shift reports what it built, a supervisor
+            decides that a finished order was not finished.
+          */}
           <div className="section-foot book">
             <p className="hint">
-              Entered at shift end. The Expect Date adjusts automatically.
+              {closed
+                ? 'This order is closed. Reopen it to correct what was booked.'
+                : 'Entered at shift end. The Expect Date adjusts automatically.'}
             </p>
-            <Button variant="primary" disabled={closed} onClick={book}>
-              Save entry
-            </Button>
+            {closed ? (
+              <Button onClick={reopen}>Reopen order</Button>
+            ) : (
+              <Button variant="primary" onClick={book}>
+                {replacing ? 'Replace entry' : 'Save entry'}
+              </Button>
+            )}
           </div>
         </section>
       </div>

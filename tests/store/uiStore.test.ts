@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LINES } from '@/domain/assembly';
 import {
   COLUMN_KEYS,
   COLUMN_LIMITS,
   DEFAULT_COLUMN_WIDTHS,
+  HIDDEN_LINES_KEY,
   LINES_HIDDEN_BY_DEFAULT,
+  storedHiddenLines,
   useUiStore,
 } from '@/store/uiStore';
 
@@ -29,6 +31,17 @@ describe('single employee picker', () => {
     expect(useUiStore.getState().crewPickerJobId).toBeNull();
     expect(useUiStore.getState().selectedJobId).toBe('JOB-2');
   });
+
+  it('opens an order picked from a list in the middle, not where the last one was', () => {
+    useUiStore.getState().select('JOB-1', { x: 10, y: 20 });
+    // A follow-on pick with no point keeps the panel where it is.
+    useUiStore.getState().select('JOB-2');
+    expect(useUiStore.getState().selectedAt).toEqual({ x: 10, y: 20 });
+    // Null centres it.
+    useUiStore.getState().select('JOB-3', null);
+    expect(useUiStore.getState().selectedJobId).toBe('JOB-3');
+    expect(useUiStore.getState().selectedAt).toBeNull();
+  });
 });
 
 describe('board display defaults', () => {
@@ -38,18 +51,18 @@ describe('board display defaults', () => {
     // nothing on screen saying so, reads as a board that has lost them.
     expect(state.orderDay).toBeNull();
     expect(state.showWeekends).toBe(false);
-    expect(state.orderSort).toEqual({ key: 'start', direction: 'asc' });
+    expect(state.orderSort).toEqual({ key: 'due', direction: 'asc' });
     state.toggleWeekends();
     expect(useUiStore.getState().showWeekends).toBe(true);
     useUiStore.getState().toggleWeekends();
   });
 
-  it('restores earliest-start ordering when Refresh resets a custom sort', () => {
-    useUiStore.getState().changeOrderSort('due');
-    useUiStore.getState().changeOrderSort('due');
-    expect(useUiStore.getState().orderSort).toEqual({ key: 'due', direction: 'desc' });
+  it('restores nearest-Due-Date ordering when Refresh resets a custom sort', () => {
+    useUiStore.getState().changeOrderSort('start');
+    useUiStore.getState().changeOrderSort('start');
+    expect(useUiStore.getState().orderSort).toEqual({ key: 'start', direction: 'desc' });
     useUiStore.getState().resetOrderSort();
-    expect(useUiStore.getState().orderSort).toEqual({ key: 'start', direction: 'asc' });
+    expect(useUiStore.getState().orderSort).toEqual({ key: 'due', direction: 'asc' });
     const snapshot = useUiStore.getState().orderSort;
     useUiStore.getState().resetOrderSort();
     expect(useUiStore.getState().orderSort).not.toBe(snapshot);
@@ -96,6 +109,36 @@ describe('the marked set', () => {
     useUiStore.getState().toggleMark('B');
     useUiStore.getState().clearMarks();
     expect(useUiStore.getState().marked).toEqual([]);
+  });
+});
+
+describe('load blocks picked for level loading', () => {
+  beforeEach(() => {
+    useUiStore.setState({ loadPicks: [], marked: [], selectedJobId: null });
+  });
+
+  it('picks a block, and lets go of it when every one of its days is already picked', () => {
+    const week = ['ASSY|2026-09-14', 'ASSY|2026-09-15'];
+    useUiStore.getState().toggleLoadPicks(week);
+    expect(useUiStore.getState().loadPicks).toEqual(week);
+    // One of its days is picked on its own already: pressing the week completes it.
+    useUiStore.getState().toggleLoadPicks(['ASSY|2026-09-15', 'ASSY|2026-09-16']);
+    expect(new Set(useUiStore.getState().loadPicks)).toEqual(
+      new Set(['ASSY|2026-09-14', 'ASSY|2026-09-15', 'ASSY|2026-09-16']),
+    );
+    useUiStore.getState().toggleLoadPicks(['ASSY|2026-09-15', 'ASSY|2026-09-16']);
+    expect(useUiStore.getState().loadPicks).toEqual(['ASSY|2026-09-14']);
+  });
+
+  it('is one layer of Escape, after the marked orders', () => {
+    useUiStore.getState().toggleMark('A');
+    useUiStore.getState().toggleLoadPicks(['ASSY|2026-09-14']);
+    expect(useUiStore.getState().dismissTop()).toBe(true);
+    expect(useUiStore.getState().marked).toEqual([]);
+    expect(useUiStore.getState().loadPicks).toEqual(['ASSY|2026-09-14']);
+    expect(useUiStore.getState().dismissTop()).toBe(true);
+    expect(useUiStore.getState().loadPicks).toEqual([]);
+    expect(useUiStore.getState().dismissTop()).toBe(false);
   });
 });
 
@@ -174,6 +217,30 @@ describe('what Escape closes', () => {
   });
 });
 
+describe('the order the finder was asked for', () => {
+  it('counts every find, so asking for the same order again scrolls to it again', () => {
+    useUiStore.setState({ foundOrder: null, findCount: 0 });
+    useUiStore.getState().findOrder('ASM80412');
+    useUiStore.getState().findOrder('ASM80412');
+    expect(useUiStore.getState()).toMatchObject({ foundOrder: 'ASM80412', findCount: 2 });
+    useUiStore.getState().clearFound();
+    expect(useUiStore.getState().foundOrder).toBeNull();
+  });
+
+  it('is the last thing Escape lets go of: it marks a row, it covers nothing', () => {
+    useUiStore.setState({ selectedJobId: 'ASM8005', marked: ['ASM8006'], loadPicks: [], foundOrder: 'ASM80412' });
+    const dismiss = () => useUiStore.getState().dismissTop();
+    expect(dismiss()).toBe(true);
+    expect(useUiStore.getState().selectedJobId).toBeNull();
+    expect(dismiss()).toBe(true);
+    expect(useUiStore.getState().marked).toEqual([]);
+    expect(useUiStore.getState().foundOrder).toBe('ASM80412');
+    expect(dismiss()).toBe(true);
+    expect(useUiStore.getState().foundOrder).toBeNull();
+    expect(dismiss()).toBe(false);
+  });
+});
+
 describe('the two popups over the board', () => {
   it('never has both open at once', () => {
     useUiStore.getState().setCrewPicker('ASM8001');
@@ -226,6 +293,49 @@ describe('folded-away lines', () => {
   it('folds a line the board opened with', () => {
     state().toggleLine('UPL_GLUING');
     expect(state().hiddenLines).toContain('UPL_GLUING');
+  });
+});
+
+/*
+ * A line folded with its × used to come back on every reload. The screen
+ * keeps what it folded; a screen with nothing kept opens with the defaults.
+ */
+describe('folded lines kept across reloads', () => {
+  const state = () => useUiStore.getState();
+  let kept: Record<string, string>;
+  beforeEach(() => {
+    kept = {};
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => kept[key] ?? null,
+      setItem: (key: string, value: string) => { kept[key] = value; },
+    });
+    useUiStore.setState({ hiddenLines: [...LINES_HIDDEN_BY_DEFAULT] });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('stores every fold and unfold, and reads it back on the next open', () => {
+    state().toggleLine('UPL_GLUING');
+    expect(JSON.parse(kept[HIDDEN_LINES_KEY])).toEqual(['TBP', 'PMD', 'UPL_GLUING']);
+    state().toggleLine('PMD');
+    expect(storedHiddenLines()).toEqual(['TBP', 'UPL_GLUING']);
+    state().showEverything();
+    expect(storedHiddenLines()).toEqual([]);
+  });
+
+  it('opens with the defaults when nothing is kept or what is kept is unreadable', () => {
+    expect(storedHiddenLines()).toEqual(['TBP', 'PMD']);
+    kept[HIDDEN_LINES_KEY] = '{not json';
+    expect(storedHiddenLines()).toEqual(['TBP', 'PMD']);
+  });
+
+  it('still folds when the screen cannot store anything', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => { throw new Error('blocked'); },
+      setItem: () => { throw new Error('blocked'); },
+    });
+    expect(storedHiddenLines()).toEqual(['TBP', 'PMD']);
+    state().toggleLine('TABLE');
+    expect(state().hiddenLines).toContain('TABLE');
   });
 });
 

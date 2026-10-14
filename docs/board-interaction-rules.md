@@ -12,7 +12,15 @@ neither is planned here — PMD mirrors moulding's own schedule and TBP is
 scheduled elsewhere —
 so they used to lead a board whose subject is the assembly floor. Each folded
 line leaves a **+ TBP** / **+ PMD** chip in the header, which is where it
-comes back from, and every line carries a **×** on its own row to fold it.
+comes back from, and every line carries a **×** on its own row to fold it —
+sized to the Qty column and standing under that heading, so the board has one
+straight edge of them rather than a mark that lands wherever each line's name
+and totals happen to end. What is folded is kept on that screen across reloads
+(browser storage, `assembly.hiddenLines.v1`): a line folded with its × stays
+folded the next time the board opens there, and **Show all** clears it. It is
+per screen, not in the plan — folding a line on one supervisor's board does not
+take it off the floor display. A screen with nothing kept opens with TBP and PMD
+folded.
 
 **Whatever column widths the reader last dragged.** All seven frozen columns
 — Order, Qty, Hours, the three dates and Team — are dragged by
@@ -74,10 +82,9 @@ waiting to be looked at. **Due within 2 days** is also a narrowing, and it is
 the only pressable thing among them; it used to go amber when it was on, which
 is a filter wearing a schedule's colour on a board whose whole point is spotting
 the amber bars. **Crew allocated** came up from the Team column heading, where a
-figure about the whole board sat inside one column's title. Who is *not*
-allocated stayed there, as names: that is the list you read while deciding who
-to put on the order in front of you, and it is capped at two lines so a shift
-with nobody on anything cannot push the day columns down the page.
+figure about the whole board sat inside one column's title. Its panel names the
+two lists the ratio is silent about — who is free, and who is not in — and, for
+the absentees, the begun orders nobody else is on.
 
 **Review orders** is the fourth. Two counts used to sit side by side up here —
 *Crew N orders*, the orders with nobody on them, and *Review orders*, the ones
@@ -98,10 +105,42 @@ top bar already carrying the name.
 Seven column titles on the left and one cell per day on the right, and they have
 to be the same height, because they are the same row.
 
-The titles are **one word each**: Order, Qty, Hours, Start, Due, Expect, Team.
+The titles are **one word each**: Order, Qty, Hours, Start, Due and Expect.
 "Required Hours" and "Start Date" wrapped to two lines in columns narrow enough
 to hold what they label, and "Date" appeared three times in a row of columns
 that are all dates.
+
+The seventh has no title. Over the crew chips are **two rolls, Free and On
+Leave**, because the word "Team" only repeated what the chips under it already
+said. Free is who is on site with nothing allocated — the people to reach for
+while deciding who goes on the order in front of you. On Leave is who is not
+in: marked off on the board, on annual leave, or off shift on the roster. Its
+label is lettered like Free's and the names under it are **red**, and that is
+the whole of the marking. It used to carry a red-bordered box, pale lettering
+and a strike through the name at once — one fact marked three times, in
+colours none of which had the contrast for a pale blue heading. A name is
+underlined when orders they had begun have nobody else on them, with the count
+beside it: the hand-over queue, named, and pressing it selects the first one.
+
+**A name is dragged between the two rolls.** Marking somebody off meant
+finding their chip on a line, opening it and ticking a box — three steps for
+the thing a supervisor does first, at ten past seven, with the phone still in
+their hand. The names are already on the board and the two answers are already
+lettered above them, so dragging Billy into On Leave says it in one gesture,
+and dragging them back into Free says they turned up after all. A chip on a line
+drops into either roll too, and a name in a roll still drops onto a line, which
+is how somebody is moved to another bench. The drop writes exactly what the
+tick box writes, dated to today, and moves nobody off an order. Both rolls are
+lit while a person is in the air and only then; both are locked with the rest
+of the board, as writes to a plan the whole floor is reading.
+
+Both rolls are names rather than counts, because a count tells you there is a
+problem and a name tells you whose; each is **one line** and then scrolls, with
+the whole list in its hover. The heading is two lines of text tall, and these
+are the two: at two lines each it was tall enough to list a whole idle shift,
+which cost every other shift a band of empty blue across the top of the board.
+The controls band above it is the same 40px — two rows of one block, and a
+block whose halves are different heights reads as two bands.
 
 Each day cell is the **load standing on the left** — a bar filled to the day's
 percentage, with the figure inside the top of its own track — and the **date
@@ -114,7 +153,11 @@ counting.
 ## Folding and arranging the lines
 
 **The triangle in the Order column folds a line's orders away.** It used to be
-what clicking the line's *name* did, with the triangle along as decoration.
+what clicking the line's *name* did, with the triangle along as decoration. It
+is drawn with the same ▶/▼ the board's own control uses, two points smaller:
+it was set in U+25B8, the *small* triangle, which letters at about four tenths
+of its type size — eleven points of it drew four, on the control every line
+carries.
 
 **The triangle in the Order heading folds every line at once**, and opens them
 all again. Each line keeps its own; this is the one to reach for on the way to
@@ -138,6 +181,28 @@ A plan saved before there was an arrangement holds none, which reads as the
 built-in order rather than as an empty board; a bench opened after one was made
 joins at the end until somebody moves it; and a bench that closes takes its key
 with it.
+
+## Finding an order
+
+**The box under "Order" finds an order by its number.** Type it, or press ▾
+and pick it off the list of every order on the board; part of a number lists
+the orders holding it, the number first and the description after. Enter takes
+the order typed in full, or the one the list has lit; a number that names
+nothing, or several with the list shut, says so instead of guessing.
+
+Finding it **opens the board to it**: the row — both rows, for an order at two
+benches — turns highlighter yellow with a bar down its left edge and an outline
+on its bar, and the board scrolls it into the middle of the screen with the bar
+clear of the frozen columns. It stays picked out until × in the box or Escape
+lets go of it; Escape takes everything else on the board first, because the
+pick covers nothing.
+
+Whatever was keeping the row off the screen is undone, and **the box says
+which**, because each was somebody's choice: a folded line or lane is opened, a
+hidden line is shown again (and stays shown), a day or Due-soon filter is
+cleared, and an order Released Only keeps off the board switches the board to
+All. An order on no line is picked out in the Unassigned strip instead — and
+brought back into it if it had been ignored.
 
 ## Filing an order onto another line
 
@@ -278,6 +343,178 @@ The order detail shows the pinned start — to the minute — with a **Release**
 button, which hands the order back to the schedule: it then starts as early as
 its crew, its line and the orders it waits on allow.
 
+## PMD presses
+
+**PMD is the moulding plan, one sub-line per press.** The press plan comes from
+the PMD dashboard's own `Planning.csv` — the export with the `Machine` and
+`No of shift` columns — read from `VITE_PMD_PLANNING_CSV_PATH`, or from
+`VITE_PLANNING_CSV_PATH` when that is the PMD file (both builds share one
+`.env.local`). A press order in both exports is taken from Planning.csv; one
+only Planning.csv has is added, so PMD is the whole press plan, not only the
+press work assembly waits for. Without the file PMD falls back to what it was:
+the press orders Planning1.csv carries that an assembly order waits on, on one
+line.
+
+Every press with an order is a line under PMD, indented like a bench, folding
+and hiding with PMD; a press with nothing on it is not drawn. Its orders run in
+Epicor's start order, drawn from JobHead_StartDate + StartHour to
+JobHead_ReqDueDate on a **24-hour day** — the presses run round the clock, so
+on a press row a day column is midnight to midnight and an order starting at
+19:00 is drawn four fifths of the way across it (the assembly lines keep the
+07:00–15:30 shift), and its header and every order's **Team** cell carry the
+press's **No of shift** (`MAN · 3 shifts`, `MA · 2 shifts`).
+
+**Between two orders the changeover is a row of its own**, straight after the
+order before it — the way the PMD dashboard lists its DC pseudo-orders:
+
+| Between | Changeover | Time |
+| --- | --- | --- |
+| a different die | Die Change, `Die 123 → Die 456` | 4 h |
+| the same die, a different size | Insert Change | 30 min |
+| the same die, the same size | Colour Change | 30 min |
+| the same part again | none | — |
+
+The die and colour of each part come from `PMD_ProductDieColor` (DieNumber,
+Die, ActualColor). Where the die of either part is not on it, the change is
+taken as a die change — the expensive answer, rather than a plan four hours
+optimistic. On one die the size decides, read off the part description:
+every height and size it names (`460h`, `Size 3`). A colour change leaves the
+rest of the description alone, so a different size is an insert change and the
+same size — or no size named on either — a colour change. Two orders
+Epicor overlaps on one die are a co-run and get no change. Where Epicor left
+less room than the change needs, the next order — and everything behind it on
+that press — moves back by the difference, and says so on hover; an assembly
+order waiting for it waits that much longer. The times are the floor's
+standards, the same the PMD KPIs judge a changeover against.
+
+## Closed days
+
+**The factory is shut at the weekend and on the days in the SharePoint list
+`FactoryCalendar`** — its public holidays and its RDOs. A closed weekday is read exactly like a weekend:
+the schedule steps over it (work that would have run on it runs on the next
+open day, and a crew's days skip it), it carries no capacity on the banner or
+on any folded line, nothing waiting for a crew is spread onto it, an empty
+one cannot be picked for level loading and level loading never moves an order
+onto one — except a weekend picked with the Weekends switch on, below. A bar
+dropped on one asks for overtime, naming the holiday or RDO;
+**Move to** takes the next day the factory is open.
+
+**The list is the whole calendar.** Once it has been read, a holiday is shut
+on the day the list says and on no other: the board does not add holidays of
+its own beside it. The one rule on top of the list is the factory's Anzac Day
+rule — an Anzac Day row on a Saturday or Sunday shuts the Monday after as well
+(the next open weekday when that Monday is already shut), shown in grey italics
+as not in the list, and not added when the list already has an Anzac Monday.
+
+Only while there is no list to read — the mock board, or a list that cannot be
+reached — does the board fall back on the NSW public holidays it works out from
+the Public Holidays Act 2010 (days in lieu included, plus the Monday after a
+weekend Anzac Day), so an outage does not open the factory on Christmas Day.
+
+A `Date` cell is read as the day SharePoint shows, wherever the browser is:
+SharePoint sends a date-only value as the UTC instant of the site's midnight
+(`2026-12-24T13:00:00Z` is 25 December in Sydney), which the board takes to the
+nearest UTC midnight rather than reading in the browser's time zone — read in
+China or on UTC that instant is still the 24th, and every day in the list came
+out one early. A day added from the board is written as 11:00 UTC on it, which
+is the same day in every time zone from UTC−11 to UTC+11.
+
+**The list**: a `Date` column and a `Name` column, which holds "RDO" or the holiday's name — a row
+whose name says RDO (or "rostered") is an RDO, any other is a holiday. Rows can
+be kept by hand in SharePoint or under **Crew capacity → Closed days**
+(supervisor only), where a day added or removed is written to the list at once
+rather than held for **Save**: the days used to ride in the saved plan, and a
+reload before Save — which every new build forces — lost them. Every screen
+reads the list on each load and refresh, and a failed read keeps the days it
+already had rather than reopening the factory. Without SharePoint (the mock
+board) the rows are kept in the browser. The board is worked out again round
+them the moment one is added or removed. In the
+heading a closed weekday reads **PH** or **RDO** in place of its percentage and
+names itself on hover; the Weekends switch hides weekends only, so a closed
+weekday stays on the timeline, greyed.
+
+## Level loading
+
+**Ctrl + click load blocks to pick them; right-click to level them.** A load
+block is a folded line's cell for a day or for a folded week, or a day or week
+in the heading (which picks every line's block for it). Picked blocks are ringed
+and ticked; Esc lets them go. A week is picked as its days, so what is picked
+survives a zoom. Right-click on a block that is not among the picked ones
+levels that block alone. A day or week with nothing planned on it is still a
+block — blank until pointed at, tinted once picked — because an empty day the
+crew works is room to level into.
+
+The right-click opens a panel and writes nothing. It lists what would move —
+each order with the day it starts on now and the day it would start on — and
+what it would leave, each with the reason, and reads the overload on the picked
+days before and after off a real re-plan of the board rather than off its own
+sums. **Level** writes the starts (supervisor only, like a drag); **Undo**, in
+the same panel, puts the pins back as they were. Any one order can be handed
+back to the schedule from its detail with **Release**.
+
+**Capacity is the crews', as the banner reads it.** A day is over when the crew
+group serving the line is asked for more than it can work — people × 7.5 h — after
+the hours of every other line that group serves. Orders are not moved to fill a
+day past 100% (90% and 80% are offered: 80% keeps every day green).
+
+**What it moves.** Orders nobody is on yet. Their start is a plan and nothing
+else, so pinning one is all it takes: an order with a pinned start and no crew is
+drawn from its start for as many whole days as its work takes at the crew Crew
+orders would give it, instead of tucked up against its Due Date. An overloaded
+picked day gives up, one order at a time, whichever can leave it for the least
+disturbance — a day with room beating a day that only spreads the overload, then
+the fewest days moved, then the later Due Date, then the day before rather than
+the day after (finishing early costs a shelf, finishing late costs a customer).
+
+**A picked day with room is a day to level into.** An order leaving a day that
+is over goes to a picked day with room before a nearer day nobody picked. Then
+whatever room the picked days still have is filled, earliest day first, with the
+orders that could start there and would come next: one standing on a day that is
+over before any other, then the nearest, then the nearest Due Date. An order is
+only brought forward if it lands without tipping any day over and brings more of
+its hours onto the picked days than it had there, so orders already on picked
+days are not shuffled between them. The panel shows the room left on the picked
+days before and after, and filling can be turned off there to only relieve what
+is over. Picking an empty day on its own therefore brings the next work forward
+onto it.
+
+**A weekend is a day to level into once the Weekends switch is on.** The
+switch is turned on to plan overtime, so with it on every weekend day carries a
+load block of its own — hatched when empty, so it reads as a place work can go
+— and can be Ctrl-picked like any other. A picked weekend day is read at the
+crews' ordinary day (people × 7.5 h), and an order levelled onto it is listed
+with **weekend overtime** and written with weekend overtime approved, so it
+runs straight through the weekend as one block (`OT`); **Undo** takes the
+approval back with the start. An order is only put where its run follows the
+calendar day by day — Friday and a picked Saturday, or a picked Saturday and
+Sunday, but never a picked Saturday and the Monday over a Sunday nobody picked
+— because an overtime order is drawn straight through. An order due on the
+Monday may run on the Saturday picked. Weekends nobody picked stay shut, and
+public holidays and RDOs cannot be picked. With weekend work on it, a weekend's
+heading reads the hours it carries rather than a share of a roster it has not
+got.
+
+**What it never moves.** An order with a crew (its days come out of the crew's
+diary, and a pin would quietly re-sequence whoever is on it), one already begun,
+a support order, a routed operation (its bench follows the route) and one with
+weekend overtime approved. Their hours still count against the day. It says so
+for each of them in the list of orders it left.
+
+**What holds an order.** Nothing starts before today, before the day its material
+lands, or before every component it is made from is finished; and nothing is put
+later than the last day it can start and still make its Due Date — which is
+counted back through whatever waits for it. An order short of material with no
+dated PO is held where it is: there is no honest day to give it. A day nothing
+can relieve stays over, and the panel names why.
+
+**Linked orders move with it.** Putting an order later pushes whatever waits for
+its output to start after it, and so on down the chain; pulling it earlier
+brings the orders it waits on earlier with it. Each such move is listed against
+the order that caused it ("follows 018140", "brought ahead of 018142"). A chain
+is never left with an order starting before its supplier is done, and never
+pushed past the Due Date of what is downstream. Where several open batches of
+one part are alternatives, only the one that would serve first is a link.
+
 ## Crew orders
 
 The button fills orders that have remaining work and no crew. It preserves
@@ -301,7 +538,44 @@ crew. A line with no available roster remains unstaffed.
 
 Skills are categorical because the current operator data does not contain a
 numeric skill level. These preferences do not claim to optimize efficiency or
-certification. Future dated attendance remains a separate integration need.
+certification.
+
+## Somebody not at work
+
+Three things can say a person is away, and the board reads them as one answer
+(`engine/assembly/attendance`): **planned leave** and the **OnShift** flag,
+both from `ASSY_Operator`, and **Not in today**, which a supervisor ticks on the
+person's own popup in the line strip. The roster's two are read-only here — the
+board can record this morning's phone call, but it cannot cancel somebody's
+annual leave — and `OnShift` is only ever about today, because the list is read
+fresh each morning and carries no history. The board's own mark is dated, so a
+Tuesday hospital appointment can be put in on the Monday.
+
+A day somebody is away is **a day they give their orders nothing** — exactly
+what a full diary already means to the day planner, so it is not modelled a
+second way. Three hands become two and the bar lengthens; the last hand goes
+and the bar shows the gap. It applies to a pinned bar too, where the diary
+deliberately does not: a dragged start is a decision about *when* an order runs,
+not a claim that its crew are at work. And it outranks a double-booking
+approval — agreeing that somebody may split their day between two orders says
+nothing about a day they are at home.
+
+**Nobody is taken off an order for being away.** A half-built order belongs to
+whoever was building it; a day off is not a hand-over, and who picks it up is
+the supervisor's call. What changes is that the row says so: the chip is
+hatched and carries a ✕, the schedule stops counting hours that will not be
+worked, and the order appears in the On Leave roll's hand-over count if nobody
+else is on it.
+
+Absence is a **shift record**, not planning: it is written the moment it is
+marked, it survives a refresh, and it never puts the board into the unsaved
+state — see `persistence/planParts`. Marking somebody off is supervisor-only,
+like the crew changes it affects.
+
+A live attendance feed remains a separate integration. When it arrives it
+should supply dated per-person records rather than one flag — half a day is the
+common case, and a fraction of a shift is already the unit the day planner
+takes.
 
 
 ## Operational groups
@@ -444,8 +718,16 @@ the board to the desired area before dragging; worker and line drags retain
 their existing automatic scrolling.
 
 The line label is Assembly Seats. Stored ASSY keys and legacy ASM values
-continue to resolve to the same line. The Refresh action carries its updated
-HH:mm time underneath; day load bars have no outline.
+continue to resolve to the same line. Refresh sits beside Save rather than
+above a line giving the time of the last read; day load bars have no outline.
+
+Save is the only way planning leaves a browser. It publishes this board as the
+one current plan; a refresh, on the button or on the timer, takes the saved
+plan back and drops whatever planning had not been saved, and so does leaving
+the page. The button reads `Save` while a draft is held and `Saved` when the
+board is the current plan, and a banner says so while it is a draft. Shift
+records are not gated behind it — production start and the shift's own
+bookings are written as they are made.
 
 Line headers omit crew-capacity and missing-crew text. Operator chips begin
 at the Hours column using the live Order and Qty widths. Order rows have a

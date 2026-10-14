@@ -7,7 +7,8 @@
 
 import { useState } from 'react';
 import {
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
   pointerWithin,
   useSensor,
@@ -17,30 +18,43 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { JobId } from '@/domain/ids';
+import { toDayKey } from '@/lib/time';
 import { POOL_ID, usePlanStore } from '@/store/planStore';
 import { useSupervisorStore } from '@/store/supervisorStore';
 import { useUiStore } from '@/store/uiStore';
-import { DEFAULT_DAY_WIDTH } from '@/store/uiStore';
 import { DRAG_TYPE_BAR } from '@/features/assembly/OrderBar';
 import { DRAG_TYPE_LINE } from '@/features/assembly/lineDrag';
 import type { LineKey } from '@/domain/assembly';
-import { isWeekend } from '@/engine/assembly/dates';
+import { isClosed } from '@/engine/assembly/dates';
 import { shiftOpensOn } from '@/engine/assembly/shift';
 import { shiftTimelineKeepingClock } from './boardView';
 import { barDragLanding } from './barDrag';
+import { dragColumns, type DayAxis } from './dayAxis';
 import { planGroupMove, type MarkedMove } from './groupMove';
+import { CREW_ROLL_TYPE, crewRollDrop } from './CrewRolls';
 
 /** Prefer whatever the pointer is actually inside, then the nearest. */
 const collisionDetection: CollisionDetection = (args) => {
-  // A worker must land inside a line, not snap to a distant row or the pool —
-  // and a line being arranged can only land on another line.
+  // A worker must land inside a line or one of the crew column's two rolls,
+  // not snap to a distant row or the pool — and a line being arranged can only
+  // land on another line.
   const type = args.active.data.current?.type;
-  const linesOnly = type === 'worker' || type === DRAG_TYPE_LINE;
-  const targets = linesOnly
-    ? { ...args, droppableContainers: args.droppableContainers.filter(target => target.data.current?.type === 'line') }
+  const worker = type === 'worker';
+  const narrowed = worker || type === DRAG_TYPE_LINE;
+  const targets = narrowed
+    ? {
+        ...args,
+        droppableContainers: args.droppableContainers.filter((target) => {
+          const kind = target.data.current?.type;
+          return kind === 'line' || (worker && kind === CREW_ROLL_TYPE);
+        }),
+      }
     : args;
   const hits = pointerWithin(targets);
-  return hits.length ? hits : linesOnly ? [] : closestCenter(targets);
+  // Inside one of them or nowhere: a person is put somewhere, never dropped
+  // near something. `closestCenter` would land the last name on the board on
+  // whichever line the pointer happened to end up nearest.
+  return hits.length ? hits : narrowed ? [] : closestCenter(targets);
 };
 
 export function useDragDrop() {
@@ -49,8 +63,13 @@ export function useDragDrop() {
   const [activeBar, setActiveBar] = useState(false);
   const [activeLineName, setActiveLineName] = useState<string | null>(null);
 
+  // A mouse drags at once; a finger has to hold first. On an iPad the bars
+  // cover most of the timeline, and with one pointer rule for both a swipe to
+  // scroll the board picked up whatever bar it started on. Holding a quarter
+  // second is the iPad's own gesture for "pick this up"; a quick swipe scrolls.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
 
   const onDragStart = (e: DragStartEvent) => {
@@ -97,6 +116,19 @@ export function useDragDrop() {
     if (!useSupervisorStore.getState().unlocked) return;
 
     if (active.data.current?.type === 'worker') {
+      /*
+       * Dropped on Free or On Leave in the crew column: in today, or not in.
+       * It writes what the chip's own tick box writes and nothing else — the
+       * orders they are on are left exactly where they are, because a day off
+       * is not a hand-over.
+       */
+      const roll = crewRollDrop(active.data.current, over?.data.current);
+      if (roll) {
+        usePlanStore
+          .getState()
+          .setWorkerOnLeave(roll.workerId, toDayKey(new Date()), roll.onLeave);
+        return;
+      }
       if (over?.data.current?.type !== 'line') return;
       const line = over.data.current.lineKey as LineKey | undefined;
       if (!line) return;
@@ -128,7 +160,8 @@ export function useDragDrop() {
     // because a bar was pushed out; the board is the planner's own layout.
     if (active.data.current?.type === DRAG_TYPE_BAR) {
       const jobId = JobId(String(active.data.current.jobId));
-      const dayWidth = Number(active.data.current.dayWidth) || DEFAULT_DAY_WIDTH;
+      const axis = active.data.current.axis as DayAxis | undefined;
+      const fromDay = Number(active.data.current.fromDay) || 0;
       const showWeekends = active.data.current.showWeekends === true;
       /*
        * How far the pointer went, in columns — and a column is a shift, so two
@@ -137,7 +170,7 @@ export function useDragDrop() {
        * where it came from: every drag landed on a whole day and every pinned
        * order therefore began at 07:00.
        */
-      const columns = (delta?.x ?? 0) / dayWidth;
+      const columns = axis ? dragColumns(axis, fromDay, delta?.x ?? 0) : 0;
       const dayShift = Math.round(columns);
 
       const { orderStarts, setOrderStart, setOvertime, containerOf, moveJob } =
@@ -161,7 +194,10 @@ export function useDragDrop() {
       if (droppedOn && droppedOn !== containerOf(jobId)) {
         moveJob(jobId, droppedOn);
       }
-      if (columns === 0) return;
+      // Nothing to move, and without a grid there is nothing to measure it
+      // against either — the same answer, and the one the compiler needs to
+      // let the landing below take the axis.
+      if (columns === 0 || !axis) return;
 
       /*
        * A set marked with Ctrl moves as one.
@@ -195,7 +231,7 @@ export function useDragDrop() {
           ? new Date(orderStarts[key])
           : shiftOpensOn(new Date());
       const moved = barDragLanding({
-        jobId: key, startISO: from.toISOString(), dayWidth, showWeekends,
+        jobId: key, startISO: from.toISOString(), axis, fromDay, showWeekends,
         floorISO: active.data.current.floorISO as string | null | undefined,
       }, delta?.x ?? 0);
 
@@ -208,19 +244,20 @@ export function useDragDrop() {
       // below five minutes there is no move to write.
       if (moved.getTime() === from.getTime()) return;
 
-      // The factory is shut at the weekend. Ask before writing work into one;
-      // nothing changes until the supervisor answers.
-      if (isWeekend(moved)) {
+      // The factory is shut at the weekend, on a public holiday and on an
+      // RDO. Ask before writing work into one; nothing changes until the
+      // supervisor answers.
+      if (isClosed(moved)) {
+        // The same time of day on the next working day: saying "not that day
+        // then" should not also move the order to the open of the shift.
+        let next = shiftTimelineKeepingClock(moved, 1, false);
+        for (let guard = 0; guard < 31 && isClosed(next); guard++) {
+          next = shiftTimelineKeepingClock(next, 1, false);
+        }
         useUiStore.getState().askOvertime({
           jobId: key,
           atISO: moved.toISOString(),
-          // The same time of day on the Monday: saying "not the weekend then"
-          // should not also move the order to the open of the shift.
-          nextWorkingISO: shiftTimelineKeepingClock(
-            moved,
-            1,
-            false,
-          ).toISOString(),
+          nextWorkingISO: next.toISOString(),
         });
         return;
       }

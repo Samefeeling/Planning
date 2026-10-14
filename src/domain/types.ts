@@ -47,14 +47,6 @@ export interface WorkCenter {
   sortIndex: number;
 }
 
-/** Shift pattern controlling how many wall-clock hours a day a line runs. */
-export interface ShiftPattern {
-  /** Key used in the workbook, e.g. "3shift". */
-  id: string;
-  /** Running hours per calendar day (3shift → 24, 1shift → 8). */
-  hoursPerDay: number;
-}
-
 /**
  * Routing / capability row: which machine can run a part, with which die,
  * colour and insert. Sourced from the `resource` sheet
@@ -109,6 +101,18 @@ export interface PoLine {
   dueDate: Date | null;
   promiseDate: Date | null;
   buyer: string | null;
+  /** Supplier, where the export names one (`Vendor_Name`). */
+  vendor?: string | null;
+}
+
+/**
+ * When a PO release can be counted on: the later of its due date and the date
+ * the supplier promised. Either alone when only one is known.
+ */
+export function poAvailableDate(po: Pick<PoLine, 'dueDate' | 'promiseDate'>): Date | null {
+  const { dueDate: due, promiseDate: promise } = po;
+  if (due && promise) return due > promise ? due : promise;
+  return due ?? promise;
 }
 
 /** Period demand for a part, from `total req`. */
@@ -156,8 +160,54 @@ export interface JobMaterialLink {
  * Combines `open jobs` (qty, standard) with the current `planning`
  * assignment (machine, die).
  */
+/** What a changeover between two orders on one press is. */
+export type PressChangeKind = 'die' | 'insert' | 'colour';
+
+/** One changeover, between the order before it and the order after it. */
+export interface PressChange {
+  kind: PressChangeKind;
+  hours: number;
+  fromJob: string;
+  toJob: string;
+  /** Die numbers as the list writes them; null where the part has none. */
+  fromDie: string | null;
+  toDie: string | null;
+  fromColor: string | null;
+  toColor: string | null;
+}
+
+/** A moulding order's place in the press plan. */
+export interface PressInfo {
+  /** The press, as Planning.csv's Machine column names it. */
+  machine: string;
+  /** Planning.csv "No of shift" as written — "MAN", "MA", "3" — or null. */
+  shifts: string | null;
+  /** When the run finishes: JobHead_ReqDueDate in Planning.csv. */
+  end: Date | null;
+  /** DieNumber from PMD_ProductDieColor, as written. */
+  die: string | null;
+  /** The die's own name (the list's Die column). */
+  dieName: string | null;
+  color: string | null;
+  /** The product's colour as `#rrggbb` (PMD_ProductDieColor.ColorHex): the
+   *  press bar is drawn in it. Absent or null leaves the bar its status colour. */
+  hex?: string | null;
+  /** The insert (size) set, where the source says. */
+  insert: string | null;
+  /** Set on a changeover row: the synthetic order a changeover is drawn as. */
+  change?: PressChange;
+  /** Hours a changeover in front of it pushed this order back. */
+  pushedHours?: number;
+}
+
 export interface Job {
   manual?: import('./manualOrder').ManualOrder;
+  /**
+   * Where this order is on its route, when its line is one of the two made of
+   * benches. One order, one number; the operation says which bench is working
+   * it now and which one receives the units — see `domain/routing`.
+   */
+  operation?: import('./routing').JobOperation;
   id: JobId;
   /** Which department runs it — decides which board it appears on. */
   department: Department;
@@ -200,6 +250,12 @@ export interface Job {
   tool: ToolId | null;
   /** Machine the workbook currently has it on (the planner can override). */
   preferredMachine: MachineId | null;
+  /**
+   * The press plan behind a moulding order — the machine, its shifts and the
+   * die, colour and insert it runs — when it came from `Planning.csv` or the
+   * demo. See `engine/assembly/pressPlan`.
+   */
+  press?: PressInfo;
 
   // --- assembly-specific -------------------------------------------------
   /** Which of the three kinds of assembly work order this is. */

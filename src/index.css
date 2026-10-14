@@ -13,19 +13,33 @@
   --muted: #46566c;
   --faint: #64748b;
 
-  --accent: #5b8cff;
-  --ok: #34d399;
+  /* One accent, the MES top bar's own blue family: selection, focus and the
+     control that is doing something. The status colours are the ink values —
+     each clears 4.5:1 as text on white and still reads as a fill. */
+  --accent: #0369a1;
+  --ok: #15803d;
   --ok-dim: #dcfce7;
-  --warn: #fbbf24;
+  --warn: #b45309;
   --warn-dim: #fef3c7;
-  --error: #f87171;
+  --error: #b91c1c;
   --error-dim: #fee2e2;
-  --info: #60a5fa;
+  --info: #1d4ed8;
+  /* The same three as fills — a dot, a meter — where the ink values above
+     would read brown and heavy. Each clears 3:1 on white. */
+  --ok-fill: #16a34a;
+  --warn-fill: #d97706;
+  --error-fill: #dc2626;
 
-  /* A line's row, kept clear of every colour an order row can take. */
+  /* A line's row, kept clear of every colour an order row can take.
+     Two bands, well apart, so the eye sorts the board's two levels at a
+     glance: a top line carries the strong --line-band-main, and a bench
+     indented under it is barely tinted. --line-band is the generic line
+     colour, worn by a line being dragged rather than by any row. */
   --line-name: #075985;
-  --line-band: #e0f2fe;
-  --line-band-bd: #bae6fd;
+  --line-band-main: #e3eef9;
+  --line-band-bench: #f6f9fc;
+  --line-band: #eaf3fc;
+  --line-band-bd: #c6dbef;
 
   /*
    * Chrome, in two tiers — not three — and each one lighter than the last.
@@ -41,17 +55,23 @@
    * be a second dark blue, which put two heavy bars across the top of a page
    * whose subject is underneath them; this way the weight falls off as you
    * read down and the work is the brightest thing on the screen.
+   *
+   * The block is a cool grey, not a sky blue. A saturated blue block put the
+   * lines' own blue band, the load cells and the controls all on one hue, so
+   * nothing on the top of the board stood above anything else; on grey the
+   * line bands read as the board's one blue, and white controls read as
+   * controls.
    */
   --chrome-rule: #075985; /* the top bar's blue, closing the block */
-  --head-bg: #83CCEB;
+  --head-bg: #eef3f8;
   --head-tx: #0c4a6e;
   --head-dim: #075985;
-  --head-rule: rgb(7 89 133 / 28%);
+  --head-rule: rgb(7 89 133 / 18%);
   /* A control sitting on the block, and one under the pointer. White, because
      the ground is pale: on the old dark block these were translucent white,
      which is the same idea read the other way up. */
-  --chrome-tint: rgb(255 255 255 / 62%);
-  --chrome-tint-hi: #ffffff;
+  --chrome-tint: #ffffff;
+  --chrome-tint-hi: #e0f2fe;
   /*
    * The load bands, for the pale block only.
    *
@@ -64,9 +84,14 @@
   --head-ok: #166534;
   --head-warn: #92400e;
   --head-error: #991b1b;
-  --head-ok-bar: #16a34a;
-  --head-warn-bar: #d97706;
-  --head-error-bar: #dc2626;
+  --head-ok-bar: #15803d;
+  --head-warn-bar: #c2410c;
+  --head-error-bar: #b91c1c;
+  /* The unfilled part of a load bar. A white track cut a white stripe down
+     every column of the block; this is the block's own grey a few steps
+     darker, so an empty day reads as empty rather than as a gap in the
+     heading. The fills above clear 3.8:1 on it. */
+  --day-bar-track: #d9e3ee;
 
   --tool: #c084fc; /* die / tool change */
   --color: #fb923c; /* colour change */
@@ -127,7 +152,12 @@ button {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 8px 16px;
+  padding: 4px 16px;
+  /* The same 40px as the column heading under it: two rows of one block, and
+     a block whose halves are different heights reads as two. It is a minimum
+     rather than a height — the row wraps when the window is narrow, and a
+     fixed one would cut the second line off. */
+  min-height: 40px;
   /* The top half of the chrome block: the same ground as the column heading
      below it, parted by a hairline rather than by a rule. Two rows of one
      block — what the board is being asked to show, and what it is showing —
@@ -185,6 +215,18 @@ button {
   .app-header { flex-wrap: wrap; }
   .board-tools > .show-group { flex: 1 0 100%; }
   .head-side.end { flex-wrap: wrap; }
+}
+/*
+ * …but the header itself stays one row from a small iPad up: the board tools
+ * take what is left and Refresh / Save sit at the right, on the line of the
+ * figures — level with the second line, a whole row from New support order.
+ * Wrapping the header put Refresh on a third line of its own, 50px of chrome
+ * for two buttons on a screen with none to spare.
+ */
+@media (min-width: 740px) and (max-width: 1500px) {
+  .app-header { flex-wrap: nowrap; align-items: flex-end; }
+  .app-header > .board-tools { flex: 1 1 0; }
+  .app-header > .head-side.end { flex: 0 0 auto; flex-wrap: nowrap; }
 }
 /*
  * Standalone only — inside MES the top bar's own Assembly button is lit, and
@@ -376,27 +418,44 @@ button {
   background: #dbeafe;
   color: #1d4ed8;
 }
-.new-order-tag {
+/*
+ * A word beside the order number, for the two things about a row that are
+ * neither a date nor a quantity: it is running on the floor, and it arrived
+ * today. One shape, two colours, so which is which is never in doubt —
+ * green for the order being built, blue for the order that has just turned
+ * up. They were both green while RUN was a triangle on the bar, and a green
+ * pill next to a green row stripe said nothing at all.
+ */
+.order-tag {
   border-radius: 999px;
-  background: #dcfce7;
-  color: #047857;
+  margin-left: 5px;
+  padding: 1px 5px;
+  vertical-align: 1px;
   font-size: 9.5px;
   font-weight: 750;
   white-space: nowrap;
 }
-.new-order-tag { margin-left: 5px; padding: 1px 5px; vertical-align: 1px; }
-.arow.new-order { box-shadow: inset 3px 0 #10b981; }
+.order-tag.run {
+  background: #dcfce7;
+  color: #047857;
+}
+.order-tag.new {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+/* The row's own edge, in the same blue as the word it belongs to. */
+.arow.new-order { box-shadow: inset 3px 0 #2563eb; }
 .badge.tool {
-  background: #2c1f44;
-  color: var(--tool);
+  background: #f3e8ff;
+  color: #6d28d9;
 }
 .badge.color {
-  background: #41260f;
-  color: var(--color);
+  background: #ffedd5;
+  color: #c2410c;
 }
 .badge.insert {
-  background: #103833;
-  color: var(--insert);
+  background: #ccfbf1;
+  color: #0f766e;
 }
 .badge.neutral {
   background: var(--surface-3);
@@ -914,18 +973,22 @@ button {
 }
 /*
  * Every frozen column's width is pushed in from the store as a custom property
- * (see COLUMN_VAR); the values here are only what the board falls back to if a
+ * (AssemblyGantt sets them inline); the values here are only what the board falls back to if a
  * variable is ever missing, and must match DEFAULT_COLUMN_WIDTHS.
  */
 .assy {
   /* Anchors the day-stripe layer below. */
   position: relative;
-  --order-w: 200px;
-  --qty-w: 58px;
-  --hours-w: 82px;
-  --start-w: 62px;
-  --due-w: 62px;
-  --expect-w: 62px;
+  /* The timeline is on the same white as the Team column beside it, not the
+     page grey showing through, so an order's row reads straight across. The
+     day tints (past, closed) and the lines' own colours lie on top of it. */
+  background: var(--surface);
+  --order-w: 500px;
+  --qty-w: 40px;
+  --hours-w: 40px;
+  --start-w: 40px;
+  --due-w: 40px;
+  --expect-w: 40px;
   --team-w: 172px;
   font-size: 12px;
 }
@@ -991,7 +1054,7 @@ button {
   padding: 0 9px;
   border: 1px solid var(--accent);
   border-radius: 999px;
-  background: rgba(91, 140, 255, 0.16);
+  background: rgb(3 105 161 / 0.16);
   color: var(--accent);
   font-size: 10px;
   font-weight: 700;
@@ -999,7 +1062,7 @@ button {
   white-space: nowrap;
 }
 .marked-set:hover {
-  background: rgba(91, 140, 255, 0.28);
+  background: rgb(3 105 161 / 0.28);
 }
 /*
  * A picking sheet, so it is set like one: part numbers in a mono column that
@@ -1010,7 +1073,9 @@ button {
 .pick-list { display: grid; }
 .pick-list-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(52px, auto));
+  /* The part number keeps room for its heading: at 0 it gave its width to
+     the figures and PART ran into REQUIRED. */
+  grid-template-columns: minmax(10ch, 1fr) repeat(4, minmax(46px, auto)) minmax(74px, auto);
   gap: 12px;
   align-items: baseline;
   padding: 3px 0;
@@ -1041,12 +1106,13 @@ button {
   color: var(--faint);
   font-weight: 400;
 }
-/* With PODetail.csv loaded, a fifth column: the next open receipt. */
-.pick-list.with-po .pick-list-row {
-  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(48px, auto)) minmax(72px, auto);
+/* Fewer on hand than the order needs — the one figure on the sheet the
+   warehouse has to act on before the pick can be made. Same red the Expect
+   Date uses, so one colour means one thing across the panel. */
+.pick-list-row .qty.short {
+  color: #b91c1c;
+  font-weight: 750;
 }
-.pick-list-row .qty.po { text-align: right; white-space: nowrap; }
-.pick-list-row .qty.po sup { color: var(--faint); font-weight: 400; }
 
 .arow,
 .assy-head {
@@ -1080,11 +1146,12 @@ button {
   background: var(--head-bg);
   color: var(--head-tx);
   border-bottom: 2px solid var(--chrome-rule);
-  /* Two lines: the column titles on the left, the date over its count on the
-     right, with the load bar standing beside them. It grows rather than
-     clipping when a whole shift is free and the Team column has that many
-     names to list. */
-  min-height: 56px;
+  /* Two lines of text and the space to set them in: the column titles over
+     the crew rolls on the left, the date over its count on the right. It was
+     tall enough for four lines so the Team column could list a whole idle
+     shift without scrolling — which cost every other shift a band of empty
+     blue across the top of the board. The rolls scroll instead. */
+  min-height: 52px;
   font-size: 11px;
   font-weight: 700;
 }
@@ -1101,11 +1168,9 @@ button {
   border-left-color: var(--head-rule);
   color: var(--head-dim);
 }
-.assy-head .day-bar {
-  background: var(--surface);
-  border-color: var(--head-rule);
+.assy-head .day-meter {
+  background: var(--day-bar-track);
 }
-.assy-head .daycol { padding: 5px 5px; }
 .assy-head .day-order-filter {
   border-color: transparent;
   background: transparent;
@@ -1154,10 +1219,10 @@ button {
 .assy-head .day-load.orange { color: var(--head-warn); }
 .assy-head .day-load.red { color: var(--head-error); }
 .assy-head .day-load.closed { color: var(--head-dim); }
-.assy-head .day-bar.green i { background: var(--head-ok-bar); }
-.assy-head .day-bar.orange i { background: var(--head-warn-bar); }
-.assy-head .day-bar.red i { background: var(--head-error-bar); }
-.assy-head .day-bar.closed i { background: rgb(7 89 133 / 30%); }
+.assy-head .day-meter.green .crewed { background: var(--head-ok-bar); }
+.assy-head .day-meter.orange .crewed { background: var(--head-warn-bar); }
+.assy-head .day-meter.red .crewed { background: var(--head-error-bar); }
+.assy-head .day-meter.closed .crewed { background: rgb(7 89 133 / 30%); }
 .acell {
   display: flex;
   align-items: center;
@@ -1199,6 +1264,11 @@ button {
 .col-resize:focus-visible {
   border-right-color: var(--accent);
   outline: none;
+}
+/* A day column's grip is over the heading's own contents rather than in a flex
+   row beside them, so it has to be the thing the pointer finds on that edge. */
+.day-resize {
+  z-index: 2;
 }
 /* Keeps the pointer from selecting half the board mid-drag. */
 body.col-resizing {
@@ -1269,6 +1339,37 @@ body.col-resizing {
 }
 .acell.date.expect.green { color: var(--ok); }
 .acell.date.expect.red { color: var(--error); }
+/*
+ * Qty, Hours and the dates open 40 px wide: the figure and nothing else. The
+ * cell's side padding goes and nothing wraps, so "29.0 h" stays one line; a
+ * heading's − sits under its word, and a date's sort arrow shows only on the
+ * column being sorted by.
+ */
+.acell.qty,
+.acell.hours,
+.acell.date {
+  padding-left: 2px;
+  padding-right: 2px;
+  white-space: nowrap;
+}
+.assy-head .acell.qty,
+.assy-head .acell.hours,
+.assy-head .date-head {
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  font-size: 11px;
+  letter-spacing: -0.2px;
+}
+.assy-head .date-head .date-sort {
+  gap: 1px;
+  padding: 0 3px;
+  border-radius: 4px;
+  line-height: 16px;
+}
+.date-head .date-sort:not(.active) span {
+  display: none;
+}
 .acell.team {
   width: var(--team-w);
   flex: 0 0 var(--team-w);
@@ -1291,7 +1392,7 @@ body.col-resizing {
   background: var(--surface-2);
 }
 .arow.selected {
-  background: rgba(91, 140, 255, 0.07);
+  background: rgb(3 105 161 / 0.07);
 }
 .arow.completed-today {
   filter: grayscale(1);
@@ -1302,13 +1403,46 @@ body.col-resizing {
 .arow.completed-today .acell.order {
   background: var(--surface-3);
 }
+/*
+ * The order the finder was asked for: highlighter yellow across the whole row
+ * and a bar down its left edge, kept until the finder is cleared. Stronger
+ * than hover and selection on purpose — it is the one row being looked for.
+ */
+.arow.found,
+.arow.found .acell.order,
+.arow.found .acell.frozen {
+  background: #fef9c3;
+}
+.arow.found .acell.order { box-shadow: inset 4px 0 var(--warn-fill); }
+.arow.found .bar { outline: 2px solid var(--warn-fill); outline-offset: 1px; }
 .arow.context {
   opacity: 0.72;
 }
+/* A press changeover: its own row between the two orders, drawn in the PMD
+   dashboard's status colours — die change red, insert orange, colour amber. */
+.arow.changeover .acell.order { font-style: italic; }
+.arow.changeover.die .bar { color: #7f1d1d; }
+.arow.changeover.die .bar .bar-piece { background: #fecaca; border-color: #dc2626; }
+.arow.changeover.insert .bar { color: #7c2d12; }
+.arow.changeover.insert .bar .bar-piece { background: #fed7aa; border-color: #c2410c; }
+.arow.changeover.colour .bar { color: #78350f; }
+.arow.changeover.colour .bar .bar-piece { background: #fde68a; border-color: #d97706; }
+.chip.changeover { cursor: default; }
+.chip.changeover.die { background: #fee2e2; border-color: #dc2626; color: #7f1d1d; }
+.chip.changeover.insert { background: #ffedd5; border-color: #c2410c; color: #7c2d12; }
+.chip.changeover.colour { background: #fef3c7; border-color: #d97706; color: #78350f; }
+.chip.press-shifts { background: #e2e8f0; border-color: #94a3b8; color: #1e293b; cursor: default; }
+.chip.changeover:hover, .chip.press-shifts:hover { border-color: inherit; }
 .arow.empty .acell.order {
   color: var(--faint);
   font-style: italic;
 }
+/* A bench's orders line up under the bench's own triangle, not under the lane
+   above it. The number sits at the same 22px the indented ▼ does — 14px of
+   bench indent on the header's inner block plus the 8px the meta column pads —
+   so the board reads down as the tree it is: lane, then its benches, then each
+   bench's orders stepped in one more. */
+.arow.bench .acell.order { padding-left: 22px; }
 /*
  * The order number, and — while somebody is signed in — the grip that files the
  * order onto another line. Dragging the *bar* sideways does that too, but a bar
@@ -1346,13 +1480,184 @@ body.col-resizing {
   outline: none;
 }
 .assy-head .acell.order { gap: 6px; }
+/*
+ * The Order heading now carries the roster's two rolls beside its title, in
+ * the room the one short word "Order" always left spare. Title and fold on the
+ * left at their own width; the two rolls take the rest and stack; the resize
+ * grip stays pinned to the cell's right edge.
+ */
+.assy-head .acell.order.order-head {
+  align-items: center;
+  gap: 8px;
+}
+.order-head-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.order-crew {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Clear of the resize grip on the cell's right edge. */
+  padding-right: 8px;
+}
 .head-name { white-space: nowrap; }
-
-.order-id {
+/* All | Released Only — which orders the board plans with. */
+.release-scope {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--head-tx);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.release-scope button {
+  padding: 1px 7px;
+  border: 0;
+  background: transparent;
+  color: var(--head-tx);
+  font: inherit;
+  font-size: 10.5px;
   font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.release-scope button + button { border-left: 1px solid var(--head-tx); }
+.release-scope button.on {
+  background: var(--head-tx);
+  color: var(--head-bg, #fff);
+}
+.release-scope button:not(.on):hover,
+.release-scope button:focus-visible {
+  background: var(--chrome-tint-hi);
+  outline: none;
+}
+
+/* The title line over the order finder, on the left of the Order heading. */
+.order-head-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+/* Find an order: type its number or open the list (▾). */
+.order-finder {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 150px;
+}
+.order-finder input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 20px;
+  /* Room on the right for × and ▾. */
+  padding: 0 36px 0 6px;
+  border: 1px solid rgb(12 74 110 / 45%);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+}
+.order-finder input::placeholder { color: var(--faint); font-weight: 400; }
+.order-finder input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.order-finder-clear,
+.order-finder-list {
+  position: absolute;
+  top: 1px;
+  width: 16px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.order-finder-list { right: 2px; }
+.order-finder-clear { right: 18px; }
+.order-finder-clear:hover,
+.order-finder-list:hover { color: var(--accent); }
+/* Drawn over the board, so the heading cell does not clip it. */
+.order-finder-pop {
+  position: fixed;
+  z-index: 88;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.order-finder-options {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 18%);
+  font-size: 12px;
+}
+.order-finder-options li[role='option'] {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.order-finder-options li.active { background: var(--chrome-tint-hi); }
+.of-order { font-weight: 700; font-variant-numeric: tabular-nums; }
+.of-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.order-id.movable { cursor: grab; touch-action: none; }
+.of-where {
+  grid-column: 1 / -1;
+  color: var(--faint);
+  font-size: 11px;
+}
+.of-where.pool,
+.of-where.unreleased { color: var(--warn); }
+.order-finder-none {
+  padding: 4px 10px;
+  color: var(--faint);
+  font-size: 11px;
+}
+.order-finder-note {
+  padding: 6px 10px;
+  border: 1px solid #f3d38a;
+  border-radius: 6px;
+  background: var(--warn-dim);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 14%);
+}
+
+/*
+ * The order number and the material description swap emphasis: the floor
+ * does not read the number, it reads what the order IS. So the description
+ * carries the weight and the dark ink, and the number steps back to the
+ * quiet, smaller treatment the description used to have — still there to
+ * scan for and to drag by, just no longer the loudest thing in the cell.
+ */
+.order-id {
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.order-id.movable { cursor: grab; touch-action: manipulation; }
 .order-id.movable:hover {
   text-decoration: underline;
   text-decoration-style: dotted;
@@ -1373,9 +1678,33 @@ body.col-resizing {
   background: #ede9fe;
   color: #6d28d9;
 }
+/*
+ * Where the order is on its route — "2/3 Sewing".
+ *
+ * Deliberately quieter than the trade badge beside it: the trade says who may
+ * work the order, which is a fact about the order, and this says where it has
+ * got to, which changes under you as the shift books.
+ */
+.order-op {
+  border: 1px solid var(--line-name);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 9.5px;
+  font-weight: 650;
+  color: var(--head-tx);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.inspector-op {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
 .order-desc {
-  color: var(--faint);
-  font-size: 10.5px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1396,44 +1725,51 @@ body.col-resizing {
   top: 0;
   bottom: 0;
   border-left: 1px solid var(--border);
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
-  padding: 5px 5px;
+  padding: 0;
   font-size: 12px;
   color: var(--muted);
+  overflow: hidden;
 }
-.daycol-main {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-}
-.daycol-sub {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-}
+/* Three things in one cell, none of them in a row with the others: the load
+   down the left-hand edge, the date in the middle, the count in the corner.
+   Stacked in a column they pushed the date off centre and left the load bar
+   standing in a box it could not fill. */
 /*
- * Load histogram. One bar per day filled to its percentage, so the week reads
- * as a shape before anyone reads a number. Bands: green under 80%, orange to
- * 90%, red beyond.
+ * Three rows, left to right as they are read: the date and how full the day
+ * is; the hours asked against the hours the crews can work, with the order
+ * count; and the same as a meter along the foot.
  */
-/* The figure on the column, so a date is legible from the floor. */
-.daycol-date {
+.daycol-top,
+.daycol-mid {
+  position: absolute;
+  left: 4px;
+  right: 3px;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 3px;
-  font-size: 15px;
+  white-space: nowrap;
+}
+.daycol-top { top: 2px; }
+.daycol-mid { top: 22px; }
+.daycol-date {
+  font-size: 14px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.2px;
-  white-space: nowrap;
 }
+.daycol-top .day-load { margin-left: auto; font-size: 11px; }
+.day-hours {
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.day-hours em {
+  font-style: normal;
+  border-bottom: 1px dashed currentColor;
+}
+.daycol-mid .day-order-filter { margin-left: auto; }
 /* How many orders run on the day, and the way to narrow to them. A figure
    rather than "10 orders": the column it sits under is the only thing it could
    be counting, and the word cost the heading its width. */
@@ -1459,46 +1795,46 @@ body.col-resizing {
   outline-offset: 1px;
 }
 /*
- * The load, standing the height of the heading rather than lying across it.
- * A column of bars down the week is read as a skyline in one glance; a row of
- * short horizontal ones is read one at a time.
+ * The day's load lying along the foot of its column: solid for hours with
+ * people on them, dashed for orders nobody is on yet, a tick at what the crews
+ * can work, and red past it.
  */
-.day-bar {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  flex: 0 0 auto;
-  width: 22px;
-  border: 0;
-  border-radius: 2px;
-  background: var(--surface-3);
-  overflow: hidden;
-}
-.day-bar i {
-  display: block;
-  width: 100%;
-  min-height: 2px;
-}
-/* Inside the track, above the fill: the number confirms the shape and must not
-   cost the heading a line of its own to do it. */
-.day-bar .day-load {
+.day-meter {
   position: absolute;
-  top: 1px;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font-style: normal;
-  font-size: 9px;
-  letter-spacing: -0.3px;
-  font-variant-numeric: tabular-nums;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  height: 7px;
+  display: flex;
+  border-radius: 2px;
+  background: var(--day-bar-track);
 }
-.day-bar.green i { background: var(--ok); }
-.day-bar.orange i { background: var(--warn); }
-.day-bar.red i { background: var(--error); }
-.day-load {
-  font-size: 9.5px;
-  font-weight: 700;
+.day-meter i { display: block; height: 100%; }
+.day-meter .waiting {
+  box-sizing: border-box;
+  border: 1px dashed var(--head-warn-bar);
+  background: rgb(217 119 6 / 18%);
 }
+.day-meter .over {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  background: repeating-linear-gradient(135deg, var(--head-error-bar) 0 3px, transparent 3px 5px);
+  opacity: 0.85;
+}
+.day-meter .cap {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--head-tx);
+}
+.day-load { font-style: normal; font-variant-numeric: tabular-nums; }
+.day-meter.green .crewed { background: var(--ok-fill); }
+.day-meter.orange .crewed { background: var(--warn-fill); }
+.day-meter.red .crewed { background: var(--error-fill); }
+.day-load { font-weight: 700; }
 .day-load.green { color: var(--ok); }
 .day-load.orange { color: var(--warn); }
 .day-load.red { color: var(--error); }
@@ -1531,45 +1867,16 @@ body.col-resizing {
  * edge reads as a line *in* the column, which is what the shift clock is, and
  * the two must not be confused.
  */
+/*
+ * Today is bracketed by its two edges and the shift clock that runs down it,
+ * not filled: a wash across the whole column — widest of all at a high zoom —
+ * sat over the short bars that live around today and made them hard to pick
+ * out. The edges mark the day without touching the work in it.
+ */
 .stripe.today {
-  background: rgba(37, 99, 235, 0.07);
   box-shadow:
-    inset 1px 0 0 rgba(37, 99, 235, 0.35),
-    inset -1px 0 0 rgba(37, 99, 235, 0.35);
-}
-
-/*
- * Where the shift has got to, drawn across today's column between 07:00 and
- * 15:30 and nudged on every five minutes. Above the bars — the whole point is
- * to see which of them the shift should have reached by now.
- */
-/*
- * The line itself takes no pointer events. It runs the full height of the
- * board above every bar, so the two pixels it occupies were two pixels of
- * every bar it crossed that could not be grabbed — and today's column, where
- * it always is, is exactly where the short orders sit. Its marker keeps the
- * tooltip: a hover target belongs on the head of the line, not down its whole
- * length.
- */
-.now-line {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  margin-left: -1px;
-  z-index: 6;
-  background: #ef4444;
-  pointer-events: none;
-}
-.now-line::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -3px;
-  border: 4px solid transparent;
-  border-top-color: #ef4444;
-  pointer-events: auto;
-  cursor: help;
+    inset 1px 0 0 rgb(3 105 161 / 0.35),
+    inset -1px 0 0 rgb(3 105 161 / 0.35);
 }
 
 .crew-window-editor {
@@ -1623,11 +1930,10 @@ body.col-resizing {
   font-size: 8.5px;
   font-weight: 800;
 }
-/* Recorded output is muted; planned work uses the full fill. */
-.day-bar.actual {
-  background: transparent;
-}
-.day-bar.actual i {
+/* Recorded output is muted; planned work uses the full fill. The track stays:
+   the band is the full height of the heading now, and an actual day with no
+   track behind it would be a column-wide hole in the block. */
+.day-meter.actual .crewed {
   opacity: 0.55;
 }
 .daycol.weekend {
@@ -1635,10 +1941,10 @@ body.col-resizing {
   color: var(--faint);
 }
 .daycol.today {
-  background: rgba(37, 99, 235, 0.09);
+  background: rgb(3 105 161 / 0.09);
   box-shadow:
-    inset 1px 0 0 rgba(37, 99, 235, 0.35),
-    inset -1px 0 0 rgba(37, 99, 235, 0.35);
+    inset 1px 0 0 rgb(3 105 161 / 0.35),
+    inset -1px 0 0 rgb(3 105 161 / 0.35);
 }
 .today-tag {
   margin-left: 4px;
@@ -1653,7 +1959,7 @@ body.col-resizing {
   vertical-align: 1px;
 }
 /* A closed day reads 0% unless overtime was approved, which shows muted. */
-.day-bar.closed i { background: var(--faint); }
+.day-meter.closed .crewed { background: var(--faint); }
 .day-load.closed { color: var(--faint); }
 
 /* An order approved to run through the weekend. */
@@ -1766,11 +2072,82 @@ body.col-resizing {
  * catches on the way past.
  */
 .agroup-head {
-  background: var(--line-band);
+  background: var(--line-band-main);
   border-top: 1px solid var(--line-band-bd);
   border-bottom: 1px solid var(--line-band-bd);
   width: max-content;
   min-width: 100%;
+}
+/*
+ * A line's week, drawn along its own row. The row holds the strip, so
+ * it is the positioning box; the sticky block above it (z 7) covers the frozen
+ * columns and the strip scrolls under it the way the bars do.
+ */
+.agroup-head.has-load { position: relative; }
+.agroup-head.has-load .agroup-head-in { min-height: 34px; }
+.aline-load {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+.aline-day {
+  position: absolute;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  top: 3px;
+  bottom: 3px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin: 0 1px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.15;
+  overflow: hidden;
+  pointer-events: auto;
+  font-variant-numeric: tabular-nums;
+}
+.aline-day:hover { box-shadow: 0 0 0 2px var(--accent); }
+.aline-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.aline-day.green { background: var(--ok-dim); border-color: var(--head-ok-bar); }
+.aline-day.orange { background: var(--warn-dim); border-color: var(--head-warn-bar); }
+.aline-day.red { background: var(--error-dim); border-color: var(--head-error-bar); }
+.aline-day.past { opacity: 0.6; }
+.aline-day b { font-weight: 700; }
+.aline-wait {
+  padding: 0 3px;
+  border: 1px dashed var(--head-warn-bar);
+  border-radius: 3px;
+  color: var(--head-warn);
+  font-weight: 600;
+}
+.aline-day.idle { border-style: dashed; }
+/* Picked with Ctrl for level loading: ringed, and ticked in the corner so it
+   still reads as picked when the load colour is the same either side of it. */
+.aline-day.picked { box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgb(3 105 161 / 28%); }
+.aline-day.picked::after {
+  content: '✓';
+  position: absolute;
+  top: 0;
+  right: 2px;
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.timeline-weeks {
+  height: 24px;
+  margin-left: 4px;
+  font: inherit;
+  font-size: 12px;
 }
 /*
  * The part that stays put. A sticky box cannot slide inside a containing block
@@ -1790,7 +2167,7 @@ body.col-resizing {
   width: max-content;
   max-width: 100%;
   padding: 3px 0;
-  background: var(--line-band);
+  background: var(--line-band-main);
 }
 .agroup-meta {
   display: flex;
@@ -1799,7 +2176,9 @@ body.col-resizing {
   flex: 0 0 calc(var(--order-w) + var(--qty-w));
   width: calc(var(--order-w) + var(--qty-w));
   min-width: 0;
-  padding: 0 8px;
+  /* No padding on the right: the last thing in here is the hide button, and
+     it is sized to stand in the Qty column rather than just short of it. */
+  padding: 0 0 0 8px;
 }
 /*
  * Folding the line's orders away, in the Order column where its row starts.
@@ -1811,6 +2190,9 @@ body.col-resizing {
  */
 .agroup-fold {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 18px;
   height: 18px;
   padding: 0;
@@ -1818,6 +2200,11 @@ body.col-resizing {
   border-radius: 5px;
   background: transparent;
   color: var(--line-name);
+  /* About 8px of drawn triangle. The size here was never the problem — it was
+     the character: U+25B8 is the *small* triangle, which sets at roughly four
+     tenths of its type size, so 11px of it drew four. It is the same ▶/▼ the
+     board's own control uses now, two points smaller, which keeps the one
+     that folds every line plainly the larger of the two. */
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
@@ -1843,15 +2230,31 @@ body.col-resizing {
   border: 0;
   color: var(--line-name);
   text-align: left;
-  flex: 1 1 auto;
+  /* Its own width, and it neither grows nor shrinks: the name is read first
+     and must never be the thing that clips. The roster beside it takes all the
+     room that is left and scrolls when a busy line overflows it. */
+  flex: 0 0 auto;
   min-width: 0;
 }
-.agroup-label.arrangeable { cursor: grab; touch-action: none; }
+.agroup-label.arrangeable { cursor: grab; touch-action: manipulation; }
 .agroup-label.arranging { opacity: 0.45; cursor: grabbing; }
-/* Takes the whole line off the board; the header offers it back. */
+/*
+ * Takes the whole line off the board; the header offers it back.
+ *
+ * It is as wide as the Qty column and sits at the end of the meta block, so
+ * every line's × stands in that column, under its heading — a straight edge
+ * down the board instead of a mark that landed wherever the line's name and
+ * totals happened to end.
+ */
 .agroup-hide {
-  flex: 0 0 auto;
-  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--qty-w);
+  width: var(--qty-w);
+  /* When Qty is hidden its width var is 0; keep the line's × a target the
+     pointer can still find, at the right edge of the Order column. */
+  min-width: 18px;
   height: 18px;
   padding: 0;
   border: 1px solid transparent;
@@ -1891,11 +2294,58 @@ body.col-resizing {
  */
 .agroup-roster {
   display: flex;
-  flex-wrap: wrap;
+  /* One row, always — the roster stays on the line's own row and never stacks
+     its people down the board. It takes the room the name leaves and sits at
+     the right of it, ending at the Qty column (where the × stands), so it grows
+     back towards the name rather than out over the schedule. A line with more
+     people than fit scrolls sideways rather than growing taller. */
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
   gap: 3px 4px;
   align-items: center;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* Right-aligns the run and still lets it scroll when it overflows — a plain
+   justify-content: flex-end would put the first names out of reach. */
+.agroup-roster > :first-child { margin-left: auto; }
+.agroup-roster::-webkit-scrollbar { display: none; }
+/*
+ * A bench of a lane, drawn indented under it.
+ *
+ * The indent is on the sticky inner block rather than on the row: the row has
+ * to span the whole grid to carry its band, and a margin on it would pull the
+ * day columns out of line with every other row on the board.
+ */
+.agroup.bench .agroup-head-in {
+  padding-left: 14px;
+  /* A bench stays on the palest band; the base rule above paints its sticky
+     inner block the stronger main colour, so put the bench's back. */
+  background: var(--line-band-bench);
+}
+.agroup.bench .agroup-name {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+/* The lane above them keeps the full weight: it is the thing being read. */
+.agroup.bench .agroup-head {
+  background: var(--surface);
+  border-top-color: transparent;
+}
+.agroup-name.renameable { cursor: text; }
+.agroup-rename {
+  width: 11ch;
+  padding: 0 3px;
+  border: 1px solid var(--line-name);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--line-name);
+  font: inherit;
+  font-weight: 800;
+  font-size: 12px;
 }
 .agroup-name {
   color: var(--line-name);
@@ -1999,10 +2449,10 @@ body.col-resizing {
   cursor: default;
 }
 .bar.selected .bar-piece {
-  box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.55);
+  box-shadow: 0 0 0 2px rgb(3 105 161 / 0.55);
 }
 .bar.dependency-related .bar-piece {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.42);
+  box-shadow: 0 0 0 2px rgb(3 105 161 / 0.42);
 }
 .bar.dragging {
   opacity: 0.6;
@@ -2112,6 +2562,18 @@ body.col-resizing {
     transparent 4px 7px
   );
 }
+/*
+ * Started on the floor.
+ *
+ * The word is beside the order number — see `.order-tag.run`, and the note
+ * there about the triangle that used to be here. What the bar keeps is a
+ * heavier outline: it costs the drawing nothing, it does not depend on the
+ * due-date colour the block is already spending, and it is what picks the
+ * running orders out of a line of bars from across the room.
+ */
+.bar.started .bar-piece {
+  border-width: 2px;
+}
 /* Down to its minimum width, so the block is a marker rather than a length. */
 .bar.stub .bar-piece {
   border-radius: 3px;
@@ -2125,6 +2587,29 @@ body.col-resizing {
   border: 1px dashed var(--error);
   border-radius: 4px;
   padding: 1px 6px;
+}
+/* Placed against the Due Date (see OrderBar): the box spans the days the work
+   has to start in, and its label never shrinks below its own width — the
+   right edge is the anchor, so a short window grows back towards today. */
+.bar-missing.placed {
+  left: auto;
+  min-width: max-content;
+  text-align: center;
+  white-space: nowrap;
+}
+.bar-missing.late {
+  right: auto;
+  font-weight: 700;
+}
+/* The racks, not the roster. A stopped order is a stopped order, but the two
+   want different people doing different things about them, so the one waiting
+   on material is amber and filled rather than another dashed red outline —
+   which line is short can then be read off the board without opening any of
+   them. */
+.bar-missing.short-material {
+  color: #92400e;
+  border: 1px solid #d97706;
+  background: var(--warn-dim);
 }
 
 /* team chips */
@@ -2148,6 +2633,28 @@ body.col-resizing {
 }
 .chip:hover {
   border-color: var(--error);
+}
+/*
+ * On the order, not at work.
+ *
+ * The name stays — a half-built order belongs to whoever was building it, and
+ * a day off is not a hand-over — so the chip has to carry the difference
+ * between "on this" and "on this but not here".
+ */
+.chip.on-leave {
+  background: repeating-linear-gradient(
+    -45deg,
+    #fee2e2,
+    #fee2e2 4px,
+    #fecaca 4px,
+    #fecaca 8px
+  );
+  border-color: #b91c1c;
+  color: #7f1d1d;
+}
+.chip-on-leave {
+  margin-left: 3px;
+  font-weight: 800;
 }
 .chip.empty {
   background: transparent;
@@ -2236,7 +2743,7 @@ body.col-resizing {
  */
 .head-metrics {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 6px 16px;
   margin-left: auto;
   flex-wrap: wrap;
@@ -2245,10 +2752,16 @@ body.col-resizing {
    aligning, so a figure with a panel and one without sit identically. */
 .head-metrics > .metric-slot { display: flex; }
 .head-metrics > .metric-slot > .metric { flex: 1; }
+/* Label over figure, both centred on the same axis. Left-aligned, a two-word
+   label and a three-character figure left the row reading as a ragged stack of
+   different-width blocks; centred, the four of them read as one row of four
+   figures, which is what they are. */
 .metric {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   gap: 0;
   line-height: 1.15;
   white-space: nowrap;
@@ -2404,8 +2917,6 @@ body.col-resizing {
   font-size: 11px;
   line-height: 1.35;
 }
-.metric-free { margin: 0 0 8px; font-size: 11.5px; line-height: 1.4; }
-.metric-free b { margin-right: 5px; color: var(--muted); font-size: 9.5px; letter-spacing: 0.3px; text-transform: uppercase; }
 .metric-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .metric-table th {
   text-align: left;
@@ -2437,6 +2948,23 @@ body.col-resizing {
 .review-panel ul { margin: 8px 0 0; padding: 0; list-style: none; }
 .review-panel li { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .review-panel li span { flex: 1; min-width: 0; }
+.review-panel li.is-skipped span { color: var(--muted); }
+.review-panel li span i { font-style: normal; color: var(--muted); }
+.review-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.review-report { color: var(--text); }
+/* The rules open inside the panel; it widens and stops scrolling in a box. */
+.metric-panel.review-panel:has(.crew-rules) { width: min(520px, calc(100vw - 32px)); max-height: 70vh; }
+
+/* Crew orders rules — see CrewRulesEditor. */
+.crew-rules { display: grid; gap: 6px; font-size: 12px; }
+.crew-rules-head { margin: 12px 0 4px; font-size: 12.5px; }
+.crew-rules-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.crew-rules input:not([type='checkbox']),
+.crew-rules select { font: inherit; padding: 1px 4px; }
+.crew-rules-table { width: 100%; border-collapse: collapse; margin-top: 2px; }
+.crew-rules-table th { text-align: left; font-weight: 700; padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.crew-rules-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.crew-rules-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; }
 
 /* Opening a line that is not one of the eight. Supervisor only. */
 .board-tools .add-line { border-style: dashed; }
@@ -2491,6 +3019,13 @@ body.col-resizing {
 }
 .worker-name:not(.drag-locked) { cursor: grab; }
 .worker-name.dragging { opacity: 0.45; cursor: grabbing; }
+/* Still standing on the line, and not at work. The name stays put so the
+   supervisor can find them and mark them back in. */
+.worker-name.on-leave {
+  color: #b91c1c;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
 .worker-name.drag-locked { cursor: pointer; }
 .worker-drag-overlay,
 .line-drag-overlay {
@@ -2528,9 +3063,9 @@ body.col-resizing {
   border-radius: 2px;
   border: 1px solid transparent;
 }
-.wl-dot.green { background: var(--ok); }
-.wl-dot.orange { background: var(--warn); }
-.wl-dot.red { background: var(--error); }
+.wl-dot.green { background: var(--ok-fill); }
+.wl-dot.orange { background: var(--warn-fill); }
+.wl-dot.red { background: var(--error-fill); }
 .wl-dot.idle {
   background: transparent;
   border-color: #93c5fd;
@@ -2641,9 +3176,9 @@ body.col-resizing {
   height: 100%;
   background: var(--surface-3);
 }
-.wl-meter i.green { background: var(--ok); }
-.wl-meter i.orange { background: var(--warn); }
-.wl-meter i.red { background: var(--error); }
+.wl-meter i.green { background: var(--ok-fill); }
+.wl-meter i.orange { background: var(--warn-fill); }
+.wl-meter i.red { background: var(--error-fill); }
 .wl-hours { font-weight: 650; text-align: right; }
 .wl-hours.over { color: var(--error); }
 /* Every order on the day, wrapped — never one of them and an ellipsis. */
@@ -2756,6 +3291,23 @@ body.col-resizing {
 
 .date-head { flex-direction: column; gap: 3px; text-align: center; line-height: 1.15; }
 .date-head .date-hide { width: 22px; height: 18px; line-height: 12px; }
+/*
+ * The same − on the Qty / Hours / Team headings, which are plain cells rather
+ * than date-head wrappers, so they miss the shared styling above. Match it: the
+ * chrome-tint chip the date columns' hide button wears.
+ */
+.assy-head .acell.qty > .date-hide,
+.assy-head .acell.hours > .date-hide,
+.assy-head .acell.team > .date-hide {
+  width: 22px;
+  height: 18px;
+  line-height: 12px;
+  border: 1px solid var(--head-rule);
+  border-radius: 5px;
+  background: var(--chrome-tint);
+  color: var(--head-tx);
+  cursor: pointer;
+}
 .date-head .date-sort {
   display: inline-flex;
   align-items: center;
@@ -2786,27 +3338,68 @@ body.col-resizing {
   gap: 3px;
 }
 /*
- * Who is on site today and on nothing — the people still to reach for, read
- * while deciding who goes on the order in front of you.
+ * Two rolls where the word "Team" used to be: who is here with nothing on, and
+ * who is not here at all.
  *
- * The ratio this used to carry as well is one of the four header figures now:
+ * The ratio this column once carried is one of the four header figures now —
  * that was a number about the whole board sitting inside one column's title.
- * And it is capped at two lines, then scrolls — unbounded, a shift with nobody
- * allocated pushed the day columns down the page as the list grew.
+ * What is left is the two lists a morning turns on, and they are names rather
+ * than counts for the same reason: a count tells you there is a problem, a
+ * name tells you whose.
+ *
+ * One line each, and then they scroll — the heading is two lines of text
+ * tall and these are the two. Unbounded, a shift with nobody allocated pushed
+ * the day columns down the page as the list grew; at two lines each it left
+ * the usual morning looking at an empty band. Both rolls name everybody in
+ * their hover, so what scrolls out of the strip is still one pointer away.
  */
-.team-free {
+.team-roll {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+  /* Room for the outline it wears as a drop target, without the two rolls
+     moving apart the moment a name is picked up. */
+  border: 1px dashed transparent;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+/* A person is in the air: both rolls say they will take them. Lit only for a
+   worker — outlined during a bar drag they would be offering something they
+   cannot do. */
+.team-roll.offered { border-color: rgb(7 89 133 / 40%); }
+.team-roll.taking {
+  border-style: solid;
+  border-color: var(--head-tx);
+  background: var(--chrome-tint-hi);
+}
+.team-roll-label {
+  flex: 0 0 auto;
+  padding-top: 1px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--head-dim);
+}
+.team-names {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 3px;
   min-width: 0;
-  max-height: 32px;
+  max-height: 15px;
   overflow-y: auto;
   font-size: 9.5px;
   font-weight: 650;
   line-height: 1.35;
+  /* A scrollbar inside a 15px strip is taller than the text it scrolls. */
+  scrollbar-width: none;
 }
-.team-free-name {
+.team-names::-webkit-scrollbar { display: none; }
+.team-name {
   padding: 0 4px;
   border: 1px solid var(--head-rule);
   border-radius: 3px;
@@ -2814,12 +3407,57 @@ body.col-resizing {
   color: var(--head-tx);
   white-space: nowrap;
 }
-.team-free.none {
+/*
+ * Not in today: the name in red, and nothing else.
+ *
+ * It was a red-bordered box with pale pink lettering struck through — three
+ * marks for one fact, on a pale blue heading that none of them had the
+ * contrast for. The words On Leave beside it already say what the colour is
+ * for, so the colour only has to be legible. Red type on the heading's own
+ * ground is, at this size, where pink on blue was not.
+ */
+.team-name.on-leave {
+  padding: 0 1px;
+  border-color: transparent;
+  background: transparent;
+  color: #b91c1c;
+  font-weight: 750;
+}
+/* And of those, the ones whose orders nobody else is on. That name is a
+   button — it selects the first order waiting to be handed over — so it is
+   underlined, which is what the pointer is looking for. */
+.team-name.on-leave.stranded {
+  appearance: none;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  color: #991b1b;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.team-name-held {
+  margin-left: 2px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-style: normal;
+  font-weight: 800;
+  text-decoration: none;
+}
+/* The name is the grip: drag it into the other roll to say somebody rang in,
+   or onto a line to move them to that bench. */
+.team-name.grippable {
+  cursor: grab;
+  touch-action: manipulation;
+}
+.team-name.lifted { opacity: 0.4; }
+.team-names.none {
   color: var(--head-dim);
   font-weight: 600;
   font-style: italic;
 }
-.assy-head .team-head { gap: 6px; }
+.assy-head .team-head { gap: 2px; }
 .production-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 8px; margin-bottom: 8px; }
 .production-grid label { display: block; }
 .production-grid label > span {
@@ -2932,8 +3570,9 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
   gap: 2px;
 }
 .ord:hover { border-color: var(--accent); }
-.ord.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91,140,255,.35); }
+.ord.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(3 105 161 / .35); }
 .ord.dragging { opacity: 0.35; }
+.ord.found { background: #fef9c3; border-color: var(--warn-fill); box-shadow: 0 0 0 2px rgb(217 119 6 / 0.45); }
 /* Reading the pile is not filing it: the card still opens for inspection, it
    just no longer offers to be dropped on a line. */
 .ord.locked { cursor: default; }
@@ -2953,68 +3592,585 @@ textarea.production-input { min-height: 38px; resize: vertical; margin: 4px 0; }
 .manual-dialog input:not([type=checkbox]), .manual-dialog textarea { width: 100%; padding: 7px; color: inherit; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; }
 .manual-dialog fieldset { display: flex; flex-wrap: wrap; gap: 12px; }
 
-.worker-name:not(.drag-locked) { touch-action: none; }
+/* The list of orders closed in the last fortnight, in the reopen dialog. */
+/* What the day's last save booked, above the figures it was booked from. */
+.booked-hours { margin: 0 0 6px; font-variant-numeric: tabular-nums; }
+/* A day that has already been booked. The boxes below open holding what was
+   saved, so the shift has to know it is correcting that entry and not adding
+   to it — see `rebookWarning`. */
+.booked-already {
+  padding: 3px 6px;
+  border-left: 3px solid var(--warn);
+  border-radius: 0 4px 4px 0;
+  background: var(--warn-dim);
+  color: #92400e;
+}
+
+.reopen-list { display: grid; gap: 6px; max-height: 50vh; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.reopen-list li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; }
+.reopen-job { font-weight: 600; font-variant-numeric: tabular-nums; }
+.reopen-day { color: var(--muted); font-size: 12px; }
+.reopen-gone { color: #b45309; font-size: 12px; font-style: normal; }
+.reopen-list li .btn { margin-left: auto; }
+
+.worker-name:not(.drag-locked) { touch-action: manipulation; }
+/* Not in today, above the line move: it is the more urgent of the two, and
+   the only one with an Expect Date going wrong behind it. */
+.wl-on-leave {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px 0;
+}
+.wl-on-leave label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+.wl-on-leave span {
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.wl-on-leave.is-on-leave label { color: #b91c1c; }
 .wl-move { display: grid; gap: 6px; padding: 10px 14px; }
 .wl-move select { font: inherit; padding: 6px; }
 
 /* Keep the read time immediately below its refresh action. */
-.refresh-control { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 0 auto; }
-.refresh-control .sub { font-size: 10px; line-height: 12px; white-space: nowrap; }
-.refresh-control .spinner { position: absolute; margin-left: -92px; margin-top: 5px; }
-.bar { touch-action: none; }
+/* Read it again, then publish it — the two ends of the board's day, side by
+   side. It used to be one button over a line of small type giving the time of
+   the last read; the type is gone and the space it held is the Save button. */
+.refresh-control { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+/* Drag handles leave the swipe to the browser: a finger picks one up by
+   holding it (the touch sensor's delay), and a quick swipe that starts on one
+   scrolls the board. With the browser's panning switched off, a board that is
+   mostly bars could hardly be scrolled at all. */
+.bar { touch-action: manipulation; }
 /* Overlay only: the alignment aid never moves rows or catches the pointer. */
 .drag-time-guide { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed #0869ad; z-index: 12; pointer-events: none; }
 .drag-time-guide span { position: sticky; top: 58px; display: block; width: max-content; margin-left: 5px; padding: 3px 6px; border-radius: 3px; background: #075985; color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; box-shadow: 0 1px 4px #0003; }
 
-/* ---- Load files: the four Epicor exports from disk ----------------------- */
-.file-loader {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.file-loader-set {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  cursor: help;
-}
-/* How many of the four exports are in from disk; which, with names and
-   times, on hover. Dimmed while any is missing. */
-.file-chip {
-  padding: 1px 6px;
-  border: 1px solid var(--head-rule);
-  border-radius: 999px;
-  color: var(--head-tx);
+/* Crew capacity panel: one row per crew, its lines as toggles. */
+.metric-panel:has(.crew-pools) { width: min(660px, calc(100vw - 32px)); max-height: none; }
+.crew-pools table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.crew-pools th {
+  text-align: left;
   font-size: 10.5px;
-  font-weight: 650;
-  opacity: 0.45;
+  color: var(--muted);
+  padding: 2px 6px;
 }
-.file-chip.on,
-.file-chip.part {
-  background: var(--chrome-tint-hi);
-  opacity: 1;
-  white-space: nowrap;
-  cursor: help;
-}
-.file-chip.part {
-  border-style: dashed;
-}
-.file-clear {
-  appearance: none;
-  margin-left: 2px;
+.crew-pools td { padding: 3px 6px; vertical-align: middle; }
+.crew-pools input { font: inherit; padding: 1px 4px; }
+.crew-pools input[type='number'] { width: 4.5em; }
+.crew-pools input:not([type]) { width: 11em; }
+.crew-pool-lines { display: flex; flex-wrap: wrap; gap: 3px; }
+.crew-pools .crew-line { white-space: nowrap; }
+.crew-pools .crew-line {
   padding: 1px 6px;
-  border: 0;
-  background: none;
-  color: var(--head-tx);
+  border-radius: 10px;
   font-size: 11px;
-  text-decoration: underline;
+  opacity: 0.6;
+}
+.app-header .board-tools .crew-pools .crew-line.on {
+  opacity: 1;
+  font-weight: 700;
+  border-color: var(--accent);
+  background: var(--line-band);
+}
+.app-header .board-tools .crew-pools .crew-line:disabled { cursor: default; opacity: 1; }
+.crew-pools-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+/* Closed days, under the crews: public holidays and RDOs side by side. */
+.factory-calendar { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.factory-calendar .fc-head { display: flex; align-items: center; gap: 10px; }
+.factory-calendar h4 { margin: 0; font-size: 12px; }
+.factory-calendar .fc-year { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.factory-calendar .fc-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.factory-calendar h5 { margin: 4px 0; font-size: 11px; color: var(--muted); font-weight: 700; }
+.factory-calendar ul { list-style: none; margin: 0 0 4px; padding: 0; max-height: 280px; overflow: auto; font-size: 12px; }
+.factory-calendar li { display: flex; align-items: center; gap: 8px; padding: 1px 0; }
+.factory-calendar li.fc-weekend { color: var(--muted); }
+.factory-calendar .fc-day { width: 6.5em; flex: none; font-variant-numeric: tabular-nums; }
+.factory-calendar .fc-remove { margin-left: auto; padding: 0 5px; }
+.factory-calendar .fc-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.factory-calendar .fc-add input { font: inherit; font-size: 12px; padding: 1px 4px; }
+.factory-calendar .fc-add input:not([type]) { width: 10em; }
+.factory-calendar .fc-clash { flex-basis: 100%; color: #b45309; font-size: 11px; }
+.factory-calendar .fc-error { margin: 4px 0; color: #b91c1c; font-size: 11px; }
+.factory-calendar .fc-kind.rdo { color: #6d28d9; }
+.factory-calendar .fc-lists.fc-one { grid-template-columns: 1fr; }
+.factory-calendar .fc-kind.fc-derived { font-style: italic; color: var(--muted); }
+@media (max-width: 640px) {
+  .factory-calendar .fc-lists { grid-template-columns: 1fr; }
+}
+
+/* The day's load in the banner lists its orders when pressed. */
+.assy-head .daycol { cursor: pointer; }
+.assy-head .daycol:hover { box-shadow: inset 0 0 0 2px var(--accent); }
+.assy-head .daycol.picked { box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 0 4px rgb(3 105 161 / 28%); }
+
+/* The orders behind one day's load. */
+.day-detail {
+  position: fixed;
+  z-index: 95;
+  overflow: auto;
+  padding: 8px 10px 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  font-size: 12px;
+}
+.day-detail header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.day-detail header button {
+  border: 0;
+  background: transparent;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.day-detail-sum { margin: 2px 0 6px; color: var(--muted); font-size: 11px; }
+.day-detail h4 {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0 2px;
+  font-size: 11px;
+  color: var(--line-name);
+}
+.day-detail ul { list-style: none; margin: 0; padding: 0; }
+.day-entry {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
-.file-loader .board-warn {
-  max-width: 340px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.day-entry:hover { border-color: var(--accent); background: var(--surface-2); }
+.day-entry b { font-variant-numeric: tabular-nums; }
+.day-entry-kind { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.day-entry.waiting .day-entry-kind { color: var(--head-warn); }
+.day-entry-h { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+
+/* An unstaffed order ticked with Ctrl, the same dashed ring a bar gets. */
+.bar-missing.marked {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
 }
-.file-loader .btn { white-space: nowrap; }
+
+/* Right-click on an order: its actions, then the confirmation. */
+.bulk-menu {
+  position: fixed;
+  z-index: 96;
+  overflow: auto;
+  padding: 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  font-size: 12px;
+}
+.bulk-menu header {
+  padding: 2px 6px 6px;
+  font-weight: 700;
+}
+.bulk-menu > button {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bulk-menu > button:hover:not(:disabled) { border-color: var(--accent); background: var(--surface-2); }
+.bulk-menu > button:disabled { opacity: 0.5; cursor: default; }
+.bulk-menu > button span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.bulk-menu.confirm { padding: 10px; }
+.bulk-list { list-style: none; margin: 0 0 8px; padding: 0; max-height: 50vh; overflow: auto; }
+.bulk-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding: 3px 4px;
+  border-top: 1px solid var(--border);
+}
+.bulk-list li:first-child { border-top: 0; }
+.bulk-list b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bulk-list li.ok b::before { content: '✓ '; color: #15803d; }
+.bulk-list li.held,
+.bulk-list li.skip { color: var(--muted); }
+.bulk-list li.held b::before { content: '⚠ '; color: #b45309; }
+.bulk-list li.skip b::before { content: '– '; }
+.bulk-hint { margin: 4px 0 8px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.level-menu .level-warn { color: #b45309; }
+.level-ceiling { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; color: var(--muted); font-size: 11px; }
+.level-ceiling select { font: inherit; }
+.level-h {
+  margin: 8px 0 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.bulk-done { margin: 4px 6px 10px; }
+.bulk-menu footer { display: flex; justify-content: flex-end; gap: 8px; }
+.bulk-menu footer button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.bulk-menu footer button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.bulk-menu footer button:disabled { opacity: 0.5; cursor: default; }
+.bulk-menu textarea { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+
+/* Short material: every part the orders in view lack, with its orders. */
+.metric-panel:has(.shortage-report) { width: min(620px, calc(100vw - 32px)); max-height: 70vh; }
+.shortage-report table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.shortage-report th {
+  padding: 2px 6px 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.shortage-report td { padding: 5px 6px; vertical-align: top; border-top: 1px solid var(--border); }
+.shortage-report .num { text-align: right; font-variant-numeric: tabular-nums; }
+.shortage-report td.late { color: #b91c1c; font-weight: 600; }
+.shortage-report .short-part { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; }
+.shortage-report .short-desc { margin-left: 6px; color: var(--muted); }
+.shortage-report .short-orders { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.shortage-report .short-order {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.shortage-report .short-order:hover { border-color: var(--accent); }
+.shortage-report .short-order i { margin-left: 4px; color: var(--muted); font-style: normal; }
+.shortage-report .short-order.late { border-color: #fca5a5; color: #b91c1c; }
+.metric.short-material.has-short:not(.active) .metric-value { color: #b91c1c; }
+/* Over the header's own panel-button colours, which would otherwise win. */
+.app-header .board-tools .metric-panel button.short-order.late {
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+/*
+ * Overdue: the Due Date has gone and the order is not finished. Stronger than
+ * the red a forecast gets — this one is already late, and something booked
+ * against the date has to move.
+ */
+.order-tag.overdue {
+  background: #b91c1c;
+  border-color: #991b1b;
+  color: #fff;
+}
+.acell.date.due.overdue {
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 700;
+}
+.bar.overdue .bar-piece {
+  background: #fca5a5;
+  border: 2px solid #991b1b;
+}
+.bar.overdue { color: #7f1d1d; }
+.bar-missing.overdue {
+  border-color: #991b1b;
+  color: #991b1b;
+}
+.metric.overdue.has-overdue:not(.active) .metric-value { color: #b91c1c; }
+.metric-panel:has(.overdue-report) { width: min(560px, calc(100vw - 32px)); max-height: 70vh; }
+.overdue-report table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.overdue-report th {
+  padding: 2px 6px 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.overdue-report td { padding: 3px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
+.overdue-report .num { text-align: right; font-variant-numeric: tabular-nums; }
+.overdue-report .late { color: #b91c1c; font-weight: 600; }
+.app-header .board-tools .metric-panel button.overdue-order {
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.overdue-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+.app-header .board-tools .metric-panel .overdue-actions button { padding: 3px 10px; }
+
+/*
+ * Weeks fold. An open week's first day carries "◂ W40" to fold it; a folded
+ * week is one column carrying its week, with "W40 ▸" to open it. A heavier
+ * rule between weeks keeps the two scales from reading as one.
+ */
+.assy-head .week-fold {
+  padding: 0 4px;
+  border: 1px solid var(--head-rule);
+  border-radius: 4px;
+  background: var(--chrome-tint);
+  color: var(--head-tx);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 15px;
+  cursor: pointer;
+}
+.assy-head .week-fold:hover { background: var(--head-tx); color: var(--head-bg); }
+.assy-head .week-fold.open { background: var(--head-tx); color: var(--head-bg); }
+.assy-head .daycol.weekcol {
+  background: var(--chrome-tint);
+  border-left: 2px solid var(--head-rule);
+  color: var(--head-tx);
+}
+.shortage-report tr.short-group th {
+  padding: 8px 6px 3px;
+  color: var(--text);
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  border-top: 0;
+}
+.shortage-report tr.short-group th span { margin-left: 8px; color: var(--muted); font-weight: 600; text-transform: none; }
+/*
+ * Bought in (violet) against made here (teal), on the group's heading band and
+ * down the left edge of every part under it — colours the board uses for
+ * nothing else, so neither reads as late (red) or as a load band.
+ */
+.shortage-report tr.short-group.purchased th { background: #ede9fe; color: #5b21b6; box-shadow: inset 4px 0 0 #7c3aed; }
+.shortage-report tr.short-group.made th { background: #ccfbf1; color: #115e59; box-shadow: inset 4px 0 0 #14b8a6; }
+.shortage-report tr.purchased:not(.short-group) td:first-child { box-shadow: inset 4px 0 0 #7c3aed; padding-left: 10px; }
+.shortage-report tr.made:not(.short-group) td:first-child { box-shadow: inset 4px 0 0 #14b8a6; padding-left: 10px; }
+.shortage-report tr.short-group:not(:first-child) th { border-top: 8px solid transparent; background-clip: padding-box; }
+
+/*
+ * Load as columns. Every day heading, folded week and folded line cell is one
+ * column as tall as its load: solid in the band's colour for hours with people
+ * on them, blue on top for orders nobody is on yet, and past capacity a tick
+ * where capacity sits. No numbers in the heading — the column is the reading,
+ * and its hover and its click carry the figures.
+ */
+.load-col {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 2px;
+  border-radius: 2px 2px 0 0;
+  background: rgb(15 23 42 / 6%);
+  overflow: hidden;
+  pointer-events: none;
+}
+.load-col i { position: absolute; left: 0; right: 0; }
+.load-col .lc-crewed { bottom: 0; background: var(--head-ok-bar); }
+.load-col.orange .lc-crewed { background: var(--head-warn-bar); }
+.load-col.red .lc-crewed { background: var(--head-error-bar); }
+.load-col.closed .lc-crewed,
+.load-col.idle .lc-crewed { background: #94a3b8; }
+.load-col .lc-waiting { background: #60a5fa; }
+.load-col .lc-cap { height: 0; border-top: 2px solid #0f172a; }
+.load-col .lc-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+}
+
+/* The day heading: the date over its column. */
+.assy-head .daycol .daycol-top { top: 1px; left: 2px; right: 2px; gap: 1px; justify-content: center; }
+.assy-head .daycol .daycol-date { font-size: 11px; font-weight: 700; letter-spacing: -0.3px; }
+.assy-head .daycol .load-col { top: 17px; }
+.assy-head .daycol.today .daycol-date { color: var(--head-tx); text-decoration: underline 2px; text-underline-offset: 2px; }
+.assy-head .daycol.filtered { box-shadow: inset 0 0 0 2px var(--head-tx); }
+.assy-head .week-fold { padding: 0 2px; font-size: 9.5px; line-height: 13px; }
+.assy-head .weekcol .daycol-top { justify-content: center; }
+
+/* A folded line's cells: the column behind, the figures over it. */
+.aline-day {
+  border: 0;
+  background: transparent;
+  margin: 0;
+}
+.aline-day .load-col { top: 0; bottom: 0; left: 2px; right: 2px; background: rgb(15 23 42 / 4%); }
+.aline-day .load-col .lc-crewed { opacity: 0.55; }
+.aline-day .load-col .lc-waiting { opacity: 0.55; }
+.aline-figures {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+  font-size: 10px;
+}
+.aline-figures b { color: var(--text); font-weight: 750; }
+.aline-day .aline-wait {
+  padding: 0;
+  border: 0;
+  color: #1d4ed8;
+  font-weight: 750;
+}
+/* Nothing planned: blank until pointed at, but there to be picked as room to
+   level into — tinted once it is. */
+.aline-day.empty:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+.aline-day.empty.picked { background: rgb(3 105 161 / 8%); }
+/* A weekend on the board is there to plan overtime: its empty block is drawn,
+   hatched, so it reads as a place work can be levelled onto. */
+.aline-day.empty.weekend { box-shadow: inset 0 0 0 1px rgb(217 119 6 / 45%); background: repeating-linear-gradient(-45deg, transparent 0 4px, rgb(217 119 6 / 8%) 4px 8px); }
+.aline-day.empty.weekend:hover { box-shadow: inset 0 0 0 1px #d97706; }
+.aline-day.empty.weekend.picked { background: rgb(3 105 161 / 12%); box-shadow: inset 0 0 0 1px var(--accent); }
+
+.day-detail-filter {
+  margin: 0 0 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.board-hours .pool-row th { font-weight: 750; }
+.board-hours .pool-line th { padding-left: 14px; font-weight: 500; color: var(--muted); }
+.board-hours .pool-line td { color: var(--muted); }
+.board-hours .pool-row.none th { color: #b45309; }
+.board-hours .pool-row.total th,
+.board-hours .pool-row.total td { border-top: 2px solid var(--border-strong, var(--border)); font-weight: 750; }
+.metric-panel:has(.board-hours) { width: min(440px, calc(100vw - 32px)); max-height: 70vh; }
+
+/* A weekday the factory is shut: a public holiday (PH) or a Rostered Day Off. */
+.assy-head .daycol.closure .lc-label { color: #b91c1c; }
+.assy-head .daycol.closure.rdo .lc-label { color: #6d28d9; }
+
+/*
+ * A press order in its product's colour (PMD_ProductDieColor.ColorHex), the
+ * way the moulding floor knows it, instead of the status grey. The schedule
+ * status still shows: a late order keeps a red edge. A label pushed outside a
+ * short bar sits on the grid, so it goes back to the grid's ink.
+ */
+.bar.product .bar-piece {
+  background: var(--product);
+  border-color: color-mix(in srgb, var(--product) 70%, #000);
+}
+.bar.product { color: var(--product-ink); }
+.bar.product.tagged { color: var(--text); }
+.bar.product .bar-progress { background: rgba(0, 0, 0, 0.22); }
+.bar.product.red .bar-piece { box-shadow: inset 0 0 0 2px #dc2626; }
+
+/* ---- touch: an iPad on the floor --------------------------------------- */
+/*
+ * The board is drawn for a mouse: 18–22px controls and 9.5px labels, which a
+ * pointer finds and a finger does not. On a touch screen (`pointer: coarse` —
+ * an iPad, not a laptop with a touch bar) the controls grow to a size a finger
+ * can hit and the smallest type to a size that reads at arm's length. Rows
+ * stand taller so a bar is a target too. The layout and the colours are the
+ * same board; only the sizes move.
+ */
+button,
+[role='button'],
+.bar,
+.aline-day {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  /* No double-tap zoom wait on a button: a tap is a tap. */
+  touch-action: manipulation;
+}
+
+@media (pointer: coarse) {
+  .app { height: 100dvh; }
+  .board-pane { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .assy { font-size: 13px; }
+
+  /* The controls row: every one a 36px target. */
+  .app-header { gap: 10px 14px; padding: 6px 12px; }
+  .btn { min-height: 36px; padding: 6px 14px; font-size: 13px; }
+  .board-tools .zoom-step { width: 36px; height: 36px; font-size: 18px; }
+  .board-tools .date-restore,
+  .board-tools .show-all,
+  .board-tools .day-filter-clear,
+  .marked-set { min-height: 32px; padding: 4px 12px; font-size: 12.5px; }
+  .board-tools button.metric { padding: 4px 10px; margin: -4px -10px; }
+  .metric-label { font-size: 10.5px; }
+  .metric-value { font-size: 15px; }
+
+  /* The column heading. */
+  .assy-head { min-height: 60px; font-size: 12px; }
+  .date-head button,
+  .date-head .date-hide { min-width: 28px; min-height: 26px; font-size: 12px; }
+  .day-order-filter { min-height: 28px; }
+  .assy-head .week-fold { padding: 2px 6px; font-size: 11px; line-height: 16px; }
+  /* A finger cannot find a 8px edge: the grips widen, still invisible. */
+  .col-resize { width: 18px; }
+
+  /* Rows: taller, so a bar is a target and a line's buttons are too. */
+  .arow { min-height: 44px; }
+  .agroup-head.has-load .agroup-head-in { min-height: 44px; }
+  .agroup-name { font-size: 13.5px; }
+  .agroup.bench .agroup-name { font-size: 12.5px; }
+  .agroup-count,
+  .agroup-load { font-size: 11.5px; padding: 1px 9px; }
+  .agroup-fold,
+  .agroup-hide,
+  .agroup-close { min-width: 32px; min-height: 32px; }
+  .bar { font-size: 12px; }
+  .aline-day { font-size: 11px; }
+
+  /* Team chips, the + that adds one, and the picker it opens. */
+  .chip { min-height: 30px; padding: 4px 7px; font-size: 12px; }
+  .picker { max-height: 360px; }
+  .picker-item { min-height: 40px; }
+
+  /* The smallest type on the board, raised to read at arm's length. */
+  .qty-left,
+  .date-hour,
+  .order-tag,
+  .agroup-note,
+  .badge { font-size: 11px; }
+}

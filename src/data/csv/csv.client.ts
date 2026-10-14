@@ -1,13 +1,11 @@
 /**
  * Fetches Epicor CSV exports as text: `Planning1.csv` (orders),
- * `JobMaterialReq.csv` (material demand and dependencies), and the optional
- * `OnHandInventory.csv` (calculated on-hand quantity by part) and
- * `PODetail.csv` (open purchase-order receipts).
+ * `JobMaterialReq.csv` (material demand and dependencies), and optional
+ * `OnHandInventory.csv` (calculated on-hand quantity by part).
  *
- * Three paths each, in order: a file the planner picked from disk (works
- * today, with no auth), a plain URL (an export dropped on a share or served by
- * the task schedule), and finally Microsoft Graph if the file lives in the
- * SharePoint document library.
+ * Two paths each, in order: a plain URL (an export dropped on a share or
+ * served by the task schedule), else the SharePoint document library through
+ * the session or Microsoft Graph.
  *
  * The orders are required; the material links are not. A site that has not
  * exported them simply gets a board where every order stands on its own.
@@ -18,66 +16,7 @@ import { sessionFile } from '@/data/sharepoint/session';
 import {
   graphFile,
   type SharePointConfig,
-} from '@/data/excel/sharepoint.client';
-
-let manualCsv: string | null = null;
-let manualJobMaterialCsv: string | null = null;
-let manualOnHandInventoryCsv: string | null = null;
-let manualProductLinesJson: string | null = null;
-let manualPoDetailCsv: string | null = null;
-
-/** Stash a `Planning1.csv` the user picked from disk. */
-export function setManualCsv(text: string): void {
-  manualCsv = text;
-}
-
-export function getManualCsv(): string | null {
-  return manualCsv;
-}
-
-/** Stash a `JobMaterialReq.csv` the user picked from disk. */
-export function setManualJobMaterialCsv(text: string): void {
-  manualJobMaterialCsv = text;
-}
-
-export function getManualJobMaterialCsv(): string | null {
-  return manualJobMaterialCsv;
-}
-
-/** Stash an `OnHandInventory.csv` the user picked from disk. */
-export function setManualOnHandInventoryCsv(text: string): void {
-  manualOnHandInventoryCsv = text;
-}
-
-export function getManualOnHandInventoryCsv(): string | null {
-  return manualOnHandInventoryCsv;
-}
-
-/** Stash a `PODetail.csv` the user picked from disk. */
-export function setManualPoDetailCsv(text: string): void {
-  manualPoDetailCsv = text;
-}
-
-export function getManualPoDetailCsv(): string | null {
-  return manualPoDetailCsv;
-}
-
-/** Forget every file picked from disk, so the configured sources answer again. */
-export function clearManualFiles(): void {
-  manualCsv = null;
-  manualJobMaterialCsv = null;
-  manualOnHandInventoryCsv = null;
-  manualPoDetailCsv = null;
-}
-
-/** Stash a `product-lines.v3.json` the user picked from disk. */
-export function setManualProductLinesJson(text: string): void {
-  manualProductLinesJson = text;
-}
-
-export function getManualProductLinesJson(): string | null {
-  return manualProductLinesJson;
-}
+} from '@/data/sharepoint/site';
 
 export interface CsvSourceConfig {
   /** Direct URL to the order export, if it is served over plain HTTP. */
@@ -92,39 +31,57 @@ export interface CsvSourceConfig {
   inventoryUrl?: string;
   /** SharePoint drive path for OnHandInventory.csv; empty disables the fetch. */
   inventoryFilePath?: string;
-  /** Direct URL to PODetail.csv. */
-  poUrl?: string;
-  /** SharePoint drive path for PODetail.csv; empty disables the fetch. */
-  poFilePath?: string;
-  /** Direct URL to the dispatch waybill export. */
-  waybillUrl?: string;
-  /** SharePoint drive path for the waybill export; empty disables the fetch. */
-  waybillFilePath?: string;
   /** Direct URL to product-lines.v3.json. */
   productLinesUrl?: string;
   /** Drive path for product-lines.v3.json; empty disables the fetch. It sits
    *  in the same folder as JobMaterialReq.csv. */
   productLinesFilePath?: string;
+  /** Direct URL to PODetail.csv. */
+  poDetailUrl?: string;
+  /** Drive path for PODetail.csv; empty disables the fetch. It sits in the
+   *  same folder as Planning1.csv. */
+  poDetailFilePath?: string;
+  /** Direct URL to the PMD dashboard's Planning.csv. */
+  pressUrl?: string;
+  /** Path of the PMD dashboard's Planning.csv — the press plan, one row per
+   *  press order with its Machine and No of shift; empty disables the fetch. */
+  pressFilePath?: string;
+  /** Direct URL to the dispatch waybill export. */
+  waybillUrl?: string;
+  /** SharePoint drive path for the waybill export; empty disables the fetch. */
+  waybillFilePath?: string;
 }
+
+/** The folder a drive path is in, with its trailing slash. */
+const folderOf = (path: string): string => path.slice(0, path.lastIndexOf('/') + 1);
 
 export function readCsvConfigFromEnv(): CsvSourceConfig {
   const env = import.meta.env;
+  const filePath = env.VITE_ASSEMBLY_PLANNING_CSV_PATH ?? (env.VITE_BACKEND === 'sharepoint' ? '/Shared Documents/Planning1.csv' : env.VITE_PLANNING_CSV_PATH ?? '/Shared Documents/Planning1.csv');
   return {
     url: env.VITE_PLANNING_CSV_URL ?? '',
-    filePath: env.VITE_ASSEMBLY_PLANNING_CSV_PATH ?? (env.VITE_BACKEND === 'sharepoint' ? '/Shared Documents/Planning1.csv' : env.VITE_PLANNING_CSV_PATH ?? '/Shared Documents/Planning1.csv'),
+    filePath,
+    poDetailUrl: env.VITE_PO_DETAIL_CSV_URL ?? '',
+    poDetailFilePath: env.VITE_PO_DETAIL_CSV_PATH ?? `${folderOf(filePath) || '/Shared Documents/'}PODetail.csv`,
     linksUrl: env.VITE_JOB_MATERIAL_CSV_URL ?? '',
     linksFilePath:
       env.VITE_JOB_MATERIAL_CSV_PATH ?? '/Shared Documents/JobMaterialReq.csv',
     inventoryUrl: env.VITE_ON_HAND_INVENTORY_CSV_URL ?? '',
     inventoryFilePath:
       env.VITE_ON_HAND_INVENTORY_CSV_PATH ?? '/Shared Documents/OnHandInventory.csv',
-    poUrl: env.VITE_PO_DETAIL_CSV_URL ?? '',
-    poFilePath: env.VITE_PO_DETAIL_CSV_PATH ?? '',
-    waybillUrl: env.VITE_WAYBILL_CSV_URL ?? '',
-    waybillFilePath: env.VITE_WAYBILL_CSV_PATH ?? '',
     productLinesUrl: env.VITE_PRODUCT_LINES_URL ?? '',
     productLinesFilePath:
       env.VITE_PRODUCT_LINES_PATH ?? '/Shared Documents/product-lines.v3.json',
+    pressUrl: env.VITE_PMD_PLANNING_CSV_URL ?? '',
+    // The PMD dashboard's own file, by default from the setting it is read
+    // with — both builds share one .env.local. Never Planning1.csv itself,
+    // which a development build without the Assembly path falls back to.
+    pressFilePath: (() => {
+      const path = env.VITE_PMD_PLANNING_CSV_PATH ?? env.VITE_PLANNING_CSV_PATH ?? '';
+      return path === filePath ? '' : path;
+    })(),
+    waybillUrl: env.VITE_WAYBILL_CSV_URL ?? '',
+    waybillFilePath: env.VITE_WAYBILL_CSV_PATH ?? '',
   };
 }
 
@@ -154,14 +111,10 @@ export async function fetchPlanningCsv(
   cfg: CsvSourceConfig,
   sp: SharePointConfig,
 ): Promise<Result<string, string>> {
-  const manual = getManualCsv();
-  if (manual !== null) return ok(manual);
-
   const viaGraph = !cfg.url;
   if (viaGraph && !sp.siteUrl) {
     return err(
-      'No Planning1.csv available: set VITE_PLANNING_CSV_URL, configure ' +
-        'SharePoint, or load the file by hand.',
+      'No Planning1.csv available: set VITE_PLANNING_CSV_URL or configure SharePoint.',
     );
   }
   if (viaGraph && !sp.token && sp.authMode !== 'session') {
@@ -181,9 +134,6 @@ export async function fetchJobMaterialCsv(
   cfg: CsvSourceConfig,
   sp: SharePointConfig,
 ): Promise<Result<string | null, string>> {
-  const manual = getManualJobMaterialCsv();
-  if (manual !== null) return ok(manual);
-
   if (cfg.linksUrl) return fetchText('JobMaterialReq.csv', cfg.linksUrl, null);
   if (!cfg.linksFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
 
@@ -205,9 +155,6 @@ export async function fetchProductLinesJson(
   cfg: CsvSourceConfig,
   sp: SharePointConfig,
 ): Promise<Result<string | null, string>> {
-  const manual = getManualProductLinesJson();
-  if (manual !== null) return ok(manual);
-
   if (cfg.productLinesUrl) return fetchText('product-lines.v3.json', cfg.productLinesUrl, null);
   if (!cfg.productLinesFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
 
@@ -220,13 +167,11 @@ export async function fetchProductLinesJson(
   );
 }
 
-/** Optional on-hand export, using the same manual/URL/Graph order as the other files. */
+/** Optional on-hand export, read the same way as the other files. */
 export async function fetchOnHandInventoryCsv(
   cfg: CsvSourceConfig,
   sp: SharePointConfig,
 ): Promise<Result<string | null, string>> {
-  const manual = getManualOnHandInventoryCsv();
-  if (manual !== null) return ok(manual);
   if (cfg.inventoryUrl) return fetchText('OnHandInventory.csv', cfg.inventoryUrl, null);
   if (!cfg.inventoryFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
   return fetchText(
@@ -237,20 +182,37 @@ export async function fetchOnHandInventoryCsv(
 }
 
 /**
- * Optional open-PO export. Off unless a file is picked or a URL or path is
- * set: without it a short component simply has no PO to wait for.
+ * Open purchase-order releases, or `ok(null)` when the site has not put the
+ * export beside Planning1.csv. Optional: without it a short pick line simply
+ * has no arrival date to show.
  */
 export async function fetchPoDetailCsv(
   cfg: CsvSourceConfig,
   sp: SharePointConfig,
 ): Promise<Result<string | null, string>> {
-  const manual = getManualPoDetailCsv();
-  if (manual !== null) return ok(manual);
-  if (cfg.poUrl) return fetchText('PODetail.csv', cfg.poUrl, null);
-  if (!cfg.poFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
+  if (cfg.poDetailUrl) return fetchText('PODetail.csv', cfg.poDetailUrl, null);
+  if (!cfg.poDetailFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
   return fetchText(
     'PODetail.csv',
-    sp.authMode === 'session' ? sessionFile(sp, cfg.poFilePath) : graphFile(sp, cfg.poFilePath),
+    sp.authMode === 'session' ? sessionFile(sp, cfg.poDetailFilePath) : graphFile(sp, cfg.poDetailFilePath),
+    sp.token,
+  );
+}
+
+/**
+ * The PMD press plan, or `ok(null)` when this build has no path for it.
+ * Optional: without it the PMD lane is the press orders Planning1.csv carries,
+ * on one line, as before.
+ */
+export async function fetchPressPlanningCsv(
+  cfg: CsvSourceConfig,
+  sp: SharePointConfig,
+): Promise<Result<string | null, string>> {
+  if (cfg.pressUrl) return fetchText('Planning.csv', cfg.pressUrl, null);
+  if (!cfg.pressFilePath || !sp.siteUrl || (!sp.token && sp.authMode !== 'session')) return ok(null);
+  return fetchText(
+    'Planning.csv',
+    sp.authMode === 'session' ? sessionFile(sp, cfg.pressFilePath) : graphFile(sp, cfg.pressFilePath),
     sp.token,
   );
 }

@@ -42,7 +42,7 @@ export function BarcodeOrderLookup({ board }: { board: AssemblyGanttView | null 
       );
       const blocked = editing || event.isComposing || event.repeat ||
         event.ctrlKey || event.altKey || event.metaKey ||
-        document.visibilityState !== 'visible' || !document.hasFocus();
+        document.documentElement.dataset.mesActive === 'false' || document.visibilityState !== 'visible' || !document.hasFocus();
       if (scanner.push(event.key, event.timeStamp, blocked)) {
         // The scanner's suffix must not activate a focused button or submit a form.
         event.preventDefault();

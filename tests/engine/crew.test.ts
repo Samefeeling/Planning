@@ -15,6 +15,7 @@ import {
   overlapsOnBoard,
   preferredCrewSize,
   suggestCrew,
+  dueTier,
 } from '@/engine/assembly/crew';
 import {
   addDays,
@@ -26,6 +27,7 @@ import { usePlanStore } from '@/store/planStore';
 import {
   MAX_WORKERS_PER_ORDER,
   canWorkKind,
+  rootLineKey,
   type LineKey,
   type Worker,
   type CrewAssignment,
@@ -61,7 +63,7 @@ function board(
   orderStarts: Record<string, string> = {},
 ) {
   const indexes = buildIndexes(dataset);
-  usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs);
+  usePlanStore.getState().reconcile(dataset.workCenters, dataset.jobs, undefined, dataset.jobLinks);
   return computeAssemblyGantt({
     dataset,
     indexes,
@@ -104,7 +106,11 @@ describe('suggestCrew', () => {
         for (const id of crew) {
           const w = byId.get(id)!;
           expect(w.onShift).toBe(true);
-          expect(w.skills).toContain(group.line.key);
+          // The roster names the lane; standing at one of its benches is the
+          // same qualification.
+          expect(w.skills.map(rootLineKey)).toContain(
+            rootLineKey(group.line.key),
+          );
         }
       }
     }
@@ -317,7 +323,7 @@ describe('nobody does two jobs at once', () => {
       String(r.job.id) === first ? { ...r, completedToday: true } : r,
     );
     const other = closed.find(
-      (r) => r.line.key === 'UPL_GLUING' && String(r.job.id) !== first,
+      (r) => r.line.key === 'UPL_CUT_SEW' && String(r.job.id) !== first,
     )!;
     expect(clashesFor(closed, other, 'W01')).toEqual([]);
   });
@@ -328,12 +334,19 @@ describe('current line roster priority', () => {
     const b = board();
     const { allocations } = suggestCrew(b, settle);
 
-    // With nothing booked, matching trades come before roster order.
+    // With nothing booked, matching trades come before roster order. The
+    // first order crewed on a line is its most urgent — least slack first.
+    const slack = (row: OrderRow) =>
+      (row.mustStartBy ?? row.job.dueDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
     for (const group of b.groups) {
       if (!group.line.schedulable) continue;
       const first = [...group.rows]
         .filter((row) => allocations[String(row.job.id)])
-        .sort((a, c) => a.plannedStart.getTime() - c.plannedStart.getTime())[0];
+        .sort((a, c) =>
+          dueTier(a, b.today) - dueTier(c, b.today) ||
+          slack(a) - slack(c) ||
+          (a.job.dueDate?.getTime() ?? 0) - (c.job.dueDate?.getTime() ?? 0) ||
+          a.plannedStart.getTime() - c.plannedStart.getTime())[0];
       if (!first) continue;
 
       const onLine = b.workers.filter(
@@ -402,9 +415,9 @@ describe('crew size and selection policy', () => {
   });
 
   it('prefers the matching trade within a production line', () => {
-    const cutter = { ...person('Cutter', ['UPL_GLUING']), trades: ['cut-sew' as const] };
-    const upholsterer = { ...person('Upholsterer', ['UPL_GLUING']), trades: ['upholstery' as const] };
-    const b = fixture('UPL_GLUING', 4, [cutter, upholsterer]);
+    const cutter = { ...person('Cutter', ['UPL_CUT_SEW']), trades: ['cut-sew' as const] };
+    const upholsterer = { ...person('Upholsterer', ['UPL_CUT_SEW']), trades: ['upholstery' as const] };
+    const b = fixture('UPL_CUT_SEW', 4, [cutter, upholsterer]);
     b.groups[0].rows[0].kind = 'upholstery';
     expect(Object.values(suggestCrew(b).allocations)).toEqual([['Upholsterer']]);
   });
@@ -418,10 +431,58 @@ describe('crew size and selection policy', () => {
     expect(Object.values(suggestCrew(b).allocations)).toEqual([['Available']]);
   });
 
+  it('crews forward: the person free soonest, not the first in the roster', () => {
+    // Both can do it and both are busy. Slow is on another order all week;
+    // Soon comes off theirs tomorrow. Taking Slow — who is first in the
+    // roster — would park the order behind a week of work while Soon sits idle.
+    const b = fixture('ASSY', 4, [person('Slow'), person('Soon')]);
+    const target = { ...b.groups[0].rows[0], plannedStart: TODAY };
+    const busy = (id: string, worker: string, days: number): OrderRow => ({
+      ...target,
+      job: { ...target.job, id: id as never },
+      workers: [person(worker)],
+      start: TODAY,
+      expectDate: addDays(TODAY, days),
+    });
+    (b.groups[0] as { rows: OrderRow[] }).rows = [busy('W1', 'Slow', 5), busy('W2', 'Soon', 1), target];
+    expect(suggestCrew(b).allocations[String(target.job.id)]).toEqual(['Soon']);
+  });
+
+  it('crews the order with the least slack first', () => {
+    // One person, two orders; the one listed first can wait, the other is due
+    // first. Whoever is crewed first gets the person's earliest days.
+    const b = fixture('ASSY', 4, [person('Only')]);
+    const base = b.groups[0].rows[0];
+    const relaxed = { ...base, job: { ...base.job, id: 'RELAXED' as never, dueDate: addDays(TODAY, 20) }, mustStartBy: addDays(TODAY, 19) };
+    const urgent = { ...base, job: { ...base.job, id: 'URGENT' as never, dueDate: addDays(TODAY, 3) }, mustStartBy: addDays(TODAY, 2) };
+    (b.groups[0] as { rows: OrderRow[] }).rows = [relaxed, urgent];
+    // Without a re-plan only the first round runs: one order per line.
+    expect(Object.keys(suggestCrew(b).allocations)).toEqual(['URGENT']);
+  });
+
+  it('crews what is due within two weeks before anything due later, whatever its slack', () => {
+    // FAR is a long order due in three weeks, so it must start sooner than
+    // NEAR — but NEAR is due within two weeks, and those go first.
+    const b = fixture('ASSY', 4, [person('Only')]);
+    const base = b.groups[0].rows[0];
+    const far = { ...base, job: { ...base.job, id: 'FAR' as never, dueDate: addDays(TODAY, 21) }, mustStartBy: addDays(TODAY, 4) };
+    const near = { ...base, job: { ...base.job, id: 'NEAR' as never, dueDate: addDays(TODAY, 10) }, mustStartBy: addDays(TODAY, 9) };
+    (b.groups[0] as { rows: OrderRow[] }).rows = [far, near];
+    expect(Object.keys(suggestCrew(b).allocations)).toEqual(['NEAR']);
+  });
+
+  it('bands Due Dates at two, four and eight weeks, late ones in the first', () => {
+    const at = (days: number | null) =>
+      ({ job: { dueDate: days === null ? null : addDays(TODAY, days) } }) as unknown as OrderRow;
+    expect([-3, 0, 14, 15, 28, 29, 56, 57, null].map((d) => dueTier(at(d), TODAY)))
+      .toEqual([0, 0, 0, 1, 1, 2, 2, 3, 4]);
+  });
+
   it('leaves an order without a line roster waiting and ignores zero work', () => {
     const waiting = fixture('TABLE', 20, [person('OtherLine')]);
-    expect(suggestCrew(waiting)).toEqual({ allocations: {}, staffed: 0, unstaffed: 1 });
+    const id = String(waiting.groups[0].rows[0].job.id);
+    expect(suggestCrew(waiting)).toMatchObject({ allocations: {}, staffed: 0, unstaffed: 1, left: [id] });
     const empty = fixture('ASSY', 0, [person('Available')]);
-    expect(suggestCrew(empty)).toEqual({ allocations: {}, staffed: 0, unstaffed: 0 });
+    expect(suggestCrew(empty)).toMatchObject({ allocations: {}, staffed: 0, unstaffed: 0, left: [] });
   });
 });

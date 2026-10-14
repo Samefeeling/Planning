@@ -9,10 +9,17 @@
  */
 
 import { create } from 'zustand';
+import { bookedLabourHours } from '@/engine/assembly/shift';
+import { fromDayKey, toDayKey } from '@/lib/time';
+import { withLeave } from '@/engine/assembly/attendance';
 import { manualJob, type ManualOrder } from '@/domain/manualOrder';
+import { DEFAULT_CREW_RULES, readCrewRules, type CrewRules } from '@/domain/crewRules';
+import { setActiveCrewRules } from '@/engine/assembly/crew';
 import type { JobId } from '@/domain/ids';
-import type { Job, WorkCenter } from '@/domain/types';
+import type { Job, JobMaterialLink, WorkCenter } from '@/domain/types';
+import { expandRouting } from '@/engine/assembly/routing';
 import {
+  DEFAULT_CREW_POOLS,
   LINES,
   MAX_WORKERS_PER_ORDER,
   arrangeLines,
@@ -21,6 +28,7 @@ import {
   virtualLineDef,
   virtualLineKey,
   type CrewAssignment,
+  type CrewPool,
   type LineKey,
   type VirtualLine,
   type VirtualLineKey,
@@ -74,6 +82,32 @@ export type PauseReason =
 export interface ProductionEntry {
   laborHours?: number;
   date: string;
+  /**
+   * A random key the booking was given when first saved.
+   *
+   * No longer what the row is written under: two boards booking one order on
+   * one day held two of these, so the list's unique index on `RecordKey` had
+   * nothing to refuse and both opened a row. The row key is now worked out
+   * from the order, operation and day (`production.sync` `keyFor`); this is
+   * kept so a row written under it is still recognised, once, and re-keyed.
+   */
+  recordKey?: string;
+  /**
+   * When Save Entry was pressed. The end of the measurement below, and the
+   * audit trail for a figure the KPI page reports as hours worked.
+   */
+  savedAt?: string;
+  /**
+   * Labour hours this booking consumed: how long the crew were on the order
+   * that day, times how many of them there were.
+   *
+   * Measured rather than allowed — `crewSize × 7.5` is what the crew *could*
+   * have given the order, and this is what it took, which is what Efficiency
+   * has to be divided by. See `bookedLabourHours` for where the clock starts
+   * on a day that is not the order's first. Support work has no clock: the
+   * hours are typed in, and they are this figure.
+   */
+  bookedHours?: number;
   /** Quantity confirmed complete during the shift. */
   complete: number;
   reject: number;
@@ -117,12 +151,42 @@ interface PlanState {
   /** Supervisor-owned current production line for each operator. */
   workerLines: Record<string, LineKey>;
   /**
+   * Worker id → the local days they are away, marked on the board.
+   *
+   * A *record*, not a plan: the seven-ten phone call saying Tom has flu is not
+   * an opinion two supervisors can hold different versions of, and it is not
+   * something to lose because whoever took the call walked away from the
+   * screen without pressing Save. So it is written the moment it is made, the
+   * same as a booked shift — see `persistence/planParts`.
+   *
+   * Dated rather than a flag, so a hospital appointment known on Monday can be
+   * put in on Monday. The roster's own `onShift` and `plannedLeave` say the
+   * same thing from the other side; `engine/assembly/attendance` is where the
+   * three are read as one answer.
+   */
+  workerOnLeave: Record<string, string[]>;
+  /**
    * Lines the supervisor set up on the floor, beyond the eight the plant is
    * built as. Part of the plan, not of this browser: a second bench opened for
    * a rush is a fact about the week, and everyone reading the board has to see
    * the same one.
    */
   virtualLines: VirtualLine[];
+  /**
+   * What this floor calls each line, where it calls it something else.
+   *
+   * The eight were named by the plant and the benches under two of them by
+   * the process, and neither is what every shift says out loud. A name is a
+   * fact about the board rather than about this browser — the whole floor
+   * reads the same one — so it travels with the plan and is published by
+   * Save like the rest of the planning.
+   *
+   * Keyed by line key, and only lines that were actually renamed are in here:
+   * the built-in name is the default, so clearing a rename restores it.
+   */
+  lineNames: Record<string, string>;
+  /** Rename a line. An empty name puts the built-in one back. */
+  renameLine: (key: LineKey, name: string) => void;
   /** Open a new line. Returns its key, or null when the name is taken/blank. */
   addVirtualLine: (name: string) => VirtualLineKey | null;
   /** Close one, tipping whatever is on it back into the unplaced pool. */
@@ -136,6 +200,19 @@ interface PlanState {
    * Empty on a plan nobody has arranged, which means the built-in order.
    */
   lineOrder: LineKey[];
+  /**
+   * The crews and the lines each shares — what a day on the board can deliver.
+   * In the plan, like the line order: it is a fact about the floor.
+   */
+  crewPools: CrewPool[];
+  setCrewPools: (pools: CrewPool[]) => void;
+  /**
+   * What Crew orders works by: which orders it leaves alone, how big a team,
+   * who may be on it. In the plan, like the crews: every screen that presses
+   * the button has to crew the same way. See `domain/crewRules`.
+   */
+  crewRules: CrewRules;
+  setCrewRules: (rules: CrewRules) => void;
   /**
    * Put one line where another currently is, the way a dragged list item lands:
    * dropped on a line below, it comes to rest under that line; dropped on one
@@ -186,7 +263,21 @@ interface PlanState {
    * in case it comes back, and file genuinely new jobs onto their workbook line
    * (or the pool). Idempotent — safe to call on every load.
    */
-  reconcile: (workCenters: WorkCenter[], jobs: Job[], now?: Date) => void;
+  /**
+   * Take in a fresh export: file its orders, retire the ones that have gone,
+   * and seed anything new with whatever the source already knows about it.
+   *
+   * `jobLinks` is read only to work out the routes — which bench each order on
+   * a benched line has reached — so that the plan is keyed the same way the
+   * board is. Leave it out and those orders are filed against their lane, as
+   * they were before the lanes had benches.
+   */
+  reconcile: (
+    workCenters: WorkCenter[],
+    jobs: Job[],
+    now?: Date,
+    jobLinks?: JobMaterialLink[],
+  ) => void;
   /** Replace the whole layout (e.g. loaded from persistence). */
   setContainers: (containers: Containers) => void;
   /** Put a worker on an order (no-op when full or already on it). */
@@ -215,8 +306,23 @@ interface PlanState {
   assignCrews: (allocations: Record<string, string[]>) => void;
   /** Move an operator's current roster position without rewriting recorded work. */
   moveWorkerToLine: (workerId: string, line: LineKey) => void;
+  /**
+   * Mark somebody away for a day, or take the mark off.
+   *
+   * Deliberately does not touch a single crew allocation. The order they were
+   * half-way through is still theirs; what changes is that the schedule stops
+   * counting hours nobody is going to work, and the board says on the row who
+   * is missing from it.
+   */
+  setWorkerOnLeave: (workerId: string, day: string, away: boolean) => void;
   /** Pin an order's bar to a start day (null clears the pin). */
   setOrderStart: (jobId: JobId, isoDay: string | null) => void;
+  /**
+   * Pin, or (null) release, several orders' starts in one write — a level
+   * loading run and its undo. One write rather than one per order: every
+   * change to the plan is saved and synced, and a run of forty is one edit.
+   */
+  setOrderStarts: (starts: Record<string, string | null>) => void;
   startOrder: (jobId: JobId, record: ActualStartRecord) => void;
   /** Approve, or withdraw, weekend working on one order. */
   setOvertime: (jobId: JobId, approved: boolean) => void;
@@ -227,6 +333,22 @@ interface PlanState {
     entry: ProductionEntry,
     source: ProgressBaseline,
   ) => void;
+  /**
+   * Take the completion back off an order that was closed by mistake.
+   *
+   * Closing an order is the one booking that cannot be corrected by booking
+   * again: it greys the bar, locks the entry form and releases the crew, and
+   * the next calendar day takes the order off the board altogether. So the
+   * wrong job number, or a shift that ticked the box before the last pack was
+   * built, used to need somebody in the SharePoint list.
+   *
+   * This is the way back. The quantities stay exactly as they were booked —
+   * they are usually right, and the shift corrects them in the entry form
+   * afterwards — and the crew the closing shift recorded goes back on the
+   * order, because releasing them is what closing it did. What it does not do
+   * is invent a history: an order that was never closed is left alone.
+   */
+  reopenOrder: (jobId: JobId) => void;
   /** Replace the assembly plan wholesale (e.g. loaded from persistence). */
   setAssemblyPlan: (plan: {
     /** Only read, never written: the older shape, migrated on the way in. */
@@ -234,8 +356,20 @@ interface PlanState {
     manualOrders?: Record<string, ManualOrder>;
     orderWorkers?: Record<string, string[]>;
     workerLines?: Record<string, LineKey>;
+    workerOnLeave?: Record<string, string[]>;
+    /**
+     * Only read, never written: what `workerOnLeave` was called for the first
+     * day it existed. A plan saved in that window still carries it, and a
+     * supervisor's morning of phone calls is not worth dropping over a name.
+     * Safe to delete once no stored plan is older than `PLAN_RETENTION_DAYS`.
+     */
+    workerAbsence?: Record<string, string[]>;
     virtualLines?: VirtualLine[];
+    lineNames?: Record<string, string>;
     lineOrder?: LineKey[];
+    crewPools?: CrewPool[];
+    /** Read through `readCrewRules`, so a stored plan cannot hand the engine nonsense. */
+    crewRules?: unknown;
     orderCrewAssignments?: Record<string, CrewAssignment[]>;
     orderStarts?: Record<string, string>;
     orderActualStarts?: Record<string, ActualStartRecord>;
@@ -332,6 +466,17 @@ const plannedJobIds = (state: PlanState): Set<string> => {
 
 const MIN_DAY = '0000-00-00';
 
+/**
+ * A key for one booking's row, unique and meaningless — which is the point.
+ * `crypto.randomUUID` where the browser has it, and a timestamp with enough
+ * randomness after it where it does not; the board only ever compares these,
+ * never reads them.
+ */
+const newRecordKey = (): string =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+
 const fullAssignments = (workers: string[]): CrewAssignment[] =>
   workers.slice(0, MAX_WORKERS_PER_ORDER).map((workerId) => ({
     workerId,
@@ -366,8 +511,12 @@ const withinCrewLimit = (assignments: CrewAssignment[]): boolean => {
 export const usePlanStore = create<PlanState>((set, get) => ({
   containers: { [POOL_ID]: [] },
   workerLines: {},
+  workerOnLeave: {},
   virtualLines: [],
+  lineNames: {},
   lineOrder: [],
+  crewPools: DEFAULT_CREW_POOLS,
+  crewRules: DEFAULT_CREW_RULES,
   orderCrewAssignments: {},
   orderStarts: {},
   orderActualStarts: {},
@@ -386,8 +535,21 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   },
 
 
-  reconcile(workCenters, jobs, now = new Date()) {
+  reconcile(workCenters, jobs, now = new Date(), jobLinks = []) {
     set((state) => {
+      /*
+       * An order on a benched line is filed at the operation it has reached,
+       * not at its lane: the board draws it there, its crew is allocated
+       * there, and a plan keyed any other way would be a plan about rows that
+       * do not exist. Which operation that is comes from what has been booked,
+       * which this store is holding.
+       */
+      jobs = expandRouting(jobs, jobLinks, {
+        done: (rowId) =>
+          (state.progress[rowId] ?? []).reduce((sum, e) => sum + e.qty, 0),
+        closed: (rowId) =>
+          (state.production[rowId] ?? []).some((e) => e.jobCompleted),
+      });
       jobs = [...jobs, ...Object.values(state.manualOrders).map(manualJob)];
       // The lines the supervisor added are the plan's own, so it supplies them
       // rather than waiting for an export that will never carry them.
@@ -636,11 +798,38 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     });
   },
 
+  setWorkerOnLeave(workerId, day, away) {
+    set((state) => ({
+      workerOnLeave: withLeave(
+        state.workerOnLeave,
+        workerId,
+        day,
+        away,
+        // The same fortnight the rest of the plan keeps. Who was off three
+        // weeks ago is a question for the attendance system, not the board.
+        toDayKey(
+          new Date(Date.now() - PLAN_RETENTION_DAYS * 24 * 60 * 60 * 1000),
+        ),
+      ),
+    }));
+  },
+
   setOrderStart(jobId, isoDay) {
     set((state) => {
       const orderStarts = { ...state.orderStarts };
       if (isoDay === null) delete orderStarts[String(jobId)];
       else orderStarts[String(jobId)] = isoDay;
+      return { orderStarts };
+    });
+  },
+
+  setOrderStarts(starts) {
+    set((state) => {
+      const orderStarts = { ...state.orderStarts };
+      for (const [jobId, isoDay] of Object.entries(starts)) {
+        if (isoDay === null) delete orderStarts[jobId];
+        else orderStarts[jobId] = isoDay;
+      }
       return { orderStarts };
     });
   },
@@ -699,10 +888,36 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         !quantities.every((value) => Number.isFinite(value) && value >= 0) ||
         (entry.jobCompleted && !entry.completedAt)
       ) return state;
+      const held = (state.production[key] ?? []).find(
+        (existing) => existing.date === entry.date,
+      );
+      const operatorIds = entry.operatorIds ?? actualStart.operatorIds;
+      const savedAt = entry.savedAt ?? new Date().toISOString();
       const savedEntry: ProductionEntry = {
         ...entry,
-        operatorIds: entry.operatorIds ?? actualStart.operatorIds,
+        operatorIds,
         operatorNames: entry.operatorNames ?? actualStart.operatorNames,
+        savedAt,
+        /*
+         * The row's key: the one this day already has, else a new one. Kept
+         * across a re-save so the booking goes on owning the row it opened —
+         * a new key every save would leave the old row behind and open
+         * another, which is the duplicate this key exists to prevent.
+         */
+        recordKey: held?.recordKey ?? entry.recordKey ?? newRecordKey(),
+        /*
+         * Support work is measured in the hours somebody enters, not on a
+         * clock: its crew are on and off it through the day and the figure
+         * they type is the answer. Everything else is timed.
+         */
+        bookedHours:
+          entry.laborHours ??
+          bookedLabourHours(
+            fromDayKey(entry.date),
+            new Date(actualStart.startedAt),
+            new Date(savedAt),
+            operatorIds.length,
+          ),
       };
       const productionEntries = (state.production[key] ?? []).filter(
         (existing) => existing.date !== savedEntry.date,
@@ -734,6 +949,48 @@ export const usePlanStore = create<PlanState>((set, get) => ({
           : { ...state.progressBaselines, [key]: source },
         orderCrewAssignments,
         orderDoubleBooked,
+      };
+    });
+  },
+
+  reopenOrder(jobId) {
+    set((state) => {
+      const key = String(jobId);
+      const entries = state.production[key] ?? [];
+      const closed = entries.filter((entry) => entry.jobCompleted);
+      if (closed.length === 0) return state;
+      const production = {
+        ...state.production,
+        [key]: entries.map((entry) =>
+          entry.jobCompleted
+            ? { ...entry, jobCompleted: false, completedAt: null }
+            : entry,
+        ),
+      };
+      // Put the closing shift's people back on the order. Derived crew would
+      // draw the same names on the board, but only a written allocation can be
+      // added to or taken from — the first person the supervisor then dragged
+      // on would otherwise arrive as the *only* one on it.
+      const recorded =
+        [...closed].sort((a, b) => a.date.localeCompare(b.date)).at(-1)
+          ?.operatorIds ?? [];
+      const orderCrewAssignments =
+        state.orderCrewAssignments[key] || recorded.length === 0
+          ? state.orderCrewAssignments
+          : {
+              ...state.orderCrewAssignments,
+              [key]: fullAssignments(recorded.map(String)),
+            };
+      return { production, orderCrewAssignments };
+    });
+  },
+
+  renameLine(key, name) {
+    const clean = name.trim().replace(/\s+/g, ' ').slice(0, 32);
+    set((state) => {
+      const { [String(key)]: _dropped, ...rest } = state.lineNames;
+      return {
+        lineNames: clean ? { ...rest, [String(key)]: clean } : rest,
       };
     });
   },
@@ -781,6 +1038,21 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     });
   },
 
+  setCrewPools(pools) {
+    set({
+      crewPools: pools.map((pool) => ({
+        ...pool,
+        name: pool.name.slice(0, 32),
+        people: Math.max(0, Math.round(Number(pool.people) || 0)),
+        lines: [...new Set(pool.lines)],
+      })),
+    });
+  },
+
+  setCrewRules(rules) {
+    set({ crewRules: readCrewRules(rules) });
+  },
+
   removeVirtualLine(key) {
     set((state) => {
       if (!state.virtualLines.some((line) => line.key === key)) return state;
@@ -824,10 +1096,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         lineLayoutVersion: plan.lineLayoutVersion ?? 0,
         manualOrders: plan.manualOrders ?? state.manualOrders,
         workerLines: plan.workerLines ?? state.workerLines,
+        workerOnLeave:
+          plan.workerOnLeave ?? plan.workerAbsence ?? state.workerOnLeave,
         virtualLines: plan.virtualLines ?? state.virtualLines,
+        lineNames: plan.lineNames ?? state.lineNames,
         // A plan saved before the lines could be arranged carries none, which
         // reads as the built-in order rather than as an empty board.
         lineOrder: plan.lineOrder ?? state.lineOrder,
+        crewPools: plan.crewPools ?? state.crewPools,
+        crewRules: plan.crewRules !== undefined ? readCrewRules(plan.crewRules) : state.crewRules,
         orderCrewAssignments,
         orderStarts: plan.orderStarts ?? state.orderStarts,
         orderActualStarts: plan.orderActualStarts ?? state.orderActualStarts,
@@ -862,3 +1139,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     return null;
   },
 }));
+
+// The engine draws an unstaffed order's box at the crew the rules give it.
+usePlanStore.subscribe((state, previous) => {
+  if (state.crewRules !== previous.crewRules) setActiveCrewRules(state.crewRules);
+});

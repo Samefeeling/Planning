@@ -3,12 +3,17 @@
 import type { OrderRow } from '@/engine/assembly/board';
 import {
   addCalendarDays,
+  isClosed,
   isWeekend,
+  nextWorkingDay,
+  prevWorkingDay,
   startOfDay,
   wholeDaysBetween,
 } from '@/engine/assembly/dates';
 import type { LineKey, Worker } from '@/domain/assembly';
-import { toDayKey } from '@/lib/time';
+import { workersOnLeave, type LeaveDays } from '@/engine/assembly/attendance';
+import { formatDay, fromDayKey, toDayKey } from '@/lib/time';
+import type { IncomingSupply, PickShortage } from '@/engine/assembly/pickShortage';
 import {
   DRAG_STEP_MINUTES,
   SHIFT_SPAN_MINUTES,
@@ -17,6 +22,11 @@ import {
   nextWorkingMoment,
   shiftColumnFraction,
 } from '@/engine/assembly/shift';
+import { rowIndex } from './rowIndex';
+import { jobNumOf } from '@/domain/routing';
+import { preferredCrewSize } from '@/engine/assembly/crew';
+import { durationDays, remainingHours } from '@/engine/assembly/duration';
+import { subWorkingDays } from '@/engine/assembly/dates';
 
 export type OrderSortKey = 'start' | 'due';
 export type SortDirection = 'asc' | 'desc';
@@ -83,7 +93,7 @@ export function isRunningOnDay(row: OrderRow, day: Date): boolean {
     return row.crewDays.some((entry) => entry.day === key && entry.hours > 0);
   }
   if (row.completedToday || !row.start || !row.expectDate) return false;
-  if (row.line.schedulable && isWeekend(day) && !row.overtime) return false;
+  if (row.line.schedulable && isClosed(day) && !row.overtime) return false;
   return row.start < addCalendarDays(startOfDay(day), 1) &&
     row.expectDate > startOfDay(day);
 }
@@ -149,10 +159,18 @@ export function timelineDayOffset(
   date: Date,
   horizonStart: Date,
   showWeekends: boolean,
+  /**
+   * Read the column as the whole day, 00:00 to 24:00, instead of the white
+   * shift: the presses run round the clock, so a press order starting at 19:00
+   * is drawn four fifths of the way across its day, not pinned to the edge.
+   */
+  fullDay = false,
 ): number {
   const origin = startOfDay(horizonStart);
   const target = startOfDay(date);
-  const fraction = shiftColumnFraction(date);
+  const fraction = fullDay
+    ? (date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60) / 1440
+    : shiftColumnFraction(date);
   if (showWeekends) return wholeDaysBetween(target, origin) + fraction;
 
   let offset = 0;
@@ -272,7 +290,7 @@ export function withPredecessors(
   rows: OrderRow[],
   chosen: (row: OrderRow) => boolean,
 ): Set<string> {
-  const byId = new Map(rows.map((row) => [String(row.job.id), row]));
+  const byId = rowIndex(rows);
   const keep = new Set<string>();
   const queue: string[] = [];
   for (const row of rows) {
@@ -305,9 +323,9 @@ export function withPredecessors(
  */
 export function dueWithin(today: Date, count: number): Date {
   let cursor = startOfDay(today);
-  for (let found = isWeekend(cursor) ? 0 : 1; found < Math.max(1, count); ) {
+  for (let found = isClosed(cursor) ? 0 : 1; found < Math.max(1, count); ) {
     cursor = addCalendarDays(cursor, 1);
-    if (!isWeekend(cursor)) found++;
+    if (!isClosed(cursor)) found++;
   }
   // Through the end of that day, so an order due on it is included.
   return addCalendarDays(cursor, 1);
@@ -326,11 +344,79 @@ export function isDueSoon(row: OrderRow, today: Date, count = 2): boolean {
   return row.job.dueDate < dueWithin(today, count);
 }
 
-/** Today's available roster and unique allocations, across the whole board. */
-export function teamSummary(workers: Worker[], rows: OrderRow[], today: Date) {
-  const key = toDayKey(today);
+/**
+ * The ids a date filter leaves on screen, or null when there is no filter.
+ *
+ * Worked out across the whole board rather than line by line, because what
+ * an order waits for is usually on another line — the press work on PMD,
+ * most often — and a chain cut at the line boundary is what made the arrows
+ * come and go as bars were dragged. Two narrowings, and an order has to
+ * satisfy both; each keeps whatever the orders it shows are waiting for.
+ */
+export function filteredOrderIds(
+  rows: OrderRow[],
+  filter: { orderDay: string | null; dueSoon: boolean; dueSoonDays: number; today: Date },
+): Set<string> | null {
+  const chosen: ((row: OrderRow) => boolean)[] = [];
+  const { orderDay } = filter;
+  if (orderDay) {
+    const day = fromDayKey(orderDay);
+    chosen.push((row) => row.line.schedulable && isRunningOnDay(row, day));
+  }
+  if (filter.dueSoon) {
+    chosen.push(
+      (row) => row.line.schedulable && isDueSoon(row, filter.today, filter.dueSoonDays),
+    );
+  }
+  if (chosen.length === 0) return null;
+  const selected = withPredecessors(rows, (row) => chosen.every((f) => f(row)));
+  // Daily Assembly filtering excludes PMD, including PMD predecessors.
+  if (orderDay) {
+    for (const row of rows) if (!row.line.schedulable) selected.delete(String(row.job.id));
+  }
+  return selected;
+}
+
+/**
+ * The orders the board is showing: on a line nobody has taken off it, and
+ * through whatever date filter is on. A folded line still counts — its orders
+ * are summed on its row, not gone from the view.
+ */
+export function rowsInView(
+  groups: readonly { line: { key: LineKey; parent?: LineKey | null; schedulable: boolean }; rows: OrderRow[] }[],
+  view: { hiddenLines: readonly LineKey[]; ids: ReadonlySet<string> | null; orderDay: string | null },
+): OrderRow[] {
+  return groups
+    .filter(
+      (g) =>
+        !view.hiddenLines.includes(g.line.key) &&
+        !(g.line.parent && view.hiddenLines.includes(g.line.parent)) &&
+        (!view.orderDay || g.line.schedulable),
+    )
+    .flatMap((g) => (view.ids ? g.rows.filter((r) => view.ids!.has(String(r.job.id))) : g.rows));
+}
+
+/**
+ * Today's roster, split three ways: on an order, on site with nothing on, and
+ * not in at all.
+ *
+ * The third list is the one the board used to have nowhere to put. Somebody
+ * marked off simply left the ratio — "11 of 14" quietly became "10 of 13" —
+ * and the two orders they were half-way through said nothing about it. Free
+ * and On Leave are the two halves of the same morning question, which is why
+ * they are worked out together and shown side by side: one is who can pick
+ * something up, the other is what has been put down.
+ */
+export function teamSummary(
+  workers: Worker[],
+  rows: OrderRow[],
+  today: Date,
+  leave: LeaveDays = {},
+) {
+  const out = workersOnLeave(workers, leave, today);
+  const outIds = new Set(out.map((worker) => String(worker.id)));
   const attendance = workers.filter(
-    (worker) => worker.onShift && !worker.plannedLeave?.includes(key),
+    (worker) => !outIds.has(String(worker.id)),
   );
   const active = activeWorkerIdsOnDay(rows, today);
   const free = attendance.filter((worker) => !active.has(String(worker.id)));
@@ -340,7 +426,173 @@ export function teamSummary(workers: Worker[], rows: OrderRow[], today: Date) {
     : `${allocated}/${attendance.length} ${free.length === 0
       ? 'All allocated'
       : `Free ${free.length}: ${free.map((worker) => worker.name).join(', ')}`}`;
-  return { allocated, total: attendance.length, attendance, free, label };
+  return {
+    allocated,
+    total: attendance.length,
+    attendance,
+    free,
+    onLeave: out,
+    label,
+  };
+}
+
+/** Is anyone actually planned to work this order on `day`? */
+export function crewedOnDay(row: OrderRow, day: Date): boolean {
+  const key = toDayKey(day);
+  return row.crewDays.some(
+    (crewDay) => crewDay.day === key && crewDay.workerIds.length > 0,
+  );
+}
+
+/** Has this order been picked up on the floor — started, or booked against? */
+export function hasBegun(row: OrderRow): boolean {
+  return Boolean(row.actualStart) || row.booked.some((day) => day.qty > 0);
+}
+
+/**
+ * Where an order with no bar is drawn: the stretch it needs before its Due
+ * Date, so the box that says why it has no bar also says when it has to be
+ * picked up.
+ *
+ * `to` is the Due Date and `from` the last moment the work can begin and
+ * still finish by it, at the crew Crew orders would give it (see
+ * `preferredCrewSize`) — the same window a planner is filling when they crew
+ * it. Neither is ever before the order could actually begin (`plannedStart`:
+ * today, or when what it waits on is ready). `late` says even that is too
+ * late: the order cannot make its Due Date whoever is put on it, and the box
+ * sits at the day it can start instead.
+ *
+ * null with no Due Date: nothing to place it against.
+ */
+export function unstaffedWindow(
+  row: OrderRow,
+): { from: Date; to: Date; late: boolean } | null {
+  const due = row.job.dueDate;
+  if (!due) return null;
+  const floor = row.plannedStart;
+  if (row.startPinned) {
+    /*
+     * A start somebody fixed — by hand, or a level-loading run — is a
+     * decision about when the order runs, so it is drawn from that day for as
+     * many whole days as the work takes rather than tucked up against the Due
+     * Date. Without a crew there is still no bar; this is the box.
+     */
+    const span = unstaffedSpanDays(row);
+    let last = startOfDay(floor);
+    if (row.overtime) {
+      // Weekend overtime approved: it runs straight through, as its bar would.
+      last = addCalendarDays(last, span - 1);
+    } else {
+      if (isClosed(last)) last = nextWorkingDay(last);
+      for (let i = 1; i < span; i++) last = nextWorkingDay(addCalendarDays(last, 1));
+    }
+    return {
+      from: floor,
+      to: addCalendarDays(last, 1),
+      late: last > lastWorkingDayFor(due),
+    };
+  }
+  const days = durationDays(row.job, Math.max(1, preferredCrewSize(row))) ?? 0;
+  const latest = subWorkingDays(due, days);
+  if (due <= floor) return { from: floor, to: floor, late: true };
+  return { from: latest > floor ? latest : floor, to: due, late: latest < floor };
+}
+
+/**
+ * Whole working days an order with nobody on it is drawn over: its hours at
+ * the crew Crew orders would give it, rounded up to the day. The one number
+ * both the pinned box and level loading use, so a run that plans an order for
+ * three days finds it drawn for three.
+ */
+export function unstaffedSpanDays(row: OrderRow): number {
+  const days = durationDays(row.job, Math.max(1, preferredCrewSize(row))) ?? 0;
+  return Math.max(1, Math.ceil(days - 1e-9));
+}
+
+/**
+ * The last working day an unfinished order may still be worked on and make its
+ * Due Date. A Due Date carrying no time of day is a deadline at the *start* of
+ * that day — the same reading the box that ends on it has always had — so the
+ * last day is the working day before it; one carrying a time is met by work
+ * on that day itself, or on the working day before it when the factory is
+ * shut that day.
+ */
+export function lastWorkingDayFor(due: Date): Date {
+  const day = startOfDay(due);
+  const bare = due.getTime() === day.getTime();
+  if (bare || isClosed(day)) return prevWorkingDay(day);
+  return day;
+}
+
+/**
+ * The orders a Released Only board plans with: every order Epicor has
+ * released (JobHead_JobReleased), plus the few an unreleased flag must not
+ * take off the board —
+ *
+ *   - one already begun on the floor: it is at the line whatever the flag
+ *     says, and hiding it would hide work in progress and its crew;
+ *   - one a kept order waits for, all the way up the chain: a released order
+ *     drawn without the work it waits on would plan as if it could start now.
+ *
+ * A blank flag (`released: null` — the column missing or empty) is not
+ * "unreleased" and stays. Returns the job ids to keep, as order numbers, so
+ * every operation row of a routed order goes with it.
+ */
+export function releasedOrderNumbers(rows: readonly OrderRow[]): Set<string> {
+  const kept = withPredecessors([...rows], (row) => row.job.released !== false || hasBegun(row));
+  return new Set([...kept].map(jobNumOf));
+}
+
+/**
+ * Orders somebody's absence has left standing: begun on the floor, not
+ * finished, and with nobody on them today because the people who were are not
+ * in.
+ *
+ * Not the same list as "needs a crew", and much more urgent than it. An order
+ * with nobody on it has not started and is waiting its turn; one of these is
+ * half built, holding a build position, and will hold it until somebody is
+ * told to pick it up. The board had no way of saying so: the row still showed
+ * a full crew, because the crew is still on it — they are simply not here.
+ */
+export function strandedOrders(rows: OrderRow[], today: Date): OrderRow[] {
+  return rows.filter(
+    (row) =>
+      row.line.schedulable &&
+      !row.completedToday &&
+      (row.crewOnLeaveToday?.length ?? 0) > 0 &&
+      hasBegun(row) &&
+      !crewedOnDay(row, today),
+  );
+}
+
+/** Orders each absent person has left behind today, by worker id. */
+export function onLeaveWorkerOrders(
+  rows: OrderRow[],
+  today: Date,
+): Map<string, OrderRow[]> {
+  const stranded = new Set(
+    strandedOrders(rows, today).map((row) => String(row.job.id)),
+  );
+  const by = new Map<string, OrderRow[]>();
+  for (const row of rows) {
+    for (const worker of row.crewOnLeaveToday ?? []) {
+      const id = String(worker.id);
+      by.set(id, [...(by.get(id) ?? []), row]);
+    }
+  }
+  // Whatever nobody else is covering first: that is what the supervisor has to
+  // do something about, and a list is read from the top.
+  for (const [id, mine] of by) {
+    by.set(
+      id,
+      [...mine].sort(
+        (a, b) =>
+          Number(stranded.has(String(b.job.id))) -
+          Number(stranded.has(String(a.job.id))),
+      ),
+    );
+  }
+  return by;
 }
 
 /** Workers actually allocated on one day; future allocations do not count. */
@@ -423,6 +675,118 @@ export function barTag(bar: {
   };
 }
 
+/** Short lines spelled out on a hover before it says "and N more". */
+const SHORT_LINES_ON_HOVER = 6;
+
+/** What is on order for a short line, in one phrase. */
+export function incomingText(incoming: IncomingSupply | null): string {
+  if (!incoming) return 'nothing on order';
+  const date = incoming.availableDate ? formatDay(incoming.availableDate) : 'no date';
+  const po = incoming.releases.find((r) => r.availableDate === incoming.availableDate)?.poNum;
+  const shared = incoming.heldEarlier > 0
+    ? ` (${incoming.heldEarlier} of it already for orders ahead)`
+    : '';
+  return incoming.coversShort
+    ? `${incoming.qty} on order${shared}, available ${date}${po ? ` (PO ${po})` : ''}`
+    : `${incoming.qty} on order${shared} — not enough left for this order` +
+      (incoming.availableDate ? ` (part by ${date})` : '');
+}
+
+/**
+ * Every short line with what is on order for it, so the hover answers the
+ * question a shortage raises: when can this order be picked? Nothing when the
+ * pick list is covered.
+ */
+function shortageLines(short: readonly PickShortage[]): string[] {
+  if (short.length === 0) return [];
+  const shown = short.slice(0, SHORT_LINES_ON_HOVER);
+  const rest = short.length - shown.length;
+  const arrivals = short.map((s) => s.incoming);
+  const ready = arrivals.every((a) => a?.coversShort && a.availableDate)
+    ? arrivals.reduce<Date | null>(
+        (latest, a) => (!latest || a!.availableDate! > latest ? a!.availableDate! : latest),
+        null,
+      )
+    : null;
+  return [
+    `${short.length} line${short.length === 1 ? '' : 's'} of the pick list ` +
+      'cannot be covered by what is on hand:',
+    ...shown.map((s) => `• ${String(s.part)} short ${s.shortQty} ` +
+      `(needs ${s.requiredQty}, ${s.onHand} on hand` +
+      (s.heldEarlier > 0 ? `, ${s.heldEarlier} of it for orders ahead` : '') +
+      `) — ${incomingText(s.incoming)}`),
+    ...(rest > 0 ? [`• and ${rest} more`] : []),
+    ready
+      ? `All material available by ${formatDay(ready)} — it is not scheduled to start before then`
+      : 'Not every shortfall is covered by an open purchase order',
+  ];
+}
+
+export interface MissingBar {
+  /** What the placeholder reads, in the grid, where the bar would have been. */
+  label: string;
+  /** The whole story on hover — every reason, not only the one named. */
+  title: string;
+  /** Material is the named reason, so the placeholder is marked as such. */
+  material: boolean;
+}
+
+/**
+ * Why an order has no bar, and what the planner should do about it.
+ *
+ * Four different jobs: place the order it is waiting for, chase the material,
+ * put people on it, or widen a crew window that runs out before the work does.
+ * It used to say "no crew" to all of them, which sent the supervisor looking
+ * for the one problem that was not there — orders were standing still for want
+ * of foam with a label asking for people.
+ *
+ * Material is named ahead of crew because no crew can build what is not on the
+ * shelf: putting three people on it changes nothing until the part arrives. It
+ * is named behind a predecessor, though, because "waits on ASM8001" already
+ * names the shortage *and* who is clearing it. Whatever the label says, the
+ * hover carries every reason that applies, so naming one never hides another.
+ */
+export function missingBarReason(row: OrderRow): MissingBar {
+  const held = row.waitingOn ? jobNumOf(String(row.waitingOn.onJobId)) : null;
+  const short = row.shortPicks ?? [];
+  const unstaffed = row.workers.length === 0;
+
+  if (held) {
+    return {
+      label: `waits on ${held}`,
+      title: [
+        `Waiting on ${held}, which has no finish date of its own — it is ` +
+          'either unstaffed or on no line yet',
+        ...shortageLines(short),
+      ].join('\n'),
+      material: false,
+    };
+  }
+
+  if (short.length > 0) {
+    return {
+      label: 'short material',
+      title: [
+        ...shortageLines(short),
+        ...(unstaffed ? ['No crew allocated either'] : []),
+      ].join('\n'),
+      material: true,
+    };
+  }
+
+  return unstaffed
+    ? {
+        label: 'no crew',
+        title: 'No crew allocated — cannot schedule',
+        material: false,
+      }
+    : {
+        label: 'not covered',
+        title: 'The crew allocated to this order leaves before the work is done',
+        material: false,
+      };
+}
+
 /**
  * Which line each person is on today.
  *
@@ -461,4 +825,182 @@ export function lineOfWorkerToday(
     if (!at.has(id)) at.set(id, worker.skills[0] ?? 'FACTORY_GENERAL');
   }
   return at;
+}
+
+/**
+ * Furthest a Due Date may stretch the timeline, in days past today. A due date
+ * typed a year out would otherwise make the grid a year wide.
+ */
+export const TIMELINE_REACH_DAYS = 26 * 7;
+
+/**
+ * How many day columns the board draws, from `horizonStart`.
+ *
+ * At least `weeks` ahead of today, and never less than the engine asked for —
+ * every planned bar stays on screen. It also reaches the Due Date of every
+ * order still waiting for a crew, so its box before that date is drawn where
+ * it belongs rather than squeezed against the right edge. That reach stops at
+ * `TIMELINE_REACH_DAYS`; a scheduled bar is never cut, however far out.
+ */
+export function timelineDays(
+  board: { horizonStart: Date; today: Date; horizonDays: number; groups: { rows: OrderRow[] }[] },
+  weeks: number,
+): number {
+  const start = startOfDay(board.horizonStart);
+  const lead = wholeDaysBetween(startOfDay(board.today), start);
+  const cap = lead + TIMELINE_REACH_DAYS;
+  let days = Math.max(board.horizonDays, lead + weeks * 7);
+  for (const group of board.groups) {
+    for (const row of group.rows) {
+      if (row.start || !row.line.schedulable) continue;
+      const window = unstaffedWindow(row);
+      if (!window) continue;
+      days = Math.max(days, Math.min(cap, wholeDaysBetween(startOfDay(window.to), start) + 1));
+    }
+  }
+  return days;
+}
+
+/** How full a line is on a day: its build positions against the orders on them. */
+export type LineDayBand = 'idle' | 'green' | 'orange' | 'red';
+
+/** One order's part of one line's day — what clicking the day lists. */
+export interface DayOrderEntry {
+  jobId: string;
+  /** Order number, operation included for a routed order. */
+  order: string;
+  description: string;
+  /** Line (bench) the order sits on. */
+  line: string;
+  hours: number;
+  /**
+   * `crewed`: planned with people on it. `booked`: output recorded on a day
+   * already gone. `waiting`: nobody on it yet — its share of the days before
+   * its Due Date.
+   */
+  kind: 'crewed' | 'booked' | 'waiting';
+  people: number;
+  due: Date | null;
+}
+
+/** One day of one line, as its row draws it. */
+export interface LineDayLoad {
+  key: string;
+  date: Date;
+  /** Behind today: `hours` is output that was booked, not planned work. */
+  past: boolean;
+  /** Standard hours the crew is planned to work on the line that day. */
+  hours: number;
+  /** Different people planned on it. */
+  people: number;
+  /** Orders being worked that day, by order number. */
+  orders: string[];
+  /** Build positions — orders the line can run side by side. */
+  positions: number;
+  /**
+   * Hours of orders nobody is on yet, spread over the days before their Due
+   * Date they would have to be worked in — the same window as their box.
+   */
+  unstaffedHours: number;
+  unstaffedOrders: string[];
+  band: LineDayBand;
+  /** Every order behind the day's figures, largest share first. */
+  entries: DayOrderEntry[];
+}
+
+/**
+ * The folded line's day-by-day load: what its crew is planned to work, and the
+ * work still waiting for a crew that has to land on those days to make its Due
+ * Date.
+ *
+ * Hours are the same the per-person and board figures use — each order's
+ * `crewDays` — so the three agree. A day behind today shows what was booked.
+ * The colour is how many of the line's build positions are in use: room left
+ * (green), every position taken (orange), more orders than positions (red).
+ */
+export function lineDayLoads(
+  rows: readonly OrderRow[],
+  positions: number,
+  dates: readonly Date[],
+  today: Date,
+): LineDayLoad[] {
+  const todayKey = toDayKey(startOfDay(today));
+  const live = rows.filter((row) => row.line.schedulable);
+
+  const entry = (row: OrderRow, hours: number, kind: DayOrderEntry['kind'], people = 0): DayOrderEntry => ({
+    jobId: String(row.job.id),
+    order: String(row.job.id),
+    description: row.job.description ?? '',
+    line: row.line.name,
+    hours,
+    kind,
+    people,
+    due: row.job.dueDate ?? null,
+  });
+  // Waiting work, spread evenly over the open days of its window.
+  const waiting = new Map<string, { hours: number; orders: Set<string>; entries: DayOrderEntry[] }>();
+  for (const row of live) {
+    if (row.start || row.completedToday) continue;
+    const window = unstaffedWindow(row);
+    const hours = row.uncoveredHours ?? remainingHours(row.job);
+    if (!window || hours <= 0) continue;
+    const open: string[] = [];
+    for (let d = startOfDay(window.from); d < window.to; d = addCalendarDays(d, 1)) {
+      // An order with weekend overtime approved works the closed days too.
+      if (row.overtime || !isClosed(d)) open.push(toDayKey(d));
+    }
+    if (open.length === 0) open.push(toDayKey(startOfDay(window.from)));
+    for (const key of open) {
+      const day = waiting.get(key) ?? { hours: 0, orders: new Set<string>(), entries: [] };
+      day.hours += hours / open.length;
+      day.orders.add(jobNumOf(String(row.job.id)));
+      day.entries.push(entry(row, hours / open.length, 'waiting'));
+      waiting.set(key, day);
+    }
+  }
+
+  return dates.map((date) => {
+    const key = toDayKey(date);
+    const past = key < todayKey;
+    let hours = 0;
+    const people = new Set<string>();
+    const orders = new Set<string>();
+    const entries: DayOrderEntry[] = [];
+    for (const row of live) {
+      if (past) {
+        const booked = row.booked.reduce((n, b) => (b.day === key ? n + b.hours : n), 0);
+        if (booked > 0) {
+          hours += booked;
+          orders.add(jobNumOf(String(row.job.id)));
+          entries.push(entry(row, booked, 'booked'));
+        }
+        continue;
+      }
+      const plan = row.crewDays.find((day) => day.day === key);
+      if (!plan || plan.hours <= 0) continue;
+      hours += plan.hours;
+      orders.add(jobNumOf(String(row.job.id)));
+      for (const id of plan.workerIds) people.add(id);
+      entries.push(entry(row, plan.hours, 'crewed', plan.workerIds.length));
+    }
+    const wait = past ? undefined : waiting.get(key);
+    if (wait) entries.push(...wait.entries);
+    entries.sort((a, b) => b.hours - a.hours);
+    const running = orders.size;
+    const band: LineDayBand =
+      running === 0 ? 'idle' : running > positions ? 'red' : running === positions ? 'orange' : 'green';
+    return {
+      key,
+      date,
+      past,
+      hours,
+      people: people.size,
+      orders: [...orders],
+      positions,
+      unstaffedHours: wait?.hours ?? 0,
+      unstaffedOrders: wait ? [...wait.orders] : [],
+      band,
+      entries,
+    };
+  });
 }

@@ -16,6 +16,7 @@ import type { OrderRow } from '@/engine/assembly/board';
 import type { LineKey, Worker } from '@/domain/assembly';
 import {
   MAX_WORKERS_PER_ORDER,
+  onSameLane,
   SHIFT_END_HOUR,
 } from '@/domain/assembly';
 import {
@@ -24,6 +25,7 @@ import {
   freeCrewWindow,
   type FreeCrewWindow,
 } from '@/engine/assembly/crew';
+import { isOnLeave } from '@/engine/assembly/attendance';
 import { usePlanStore } from '@/store/planStore';
 import { signInAt, useSupervisorStore } from '@/store/supervisorStore';
 import { useUiStore } from '@/store/uiStore';
@@ -133,6 +135,16 @@ export function TeamChips({
   const assignWindow = usePlanStore((s) => s.assignWorkerWindow);
   const unassign = usePlanStore((s) => s.unassignWorker);
   const approved = usePlanStore((s) => s.orderDoubleBooked);
+  const leave = usePlanStore((s) => s.workerOnLeave);
+  const todayKey = toDayKey(new Date());
+  /**
+   * Who on this crew is not in today. The engine has already stopped planning
+   * their hours — see `engine/assembly/attendance` — so all that is left is to
+   * say on the row why it has fewer hands than names.
+   */
+  const awayIds = new Set(
+    (row.crewOnLeaveToday ?? []).map((worker) => String(worker.id)),
+  );
   const askClash = useUiStore((s) => s.askClash);
   const unlocked = useSupervisorStore((s) => s.unlocked);
   const hosted = useSupervisorStore((s) => s.hosted);
@@ -191,8 +203,8 @@ export function TeamChips({
     return roster
       .filter(
         (w) =>
-          w.onShift &&
-          workerLines.get(String(w.id)) === row.line.key &&
+          !isOnLeave(w, todayKey, leave, todayKey) &&
+          onSameLane(workerLines.get(String(w.id)), row.line.key) &&
           !onIt.has(String(w.id)),
       )
       .map((w) => ({
@@ -206,7 +218,7 @@ export function TeamChips({
           (rosterIndex.get(String(a.worker.id)) ?? 0) -
             (rosterIndex.get(String(b.worker.id)) ?? 0),
       );
-  }, [picking, roster, rows, row, workerLines]);
+  }, [picking, roster, rows, row, workerLines, leave, todayKey]);
 
   const add = (
     worker: Worker,
@@ -300,10 +312,11 @@ export function TeamChips({
       {row.workers.map((w) => {
         const busy = marked(String(w.id));
         const ok = busy.every((other) => isApproved(String(w.id), other));
+        const off = awayIds.has(String(w.id));
         return (
           <button
             key={String(w.id)}
-            className={`chip ${unlocked ? '' : 'locked'} ${
+            className={`chip ${unlocked ? '' : 'locked'} ${off ? 'on-leave' : ''} ${
               busy.length === 0 ? '' : ok ? 'shared' : 'clash'
             }`}
             disabled={!unlocked || disabled}
@@ -313,6 +326,10 @@ export function TeamChips({
                 : `${w.name} — ${disabled ? 'completed order' : LOCKED}`,
               detail(w),
               `Allocated: ${assignmentLabel(String(w.id))}`,
+              // They keep the order; what they are not giving it is today.
+              off &&
+                'Not in today — the schedule is running this order without ' +
+                  'them, and they stay on it until somebody takes it over',
               busy.length > 0 &&
                 `${ok ? 'Splitting their day with' : 'Also on'}: ${busy
                   .map(describe)
@@ -326,6 +343,11 @@ export function TeamChips({
             }}
           >
             {w.name}
+            {off && (
+              <span className="chip-on-leave" aria-hidden="true">
+                ✕
+              </span>
+            )}
             {busy.length > 0 && (
               <span className="chip-clash" aria-hidden="true">
                 {ok ? '≡' : '!'}

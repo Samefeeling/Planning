@@ -8,6 +8,7 @@ import type { PlanningDataset } from '@/domain/types';
 import { createDataSource, type DataSource } from '@/data';
 import { buildIndexes, type DataIndexes } from '@/engine/indexes';
 import { trackNewOrders } from '@/features/refresh/newOrders';
+import { useCalendarStore } from './calendarStore';
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -39,13 +40,17 @@ export const useDataStore = create<DataState>((set, get) => ({
 
   async load() {
     set({ status: 'loading', error: null, warnings: [] });
+    // The closed days are read on every load and refresh, beside the orders,
+    // so a day somebody added on another screen reaches this one too.
+    void useCalendarStore.getState().load();
     const source = get().source;
     const result = await source.loadAll();
     // Collected during the load, so read them after it settles.
     const warnings = [...(source.warnings ?? [])];
     if (result.ok) {
+      const dataset = result.value;
       const newOrderIds = trackNewOrders(
-        result.value.jobs
+        dataset.jobs
           .filter((job) => job.department === 'assembly')
           .map((job) => String(job.id)),
         new Date(),
@@ -53,8 +58,8 @@ export const useDataStore = create<DataState>((set, get) => ({
       );
       set({
         status: 'ready',
-        dataset: result.value,
-        indexes: buildIndexes(result.value),
+        dataset,
+        indexes: buildIndexes(dataset),
         error: null,
         warnings,
         newOrderIds,

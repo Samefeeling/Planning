@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_DATA_SOURCE?: 'mock' | 'planning-csv' | 'excel';
+  readonly VITE_DATA_SOURCE?: 'mock' | 'planning-csv';
   readonly VITE_SHAREPOINT_SITE_URL?: string;
   readonly VITE_SHAREPOINT_FILE_PATH?: string;
   readonly VITE_GRAPH_TOKEN?: string;
@@ -10,10 +10,13 @@ interface ImportMetaEnv {
   /** The order export — a plain URL, else a path in the SharePoint drive. */
   readonly VITE_PLANNING_CSV_URL?: string;
   readonly VITE_PLANNING_CSV_PATH?: string;
+  readonly VITE_PMD_PLANNING_CSV_URL?: string;
+  readonly VITE_PMD_PLANNING_CSV_PATH?: string;
+  readonly VITE_PRODUCT_DIE_COLOR_LIST?: string;
+  readonly VITE_FACTORY_CALENDAR_LIST?: string;
   /** The material-link export, which carries the dependency chain. */
   readonly VITE_JOB_MATERIAL_CSV_URL?: string;
   readonly VITE_JOB_MATERIAL_CSV_PATH?: string;
-  /** Open purchase-order receipts, for the pick list's PO cover. */
   readonly VITE_PO_DETAIL_CSV_URL?: string;
   readonly VITE_PO_DETAIL_CSV_PATH?: string;
   /** The dispatch waybill export, for the Dispatch page's Refresh. */

@@ -128,8 +128,12 @@ order release it fills — `0` + the order number, then line and release.
 
 For every order on a load, the Dispatch page reads the board's forecast for
 the jobs building the order lines still open on the waybill: the line each
-is on, what is left to build, and its **Expect Date** (the end of its bar at
-the crew it has). The last one off the line decides:
+is on, what is left to build, and its **Expect Date** (when the order's route
+is through at the crew it has, benches still to come included). A routed job
+is on the board once per operation (`018140-1-1#20`); each operation counts,
+and a bench row the lane header also rolls up counts once. The board read is
+the whole plan, released or not, whatever *Released Only* shows. The last one
+off the line decides:
 
 | Chip | Meaning |
 | --- | --- |

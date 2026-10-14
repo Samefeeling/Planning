@@ -11,7 +11,7 @@
 
 import { useRef, useState } from 'react';
 import { fetchWaybillCsv, hasWaybillSource, readCsvConfigFromEnv } from '@/data/csv/csv.client';
-import { readConfigFromEnv } from '@/data/excel/sharepoint.client';
+import { readConfigFromEnv } from '@/data/sharepoint/site';
 import { parseWaybillCsv } from '@/data/csv/waybill.parser';
 import { looksLikeCubics, parseCubicsCsv } from '@/data/csv/cubics.parser';
 import { useDispatchStore } from '@/store/dispatchStore';

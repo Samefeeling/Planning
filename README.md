@@ -1,4 +1,4 @@
-# Assembly Board — Resero
+# Resero Planning — Assembly and Dispatch
 
 A day-scale **Gantt** for the sofa / chair / table assembly lines: crew
 allocation, **Due** and **Expect** dates, and end-of-shift booking.
@@ -10,34 +10,61 @@ polling.
 
 Source data comes from Epicor via SharePoint, refreshed **every five minutes
 and on demand**: orders from the `Planning1.csv` export, people from the
-`ASSY_Operator` list, material requirements from `JobMaterialReq.csv`,
-on-hand quantities from `OnHandInventory.csv` and open purchase orders from
-`PODetail.csv`. The plan goes back the other way, into the `ASSY_Production`
-list.
+`ASSY_Operator` list, material requirements from `JobMaterialReq.csv`, and
+on-hand quantities from `OnHandInventory.csv`. The
+plan goes back the other way, into the `ASSY_Production` list.
 
 ## What it does
 
 - **Four row groups** — `PMD` (the moulding plan, mirrored for context: greyed
   out, not draggable, never scheduled here), then `UPL`, `ASSY` and `TABLE`.
+- **PMD is one sub-line per press** — read from the PMD dashboard's
+  `Planning.csv` (`VITE_PMD_PLANNING_CSV_PATH`, else `VITE_PLANNING_CSV_PATH`),
+  every press that has an order gets its own line under PMD, the way the
+  benches sit under UPL; a press with nothing on it has none. Between two
+  orders on a press the board adds the changeover as a row of its own: a
+  **Die Change** of 4 h (`Die 123 → Die 456`) when the die differs, else an
+  **Insert Change** (the size in the description changes — `460h`,
+  `Size 3`) or a **Colour Change** of 30 min — the die and colour of each part
+  come from `PMD_ProductDieColor`. A press row reads its day as 24 hours. Where Epicor
+  left no room for it, the next order moves back. The Team column carries the
+  press's **No of shift** (`MAN · 3 shifts`).
 - **Three kinds of work order** — Cutting/Sewing and Upholstery run on UPL;
   Final Assembly runs on ASSY and TABLE.
 - **One row per order**: Order · Order Qty · Start Date · Due Date · Expect
   Date · Team, beside the day grid with a draggable bar. Start is
   Epicor's own scheduled start, to the hour; any date column can be hidden to
   make room.
-- **A load histogram along the top** — one bar per day, hours booked against
-  the hours the shift can deliver, so the week reads as a shape before anyone
-  reads a number. Green below 80%, orange to 90%, red beyond. Drag a bar to a
-  greener day to level the week.
-- **Yesterday is still on the board** — the first column is the previous
-  working day (Friday, on a Monday), because the first question of the morning
-  is what the last shift actually finished. Those columns carry *booked
-  output*, not plan: the shift's entered quantities valued at the order's
-  standard hours, drawn hollow so the two are never confused. Nothing is ever
-  scheduled into them.
-- **A line down today's column** — assembly works **07:00–15:30**, and the
-  marker sits where the shift has got to, nudged on every five minutes. Before
-  07:00 and after 15:30 it rests against the edge of the column.
+- **A load histogram along the top** — each day heading *is* a column, as
+  tall as the hours asked of the crews are against what the crews on Crew
+  capacity can work: solid for hours with people on them, blue on top for
+  orders nobody is on yet, a tick at capacity when it is over. Green below 80%,
+  orange to 90%, red beyond. Day columns open at 44 px, the narrowest that
+  still carries a date; drag a day's edge to widen it. Click a day for its
+  orders — and from there, to narrow the board to the orders running that day.
+- **Folded lines read the same way** — a folded line's cell is its own column:
+  its hours against what its crews can work that day, the hours with people on
+  them in black and those waiting for a crew in blue.
+- **Hours on board** is read against the same crews: each crew's hours, what
+  its people can work in a day and the working days that makes (a line two
+  crews share is split by headcount), with the total in days on the header.
+- **The board opens on today** — there is no column for the previous working
+  day; it was seldom read and cost a day of width on every screen. What the
+  last shift booked is still in each order's detail and on the KPI page.
+- **Zoom and weeks** — **−** and **+** beside Show step every day column
+  through 44 · 64 · 88 · 120 · 160 · 200 px; one more **−** past 44 px turns
+  the timeline into weeks, a column each carrying the week's load. On top of
+  the zoom, `◂` on a week's first day folds that week alone and `W41 ▸` opens
+  it; the next zoom press puts every week back to what the zoom says. A folded
+  week's days share its width, so bars, arrows and drags work through it at a
+  coarser scale. The timeline reaches eight weeks at least, further for
+  planned work.
+- **Lines first, nearest Due Date on top** — the board opens with every line
+  folded to its one summary row; `▶` on a line (or the one in the Order
+  heading, for all of them) opens its orders. While Due soon or a day filter is
+  on, lines open by themselves so the orders asked for are in sight. Inside a
+  line, orders are sorted by Due Date, nearest first; Start or Due in the
+  heading re-sorts and Refresh puts it back.
 - **The head stays put** — the day columns are frozen at the top, and the line
   summaries and their people pin to the left edge, so the board can be scrolled
   in either direction without losing what a row means. The **Order column can
@@ -162,11 +189,32 @@ list.
   planning. See `docs/incremental-order-updates.md`.
 - **Start, then book the shift** — `Start production` records the exact start
   instant and locks the order against further dragging. Entering the completed
-  quantity moves Expect Date; saving `Job Completed` stores the exact completion
-  instant and releases the active crew in the same state update.
+  quantity moves Expect Date; ticking `Job completed` fills the Complete box
+  with everything still owed on the order — an editable figure, so a run closed
+  short is typed over — and saving it stores the exact completion instant and
+  releases the active crew in the same state update.
+- **The start gate asks what the plant has said, never what it has not** —
+  `JobReleased` and `MaterialPrep` are optional export columns, so a plant that
+  carries neither leaves every order on "release status missing · kit status
+  missing". Nothing is held back for silence: only an order explicitly not
+  released, a genuine component shortage or a kit somebody has reported as not
+  ready needs a supervisor override. An order with nobody on it still cannot
+  start, whatever the paperwork says.
+- **Reopen an order closed in error** — closing is the one booking that cannot
+  be corrected by booking again: the entry form locks, the crew is released and
+  the next calendar day takes the order off the board. `Reopen order` in the
+  detail panel takes the completion back off while the bar is still there, and
+  `Reopen order` on the controls row lists what was closed in the last
+  fortnight, for the mistake noticed the next morning. The booked quantities
+  are left exactly as they were — the shift corrects them in the entry form and
+  closes the order again — and the crew that was released goes back on it. Both
+  are behind the supervisor gate.
 - **Production actuals** — Shift Output, Complete, Reject, Rework, Job Completed and Pause
   reasons are captured as daily records for the `ASSY_Production` SharePoint
-  list. Its columns intentionally mirror `PMD_Production`, allowing KPI.ts to
+  list, together with the labour hours the day took: the board times the work
+  from Start production to Save entry, steps over the breaks, and multiplies by
+  the crew. The panel says what it booked, and the KPI page divides the day's
+  standard hours by it to get Efficiency. Its columns intentionally mirror `PMD_Production`, allowing KPI.ts to
   aggregate the two departments without a second mapping layer.
 - **Drag** a bar — by the block or by its label — sideways to move its start
   day, or down onto another line to change lines. Every bar moves, in both
@@ -185,6 +233,27 @@ list.
   claims a build position first is a separate question, settled by date — and a
   dragged bar claims its *people* before anything else does, or the order it was
   taken off would simply take them back.
+- **Closed days** — weekends, NSW public holidays (worked out for every year,
+  days in lieu included, plus the Monday after a weekend Anzac Day) and the
+  days in the SharePoint list `FactoryCalendar` (Date, Name — "RDO" or a
+  holiday's name; added or removed under **Crew capacity → Closed days**, and
+  written to the list at once) are shut: the schedule steps over them,
+  they carry no capacity, level loading never puts work on them, and a bar
+  dropped on one asks for overtime. The heading marks them **PH** / **RDO**.
+- **Level loading** — hold **Ctrl** and click load blocks (a folded line's day
+  or week, or a day or week in the heading for every line) to pick them, then
+  **right-click**. The panel lists which orders would move to which day, which it
+  leaves and why, and the overload on the picked days before and after — read off
+  a re-plan of the board — and **Level** writes the starts (**Undo** in the same
+  panel). It fills each day to what its crew group can work, moving only orders
+  nobody is on yet, never before today, their material or the components they are
+  made from, and never past the last day that makes their Due Date; linked orders
+  are pushed later or brought earlier with the order that moved. An empty day or
+  week can be picked too: a picked day with room takes what an overloaded day
+  gives up first, and is then filled with the next orders that can start on it
+  (the panel can turn filling off). With **Weekends** shown, every weekend day
+  is a block too — hatched when empty — and work levelled onto a picked weekend
+  goes with weekend overtime approved. See `docs/board-interaction-rules.md`.
 - **Colour by date** — Due is the date the customer asked for, and finishing
   during that day counts as making it:
 
@@ -193,6 +262,7 @@ list.
   | 🟢 green | finishes on or before the Due Date | will make the customer date |
   | 🔴 red | finishes after it | the customer date will be missed |
   | ⚪ grey | no Expect Date, or no Due Date | nothing to judge it against |
+  | 🔴 **OVERDUE** | Due Date is before today and the order is not finished | already late — red whatever the plan says; the row carries `OVERDUE Nd`, the Due cell is filled red, and the header's **Overdue** list gives the Expect Date to move container and truck bookings to (Copy for logistics pastes it into Excel) |
 
   The bands are exhaustive and non-overlapping. Note that an Expect Date is an
   *exclusive* end — work filling Tuesday ends at Wednesday midnight — so the
@@ -232,6 +302,26 @@ booking sheet for the carriers. Headline tiles show dollars shipped today and
 month to date, SIFOT, trucks today and containers this week, from loads
 marked dispatched; a Performance tab breaks the month down.
 See `docs/dispatch-planning.md`.
+
+## Assembly comes from MES
+
+The Assembly board is maintained in MES (`Samefeeling/MES`, folder
+`assembly/`) and copied here whole: every file in that folder replaces its
+counterpart in this repository, except the hosting glue (`index.html`,
+`vite.config.ts`, this README). What this repository adds on top is Dispatch
+alone — `src/features/dispatch/`, `src/engine/dispatch/`, `src/domain/dispatch*.ts`,
+`src/domain/orderLink.ts`, `src/store/dispatchStore.ts`, the waybill and
+cubics parsers and their tests — and these touch points in shared files:
+
+- `src/App.tsx` — the Assembly / Dispatch page switch, and `<DispatchPage>`
+  given the whole Assembly plan;
+- `src/store/uiStore.ts` — `view` / `setView`;
+- `src/data/csv/csv.client.ts` — the waybill URL and path, `fetchWaybillCsv`;
+- `src/lib/csv.ts` — `toCsv`, for the booking sheet;
+- `src/vite-env.d.ts` — `VITE_WAYBILL_CSV_*`;
+- `src/index.css` — `.view-switch`.
+
+Bring a newer MES in the same way, then re-apply those touch points.
 
 ## Quick start
 
@@ -274,26 +364,10 @@ Configure via `.env.local` (see `.env.example`):
 | `VITE_DATA_SOURCE` | Behaviour |
 | ------------------ | --------- |
 | `mock` (default)   | Bundled `seed.json`. Instant, offline. |
-| `planning-csv`     | Orders from `Planning1.csv`, dependencies from `JobMaterialReq.csv`, on hand from `OnHandInventory.csv`, open POs from `PODetail.csv`, people from the `ASSY_Operator` SharePoint list. |
-| `excel`            | Fetch the master workbook from SharePoint (Microsoft Graph) and parse it with SheetJS. Falls back to a manual file upload if Graph isn't configured. |
+| `planning-csv`     | Orders from `Planning1.csv`, dependencies from `JobMaterialReq.csv`, people from the `ASSY_Operator` SharePoint list. |
 
-The Excel source (and the heavy `xlsx` dependency) is **lazy-loaded**, so
-neither the mock nor the CSV build ships the parser.
-
-Whichever is configured, **Load files** in the header reads the four Epicor
-exports from disk — `Planning1`, `JobMaterialReq`, `OnHandInventory` and
-`PODetail` — through exactly the same parsers: the quickest way to check an
-export against the board without wiring up SharePoint. Pick them together or
-one at a time. Which is which is decided by the header row, not the file name,
-so a copy saved out of Excel lands in the right parser, and a file that is
-none of the four says so instead of loading. A chip per export lights when
-that file is in (names and times on hover). Picked files win over the
-configured paths and are kept in this browser (IndexedDB), so a reload opens
-on them, until **Clear**. The board needs `Planning1.csv`; until it is in, the
-other three wait. With `PODetail.csv` in, each component on an order's pick
-list shows its next open receipt — date and quantity, every open PO line on
-hover. Without the `ASSY_Operator` list (no SharePoint) nobody is on the
-roster, so orders have no crew and no Expect date.
+There used to be a third source that read the PMD master workbook directly;
+it was not in use and has been removed, along with the `xlsx` package.
 
 **Did the links land?** The header carries the answer: *N orders wait on
 another*, and hovering it lists every one of them — `ASM8020 (UPL) waits on
@@ -375,9 +449,9 @@ this file is optional.
   TABLE only run Final Assembly. UPL runs both Cutting/Sewing and Upholstery, so
   its orders show no type until the column exists.
 
-The CSV carries no inventory, BOM or POs, so under `planning-csv` the material
-engine sees nothing and every order reads as material-OK. Use `excel` when the
-shortage view matters.
+Planning1.csv carries no stock or purchase orders of its own: the shortage
+view reads them from `OnHandInventory.csv` and `PODetail.csv`. Without those
+two, every order reads as material-OK.
 
 ### `ASSY_Operator` → roster
 
@@ -462,7 +536,7 @@ Each row carries two kinds of column, and the split is the whole design:
 
 | Column | Kind | Owner | Written when |
 | --- | --- | --- | --- |
-| `RecordKey` (`Job|YYYY-MM-DD`), `Title`, `Date` | key | — | the row is opened |
+| `RecordKey` (generated per booking), `Title`, `Date` | key | — | the row is opened |
 | `Line` | order-level | the planner | an order moves between lines |
 | `StartDate` | order-level | the planner | a bar is dragged |
 | `ActualStartAt`, `StartOverrideReason` | order-level | the supervisor | production is started |
@@ -471,6 +545,7 @@ Each row carries two kinds of column, and the split is the whole design:
 | `ExpectDate` | order-level | derived | the crew or the queue moves it |
 | `Operators`, `OperatorIds` | row-level snapshot | the supervisor | the entry is saved |
 | `ShiftOutput`, `Complete`, `Reject`, `Rework` | row-level | the shift | the entry is saved |
+| `BookedHour` | row-level | measured | the entry is saved |
 | `JobCompleted`, `CompletedAt`, `Paused`, `PauseReason`, `Notes` | row-level | the shift | the entry is saved |
 
 **Dragging a bar to level the load writes `StartDate` only** — Epicor owns the
@@ -489,13 +564,78 @@ so it cannot drift to a new day when the bar moves.
 separate immutable instant set by the Start production button, so a planned
 date can never be mistaken for proof that production began.
 
+**`BookedHour` is what the day actually took**: from `ActualStartAt` — or 07:00
+on any day after the first, since there is no second Start production to press
+— to the moment the shift pressed Save entry, less the breaks, times the crew
+on it. It is capped at the shift's own 7.5 hours a head, so a form left open on
+a bench until the evening cannot book more than the shift held. Support work
+has no clock: its hours are the ones the supervisor entered. This is the
+denominator of Efficiency on the KPI page; `crewSize × 7.5` is what the crew
+could have given the order, and this is what it took. Every column the sync
+writes has to exist on the list — **add `BookedHour` before deploying**, or the
+write fails with `Missing SharePoint column: BookedHour` and nothing is
+recorded.
+
+**A row is matched to its shift on `RecordKey`**, which is the row's identity
+and nothing else: the board generates it when a shift first saves that day's
+entry, the plan carries it, and it is never rebuilt from anything. The key used
+to be `Job|YYYY-MM-DD`, which ties a row's identity to a date — the one field on
+the record that can be read two ways, because what a SharePoint date column
+gives back depends on how it was created and on the timezones the site and the
+browser are each in. A shift whose row was looked up by day could be judged
+missing and opened a second time.
+
+Two older questions are still asked, narrowest first, so that nothing already
+in the list is orphaned: the booking's own key, then `Job|YYYY-MM-DD`, then the
+`Date` column. A row recognised by one of the older two is rewritten under the
+booking's key, so each row is asked them once in its life. The blank row an
+order opens with has no booking behind it and keeps `Job|YYYY-MM-DD`, which
+both sides can work out; the day's first real entry claims it and writes its
+own key over it.
+
+**Opening a row asks the list for the key again, immediately before writing.**
+The snapshot a sync works from is as old as the sync, and it is not the only
+board writing: a second tab, another supervisor's screen and the terminal left
+open on the line all hold the same plan, so each could read "no row for today"
+and each open one. That is where identical duplicate rows came from, and it
+showed on closing an order because that is when a day's first row is usually
+written. Updates never duplicated anything. Keep the unique index on
+`RecordKey` (`config/assembly-lists.json` asks for it): it is what closes the
+window completely, and the sync recovers from the write it refuses by putting
+the shift into the row that won.
+
+Duplicate `Job + Date` rows that are already there are **named with their item
+id and left alone** — the oldest row for a day stays canonical and goes on being
+kept current, and the extras are for somebody to delete in SharePoint. Deleting
+a production row is not a decision a background sync should make. Until they are
+gone the Assembly KPI page refuses to report those days, because it cannot know
+which of two rows is the day's figure.
+
 Rows are diffed before writing, so a five-minute refresh with nothing changed
 costs one read and no writes. Orders that leave the export keep their rows —
 the list is the production record, not a copy of today's CSV. A read failure
-aborts before any write and transient failures retry with bounded backoff.
-Duplicate Job + Date rows are reported and left untouched. See
+aborts before any write and transient failures retry with bounded backoff. See
 [`docs/sharepoint-production-schema.md`](docs/sharepoint-production-schema.md)
 before enabling write-back.
+
+### A day of the plan, kept
+
+The working plan is a single row that every save overwrites, so the board used
+to hold no history at all: nothing to compare this morning's allocation
+against, and no way back from a mis-drag somebody noticed a day later.
+
+On the first save of a new day, the previous day's last saved plan is filed
+under `day-YYYY-MM-DD` before `current` is overwritten. One row per day the
+board was used, holding what that day closed as — which is also exactly what
+the next day opened on, because the board is never reset overnight. The state
+today starts from *is* yesterday's last save; this is the record of it.
+
+Filed once: a day already in the list keeps the copy it was filed with, so a
+second screen opening at noon, or a tab that was open across midnight, cannot
+overwrite the history with a staler copy. A day that cannot be filed is
+reported in the banner and skipped — a board that refused to work because it
+could not write history would be the worse failure. Read one back with
+`repo.load('day-2026-09-15')`; nothing on the board writes to them.
 
 ### The supervisor gate
 
@@ -514,26 +654,6 @@ which is how the demo runs.
 > means moving the comparison to a server that holds the secret and returns a
 > session. Until then, do not reuse a password that matters anywhere else.
 
-### Sheet → domain mapping (`excel` source)
-
-| Workbook sheet | Parser | Used for |
-| --- | --- | --- |
-| `planning` | `job.parser` | orders — assembly rows, and moulding jobs for the PMD context row |
-| `ohb` | `inventory.parser` | free-on-hand |
-| `part req` | `bom.parser` | components per order |
-| `po` | `supply.parser` | incoming raw material |
-| `total req` | `demand.parser` | period demand |
-| `resource` | `machine.parser` | which moulding lines' jobs to load |
-
-To drive assembly from the same sheet, add these columns to `planning`
-(`job.parser` reads them when present and defaults every row to moulding
-otherwise): `Department`, `OrderType`, `Priority`, `MaterialStatus`, `Line`,
-`CompletedQty`.
-
-The shift roster is **not** in the workbook — it is the `ASSY_Operator` list
-above. The mock source supplies one; `SharePointExcelSource.fetchWorkers()`
-returns empty.
-
 ## Architecture
 
 A strict one-way dependency flow keeps the core testable and the data source
@@ -548,18 +668,34 @@ domain  →  lib  →  engine  →  store  →  features (UI)
 - **`domain/`** — pure types, branded ids, constants. Zero dependencies.
   `assembly.ts` holds the lines, the three work-order types and the shift
   constants.
-- **`data/`** — the `DataSource` contract with three implementations (`mock`,
-  `csv/PlanningCsvSource`, `excel`). Every parser is lenient and reports what it
+- **`data/`** — the `DataSource` contract with two implementations (`mock`,
+  `csv/PlanningCsvSource`). Every parser is lenient and reports what it
   could not read as a warning rather than failing the load.
 - **`engine/`** — pure, unit-tested functions. Shared: `materialAvailability`,
-  `materialExplosion`, `netRequirements`, `indexes`. Assembly:
-  `assembly/{duration,dates,release,board,workload,dependencies}`. No React,
-  no I/O.
+  `materialExplosion`, `indexes`. Assembly:
+  `assembly/{duration,dates,release,board,workload,dependencies}`, plus
+  `assembly/{attendance,stockAllocation,routing}`. `routing` works out the
+  operations a UPL-SSS or UPL-Gluing order passes through — foaming, sewing,
+  stapling — and stands the order at the one it has reached; there is one
+  order with one number throughout, and only the last operation receives.
+  `stockAllocation` gives out the free
+  on-hand before the wait-for graph is read, so an order whose components are
+  in the racks does not queue behind the job making more of them, and one
+  that has some of them starts on what that stock supports.
+  `attendance` is the one answer to "is this person in today?", read from the
+  roster's leave and OnShift plus whoever the supervisor marked off; the day
+  planner takes a day on leave as a day that person gives their orders nothing.
+  No React, no I/O.
 - **`store/`** — Zustand. `dataStore` (loaded data + indexes), `planStore`
-  (placement, crew, pinned starts, booked output — the only mutable plan
-  state), `assemblySelectors` (derives the schedule), `uiStore` (selection).
-- **`persistence/`** — `PlanRepository` with a REST (`ApiPlanRepository`) and a
-  localStorage fallback; the working plan autosaves.
+  (placement, crew, pinned starts, booked output, who is on leave — the only
+  mutable plan state), `assemblySelectors` (derives the schedule), `uiStore` (selection).
+- **`persistence/`** — `PlanRepository` with a SharePoint, a REST
+  (`ApiPlanRepository`) and a localStorage implementation, plus `planParts` —
+  the split between the planning a supervisor publishes with **Save** and the
+  shift records written as they happen. The working plan is one row,
+  `current`, and each day the board is used leaves a `day-YYYY-MM-DD` row of
+  its own beside it (see below). `features/sync/usePlanPersistence` owns both
+  write triggers and the daily filing.
 - **`features/`** — `assembly` (board, rows, bars, crew chips, inspector, the
   supervisor lock, dnd), `refresh`, `source` (the manual CSV loader) and `sync`
   (write-back).
@@ -624,8 +760,6 @@ both pages can read one source without a second fetch.
   approved for overtime. The arithmetic is in `engine/assembly/dates`.
 - **Mock dates** are anchored to a fixed epoch and shifted forward on load, so
   the demo always reads as the current week.
-- **`xlsx`** is the npm SheetJS build; it carries known advisories and is only
-  loaded for the (trusted, internal) Excel source.
 
 ## MES integration and SharePoint sessions
 

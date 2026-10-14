@@ -35,7 +35,7 @@ import { readLineKey } from '@/domain/assembly';
 import {
   assemblyWorkCenters,
   makeMachine,
-} from '@/data/excel/parsers/machine.parser';
+} from '@/data/parsers/machine.parser';
 import { isVisibleMachine } from '@/domain/constants';
 import { MS_PER_DAY } from '@/lib/time';
 import { BaseDataSource } from '@/data/DataSource';
@@ -52,7 +52,18 @@ function seedOffsetDays(): number {
   return Math.round((today.getTime() - SEED_EPOCH.getTime()) / MS_PER_DAY);
 }
 
-const OFFSET_MS = seedOffsetDays() * MS_PER_DAY;
+/**
+ * Worked out on first use rather than when the module loads.
+ *
+ * The demo data is shifted onto the current week, and reading the clock at
+ * import time made that shift a property of *when the file was loaded* —
+ * which a test cannot get in front of, however carefully it pins its own
+ * today. Asked for on the first date conversion instead, and then held, so
+ * the whole load still shares one offset.
+ */
+let offsetMs: number | null = null;
+const seedOffsetMs = (): number =>
+  (offsetMs ??= seedOffsetDays() * MS_PER_DAY);
 
 /**
  * Shift a seed date onto the current week. Returns null for blanks and for the
@@ -62,12 +73,23 @@ const OFFSET_MS = seedOffsetDays() * MS_PER_DAY;
 const toDate = (s: string | null | undefined): Date | null => {
   if (!s) return null;
   const t = new Date(s).getTime();
-  return Number.isFinite(t) ? new Date(t + OFFSET_MS) : null;
+  return Number.isFinite(t) ? new Date(t + seedOffsetMs()) : null;
 };
 
 // Simulate a touch of network latency so loading states are exercised.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
+
+/** The demo's product colours, as PMD_ProductDieColor.ColorHex would give them. */
+const DEMO_HEX: Record<string, string> = {
+  slate: '#64748b',
+  shadow: '#374151',
+  black: '#1f2937',
+  white: '#f8fafc',
+  blue: '#1d4ed8',
+  red: '#b91c1c',
+  green: '#15803d',
+};
 
 export class MockSource extends BaseDataSource {
   readonly name = 'mock';
@@ -85,6 +107,9 @@ export class MockSource extends BaseDataSource {
   }
 
   async fetchJobs(): Promise<Job[]> {
+    // The demo's routing says each part's colour and insert, which is what the
+    // press plan reads off PMD_ProductDieColor on the live board.
+    const routeOf = new Map(seed.routing.map((r) => [r.partNum, r]));
     const jobs: Job[] = seed.jobs.map((j) => ({
       id: JobId(j.jobNum),
       department: (j.department ?? 'moulding') as Department,
@@ -103,6 +128,20 @@ export class MockSource extends BaseDataSource {
       materialPrep: (j.materialPrep ?? 'unknown') as MaterialPrepStatus,
       tool: j.die ? ToolId(j.die) : null,
       preferredMachine: j.machine ? MachineId(j.machine) : null,
+      ...((j.department ?? 'moulding') === 'moulding' && j.machine
+        ? {
+            press: {
+              machine: j.machine,
+              shifts: null,
+              end: null,
+              die: j.die ?? null,
+              dieName: j.die ?? null,
+              color: routeOf.get(j.partNum)?.color ?? null,
+              hex: DEMO_HEX[(routeOf.get(j.partNum)?.color ?? '').toLowerCase()] ?? null,
+              insert: routeOf.get(j.partNum)?.insert ?? null,
+            },
+          }
+        : {}),
       orderType: (j.orderType ?? null) as OrderType | null,
       // The seed was written when UPL was one lane. Read through readLineKey
       // so the demo lands on the lines the board actually has.

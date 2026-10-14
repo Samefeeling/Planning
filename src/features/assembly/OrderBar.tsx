@@ -16,16 +16,20 @@
  * minimum width by then and no longer means anything to the eye.
  */
 
+import type { CSSProperties } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { OrderRow } from '@/engine/assembly/board';
 import { openDaysBetween, workingSpans } from '@/engine/assembly/dates';
 import { completedFraction, remainingHours } from '@/engine/assembly/duration';
-import { MS_PER_DAY } from '@/lib/time';
+import { MS_PER_DAY, formatDay, formatTime } from '@/lib/time';
 import { endOfCrewDay, startOfCrewDay } from '@/engine/assembly/crewSchedule';
 import { signInAt, useSupervisorStore } from '@/store/supervisorStore';
-import { barTag, timelineDayOffset } from './boardView';
+import { barTag, missingBarReason, timelineDayOffset, unstaffedWindow } from './boardView';
+import type { DayAxis } from './dayAxis';
 import type { MarkedMove } from './groupMove';
+import { jobNumOf } from '@/domain/routing';
+import { CHANGE_SHORT } from '@/engine/assembly/pressPlan';
 
 export const DRAG_TYPE_BAR = 'order-bar';
 
@@ -38,13 +42,14 @@ const MIN_PIECE_PX = 10;
 export function OrderBar({
   row,
   horizonStart,
-  dayWidth,
+  axis,
   gridWidth,
   showWeekends,
   readOnly = false,
   selected,
   dependencyRelated,
   marked = false,
+  overdue = false,
   moveWith,
   floorISO = null,
   onSelect,
@@ -53,7 +58,8 @@ export function OrderBar({
 }: {
   row: OrderRow;
   horizonStart: Date;
-  dayWidth: number;
+  /** Where each day sits along the grid, and how wide it is. */
+  axis: DayAxis;
   /** Full width of the day grid, so a tag near the end flips to the left. */
   gridWidth: number;
   showWeekends: boolean;
@@ -63,6 +69,8 @@ export function OrderBar({
   dependencyRelated: boolean;
   /** Ticked with Ctrl held, to be moved with the rest of the marked set. */
   marked?: boolean;
+  /** Past its Due Date and not finished. */
+  overdue?: boolean;
   /**
    * Every marked order and the day its bar is drawn on, so a drag can move the
    * whole set by the same number of columns. Only the bar being dragged reads
@@ -90,6 +98,13 @@ export function OrderBar({
    */
   const unlocked = useSupervisorStore((s) => s.unlocked);
   const gate = signInAt(useSupervisorStore((s) => s.hosted));
+  /* Which day the bar is drawn on, worked out before the hook rather than
+     after the early return below it: a drag reads pixels off the axis from
+     *here*, and with columns of different widths there is no single number of
+     pixels that a day is worth. */
+  const fromDay = row.start
+    ? timelineDayOffset(row.start, horizonStart, showWeekends)
+    : 0;
   const dragLocked =
     readOnly || !unlocked || Boolean(row.actualStart) || row.completedToday;
   const { attributes, listeners, setNodeRef, transform, isDragging } =
@@ -104,9 +119,11 @@ export function OrderBar({
         type: DRAG_TYPE_BAR,
         jobId: id,
         startISO: row.start ? row.start.toISOString() : null,
-        // The zoom is live, so the pixels-to-days conversion has to travel with
-        // the drag rather than assume the default column width.
-        dayWidth,
+        // The columns are live — zoomed together, dragged one at a time — so
+        // the pixels-to-days conversion travels with the drag rather than
+        // assuming any one column width.
+        axis,
+        fromDay,
         showWeekends,
         floorISO,
         // Only meaningful when this bar is one of the marked ones; the drop
@@ -116,48 +133,72 @@ export function OrderBar({
     });
 
   if (!row.start || row.days === null) {
+    // Which of the four reasons to name, and the rest of them on hover — see
+    // `missingBarReason`.
+    const missing = missingBarReason(row);
     /*
-     * Three reasons an order has no bar, and the planner does something
-     * different about each: put people on it, place the order it is waiting
-     * for, or widen a crew window that runs out before the work does. It used
-     * to say "no crew" to all three, which sent them looking for the one
-     * problem that was not there.
+     * Drawn against the Due Date rather than at the left edge: the box ends
+     * on the Due Date and reaches back to the last day the work can start
+     * (see `unstaffedWindow`), so an order with nobody on it still shows the
+     * planner the days it has to be fitted into. Past the grid's edge it is
+     * held to the edge; an order already too late sits where it can start.
      */
-    const held = row.waitingOn ? String(row.waitingOn.onJobId) : null;
-    const unstaffed = row.workers.length === 0;
+    const window = readOnly ? null : unstaffedWindow(row);
+    const at = (date: Date) =>
+      Math.min(Math.max(axis.x(timelineDayOffset(date, horizonStart, showWeekends)), 0), gridWidth);
+    const placed: CSSProperties | undefined = window
+      ? window.late
+        ? { left: at(window.from) + 4 }
+        : {
+            right: gridWidth - at(window.to),
+            width: Math.max(at(window.to) - at(window.from), 0),
+          }
+      : undefined;
+    const when = window
+      ? window.late
+        ? `\nCannot make its Due Date ${formatDay(row.job.dueDate!)} — the earliest it can start is ${formatDay(window.from)}`
+        : `\nTo make its Due Date ${formatDay(window.to)}, start by ${formatDay(window.from)}`
+      : '';
     return (
       <button
         type="button"
-        className="bar-missing"
-        title={
-          held
-            ? `Waiting on ${held}, which has no finish date of its own — it is ` +
-              'either unstaffed or on no line yet'
-            : unstaffed
-              ? 'No crew allocated — cannot schedule'
-              : 'The crew allocated to this order leaves before the work is done'
-        }
+        className={`bar-missing${missing.material ? ' short-material' : ''}${window ? ' placed' : ''}${window?.late ? ' late' : ''}${marked ? ' marked' : ''}${overdue ? ' overdue' : ''}${row.overtime ? ' overtime' : ''}`}
+        style={placed}
+        title={missing.title + when + (row.overtime ? '\nWeekend overtime approved — it runs straight through the weekend' : '')}
         onClick={(event) => {
           event.stopPropagation();
+          // Ctrl marks it, as on a bar — for the right-click menu; nothing
+          // here is drawn to be dragged.
+          if (event.ctrlKey || event.metaKey) {
+            onMark(id);
+            return;
+          }
           onSelect(id, { x: event.clientX, y: event.clientY });
         }}
         onMouseEnter={() => onDependencyHover(id)}
         onMouseLeave={() => onDependencyHover(null)}
       >
-        {held ? `waits on ${held}` : unstaffed ? 'no crew' : 'not covered'}
+        {missing.label}
       </button>
     );
   }
 
+  // A press row's day is 24 hours; an assembly row's is the white shift.
+  const fullDay = Boolean(row.job.press);
   const axisOffset = (date: Date) =>
-    timelineDayOffset(date, horizonStart, showWeekends);
+    timelineDayOffset(date, horizonStart, showWeekends, fullDay);
   const offsetDays = axisOffset(row.start);
-  const left = offsetDays * dayWidth;
+  const left = axis.x(offsetDays);
   const end = row.expectDate ?? row.planThrough ?? row.start;
   // When weekends are hidden, their zero-width dates are removed from the
   // coordinate system rather than leaving blank columns behind.
   const span = Math.max(0, axisOffset(end) - offsetDays);
-  const width = Math.max(span * dayWidth, MIN_PIECE_PX * 2);
+  // Measured on the axis rather than multiplied by a column width: the days a
+  // bar covers need not be the same width as each other.
+  const width = Math.max(
+    axis.x(offsetDays + span) - left,
+    MIN_PIECE_PX * 2,
+  );
 
   // Two kinds of order run straight through: one the supervisor has approved
   // for the weekend, and a moulding row — the presses keep their own calendar,
@@ -214,9 +255,9 @@ export function OrderBar({
           key: piece.from.getTime(),
           from: piece.from,
           to: piece.to,
-          left: (axisOffset(piece.from) - offsetDays) * dayWidth,
+          left: axis.x(axisOffset(piece.from)) - left,
           width: Math.max(
-            (axisOffset(piece.to) - axisOffset(piece.from)) * dayWidth,
+            axis.x(axisOffset(piece.to)) - axis.x(axisOffset(piece.from)),
             0,
           ),
           // How much of this stretch is already finished.
@@ -313,13 +354,22 @@ export function OrderBar({
    * which one it is waiting for; the bar now says so, and carries a stop
    * against the edge that will not move.
    */
-  const heldBy = row.waitingOn ? String(row.waitingOn.onJobId) : null;
+  const heldBy = row.waitingOn ? jobNumOf(String(row.waitingOn.onJobId)) : null;
+  const change = row.job.press?.change;
+  // A press order is drawn in its product's colour, the way the moulding
+  // floor knows it; a changeover keeps its own D / I / C colours.
+  const product = !change ? row.job.press?.hex ?? null : null;
 
   // A couple of hours of work is a few pixels of bar; where the label cannot
   // fit inside it, the tag goes in the empty grid beside the block.
   const tag = barTag({
-    jobId: id,
-    hours: remainingHours(row.job),
+    // The label the floor reads — the order number, without the `#seq` row
+    // key a routed order carries. The bar keeps the full id for its drag and
+    // its data attributes; only what it prints is trimmed, the same as the
+    // order number in the row.
+    // A press changeover is named by what it is, not by its row key.
+    jobId: change ? CHANGE_SHORT[change.kind] : jobNumOf(id),
+    hours: change ? change.hours : remainingHours(row.job),
     spanDays: span,
     width,
     left,
@@ -343,11 +393,16 @@ export function OrderBar({
         heldBy ? 'held' : ''
       } ${tag.stub ? 'stub' : ''} ${
         tag.outside ? 'tagged' : ''
-      } ${tag.flip ? 'tag-left' : ''} ${marked ? 'marked' : ''}`}
+      } ${tag.flip ? 'tag-left' : ''} ${marked ? 'marked' : ''} ${
+        row.actualStart ? 'started' : ''
+      } ${overdue ? 'overdue' : ''} ${product ? 'product' : ''}`}
       style={{
         left,
         width,
         transform: CSS.Translate.toString(transform),
+        ...(product
+          ? ({ '--product': product, '--product-ink': inkOn(product) } as CSSProperties)
+          : {}),
       }}
       onClick={(e) => {
         e.stopPropagation();
@@ -363,7 +418,10 @@ export function OrderBar({
       onMouseEnter={() => onDependencyHover(id)}
       onMouseLeave={() => onDependencyHover(null)}
       title={
-        `${row.job.id} · ${row.days.toFixed(1)} d worked with ${row.workers.length}` +
+        (change
+          ? `${row.job.description} · ${change.hours} h` +
+            ` (after ${change.fromJob}, before ${change.toJob})`
+          : `${jobNumOf(String(row.job.id))} · ${row.days.toFixed(1)} d worked with ${row.workers.length}`) +
         (readOnly ? '' : ` · position ${row.slot + 1} of ${row.line.parallelOrders}`) +
         (idleDays > 0
           ? ` · put down for ${idleDays} working day${idleDays === 1 ? '' : 's'}` +
@@ -382,6 +440,9 @@ export function OrderBar({
           ? ' · runs entirely on days this axis is hiding — show Weekends to see it'
           : '') +
         (row.overtime ? ' · weekend overtime approved' : '') +
+        (row.materialReadyAt && !row.actualStart
+          ? ` · short material on order, available ${formatDay(row.materialReadyAt)} — it does not start before then`
+          : '') +
         (heldBy
           ? ` · cannot start before ${heldBy} is finished, so it will not drag any earlier`
           : '') +
@@ -390,6 +451,13 @@ export function OrderBar({
               clashedNames.length === 1 ? 'is' : 'are'
             } on ${clashedWith.join(', ')} the same day — only one of the two ` +
             'can have them'
+          : '') +
+        (row.actualStart
+          ? ` · started on the floor ${formatDay(new Date(row.actualStart.startedAt))} ` +
+            formatTime(new Date(row.actualStart.startedAt)) +
+            (row.actualStart.overrideReason
+              ? ` (override: ${row.actualStart.overrideReason})`
+              : '')
           : '') +
         ` · ${Math.round(completion * 100)}% complete` +
         ` · ${row.status.reason}` +
@@ -433,4 +501,17 @@ export function OrderBar({
       </span>
     </div>
   );
+}
+
+/** Black or white, whichever reads on `hex` (WCAG relative luminance). */
+function inkOn(hex: string): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return '#111827';
+  const lin = (h: string) => {
+    const c = parseInt(h, 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const l = 0.2126 * lin(m[1]) + 0.7152 * lin(m[2]) + 0.0722 * lin(m[3]);
+  // Contrast with white is 1.05 / (l + 0.05); with black (l + 0.05) / 0.05.
+  return 1.05 / (l + 0.05) >= (l + 0.05) / 0.05 ? '#ffffff' : '#111827';
 }
